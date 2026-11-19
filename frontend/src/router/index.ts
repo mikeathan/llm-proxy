@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type LocationQuery, type RouteLocationRaw, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
 import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
-import { toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
+import { toAgents, toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
 import { homeLocation } from '../utils/navigation'
 import { DASHBOARD_TITLE } from '../constants/dashboard'
 
@@ -82,6 +82,8 @@ export const routes: RouteRecordRaw[] = [
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
   { path: '/activity', name: ROUTE_NAMES.activity, component: ActivityView, meta: { destination: 'activity', keepAlive: true, title: 'Activity' } },
+  // MCP servers moved from Settings to the Agents stack's Tools tab (ADR-0069); an old link or bookmark lands there.
+  { path: '/settings/mcp', redirect: () => toAgents('tools') },
   { path: '/settings/:section?', name: ROUTE_NAMES.settings, component: SettingsView, meta: { destination: 'settings', workspaceScope: 'all', title: 'Settings' } },
 
   // Sign-in (plan admin-api-authentication): bare pages, open to someone who is not signed in. The guard in

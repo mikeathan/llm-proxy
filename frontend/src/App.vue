@@ -8,7 +8,6 @@ import AdminHeader from './components/layout/AdminHeader.vue'
 import AskField from './components/layout/AskField.vue'
 import AskPanel from './components/layout/AskPanel.vue'
 import { useModels } from './composables/models/useModels'
-import { useMcpServers } from './composables/system/useMcpServers'
 import { useModelBanner } from './composables/models/useModelBanner'
 import { useResponsiveLayout } from './composables/ui/useResponsiveLayout'
 import Toast from './components/ui/Toast.vue'
@@ -69,7 +68,6 @@ const contentClass = computed(() => [
 ])
 
 const { state, refresh: refreshModels } = useModels()
-const { refresh: refreshMcp } = useMcpServers()
 const { refresh: refreshWorkspaces } = useActiveWorkspace()
 const { load: loadStacks } = useEnabledStacks()
 
@@ -79,7 +77,7 @@ const { load: loadStacks } = useEnabledStacks()
 // recompute so the warning appears/disappears reactively after a Settings save
 // or model add without a page reload.
 onMounted(() => {
-  Promise.all([refreshModels(), refreshMcp(), refreshWorkspaces()]).then(recomputeModelBanner)
+  Promise.all([refreshModels(), refreshWorkspaces()]).then(recomputeModelBanner)
   void loadStacks()
 })
 </script>

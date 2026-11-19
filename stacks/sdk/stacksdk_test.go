@@ -1,6 +1,7 @@
 package stacksdk
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -481,6 +482,63 @@ func TestAirFact_CarriesOnlyFixedWords(t *testing.T) {
 	if !PresenceUnknown.Valid() || !PresenceOnline.Valid() || LANPresence("gone").Valid() {
 		t.Error("only the listed presences are valid")
 	}
+}
+
+// A stack may require the guarded HTTP port, and a stack that provides dynamic tools says so in its manifest.
+func TestManifest_AcceptsTheHTTPPortAndDynamicTools(t *testing.T) {
+	m := validManifest()
+	m.Requires = append(m.Requires, PortHTTP)
+	m.DynamicTools = true
+	if err := m.Validate(); err != nil {
+		t.Fatalf("a manifest requiring %q with dynamic tools must validate: %v", PortHTTP, err)
+	}
+}
+
+// The names a dynamic tool may have: letters, digits, underscore and hyphen, one to MaxDynamicToolName characters.
+func TestValidDynamicToolName(t *testing.T) {
+	ok := []string{"mcp__files__read", "a", "A-b_9", strings.Repeat("x", MaxDynamicToolName)}
+	bad := []string{"", "has space", "dot.name", "slash/name", "über", strings.Repeat("x", MaxDynamicToolName+1), "new\nline"}
+	for _, n := range ok {
+		if !ValidDynamicToolName(n) {
+			t.Errorf("%q must be a valid dynamic tool name", n)
+		}
+	}
+	for _, n := range bad {
+		if ValidDynamicToolName(n) {
+			t.Errorf("%q must not be a valid dynamic tool name", n)
+		}
+	}
+}
+
+func TestCleanText(t *testing.T) {
+	cases := []struct {
+		in    string
+		limit int
+		want  string
+	}{
+		{"plain", 10, "plain"},
+		{"a\x1b[31mb\x00c\td\n", 100, "a[31mbc\td\n"},
+		{"héllo", 2, "h"},
+		{"bad\xffbyte", 100, "bad?byte"},
+		{"", 5, ""},
+	}
+	for _, c := range cases {
+		if got := CleanText(c.in, c.limit); got != c.want {
+			t.Errorf("CleanText(%q, %d) = %q, want %q", c.in, c.limit, got, c.want)
+		}
+	}
+}
+
+// A stack's tool source is a method set the core calls: a type with both methods is one.
+func TestToolSource_IsTwoMethodsOfPlainData(t *testing.T) {
+	var _ ToolSource = toolSourceStub{}
+}
+
+type toolSourceStub struct{}
+
+func (toolSourceStub) ListTools(context.Context) ([]DynamicTool, error) { return nil, nil }
+func (toolSourceStub) CallDynamic(context.Context, string, json.RawMessage) (ToolResult, error) {
+	return ToolResult{}, nil
 }
 
 // A stack may require the vault port, and the storage report is plain data.

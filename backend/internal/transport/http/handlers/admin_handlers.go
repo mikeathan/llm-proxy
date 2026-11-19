@@ -245,9 +245,8 @@ type adminSystemView struct {
 }
 
 type adminRegistryView struct {
-	Catalogue  []models.ModelRegistryEntry     `json:"catalogue"`
-	Providers  map[string]adminProviderView    `json:"providers"`
-	MCPServers []models.MCPServerRegistryEntry `json:"mcp_servers"`
+	Catalogue []models.ModelRegistryEntry  `json:"catalogue"`
+	Providers map[string]adminProviderView `json:"providers"`
 }
 
 type adminProviderView struct {

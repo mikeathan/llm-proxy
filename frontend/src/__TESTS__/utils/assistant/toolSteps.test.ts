@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { describeToolStep, formatToolArguments, formatToolResult, TOOL_RESULT_PREVIEW_CHARS } from '../../../utils/assistant/toolSteps'
+import { describeToolStep, formatToolArguments, formatToolResult, toolDisplayName, TOOL_RESULT_PREVIEW_CHARS } from '../../../utils/assistant/toolSteps'
 
 describe('describeToolStep', () => {
   it.each([
@@ -26,8 +26,21 @@ describe('describeToolStep', () => {
     expect(describeToolStep('github__create_issue', '{"title":"Bug","body":"…"}')).toEqual({ kind: 'other', verb: 'Used github__create_issue', target: 'Bug' })
   })
 
+  it('reads an MCP tool as "server · tool"', () => {
+    expect(describeToolStep('mcp__files__read_text', '{"path":"a.md"}')).toEqual({ kind: 'other', verb: 'Used files · read_text', target: 'a.md' })
+  })
+
   it('copes with arguments that are not JSON', () => {
     expect(describeToolStep('read_file', '{"path": broken')).toEqual({ kind: 'read', verb: 'Read a file', target: '' })
+  })
+})
+
+describe('toolDisplayName', () => {
+  it('shows an MCP tool as server and tool, and any other name as it is', () => {
+    expect(toolDisplayName('mcp__files__read_text')).toBe('files · read_text')
+    expect(toolDisplayName('mcp__my-server__a__b')).toBe('my-server · a__b')
+    expect(toolDisplayName('read_file')).toBe('read_file')
+    expect(toolDisplayName('mcp__Bad__x')).toBe('mcp__Bad__x')
   })
 })
 

@@ -13,7 +13,6 @@ import (
 
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/core/tools/searchproviders"
@@ -400,7 +399,7 @@ func initFileSystemTools(s stackCtx) *tools.FileSystemTools {
 }
 func InitializeAgentStack(
 	appCtx AgentStackContext,
-	mcp nodeherder.MCPService,
+	dynamic DynamicTools,
 	deps AgentStackDeps,
 ) (Provider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
@@ -460,6 +459,8 @@ func InitializeAgentStack(
 	// restart).
 	grEngine.SetSearchAvailable(searchAvailable)
 	grEngine.SetLockedDown(appCtx.LockedDown)
+	// The tools a stack offers at run time (MCP servers) ask first unless the owner set their server to Allow (ADR-0069).
+	grEngine.SetDynamicToolPolicy(dynamic.Policy)
 	comm := initCommunicationTools(appCtx, network)
 	fsTools := initFileSystemTools(stack)
 	memTools := initMemoryTools(appCtx.MemoryStore(), appCtx.SessionRetention)
@@ -468,9 +469,9 @@ func InitializeAgentStack(
 	if deps.Persistence != nil {
 		localRegistry.WithJournal(deps.Persistence).WithSessions(deps.Persistence)
 	}
-	provider := NewMultiToolProvider(false, localRegistry, mcp)
-	mcpEngine := NewEngine(mcp, deps.Logger)
-	engine := NewCompositeEngine(localRegistry, mcpEngine)
+	provider := NewMultiToolProvider(false, localRegistry, dynamic)
+	dynamicEngine := NewEngine(dynamic, deps.Logger)
+	engine := NewCompositeEngine(localRegistry, dynamicEngine)
 
 	return provider, engine, grEngine
 }

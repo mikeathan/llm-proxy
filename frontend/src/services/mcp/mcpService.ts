@@ -1,22 +1,12 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import type { McpServer } from '../../types/mcp'
-import { get, post, put, del } from '../httpClient'
+import type { McpServer, McpServerBody, McpServersAnswer, McpTestRequest } from '../../types/mcp'
+import { del, get, post, put } from '../httpClient'
 
+// The writes need the passphrase again; the shared HTTP client asks for it and sends the request once more.
 export const McpApiService = {
-  fetchAll: async (): Promise<McpServer[]> => {
-    const data = await get<McpServer[] | null>(API_ENDPOINTS.mcp)
-    return Array.isArray(data) ? data : []
-  },
-
-  add: (payload: Omit<McpServer, 'enabled'>): Promise<McpServer> =>
-    post<McpServer>(API_ENDPOINTS.mcp, payload),
-
-  update: (payload: McpServer): Promise<McpServer> =>
-    put<McpServer>(API_ENDPOINTS.mcp, payload),
-
-  toggle: (server: McpServer): Promise<McpServer> =>
-    put<McpServer>(API_ENDPOINTS.mcp, { ...server, enabled: !server.enabled }),
-
-  remove: (name: string): Promise<void> =>
-    del<void>(`${API_ENDPOINTS.mcp}?name=${encodeURIComponent(name)}`),
+  list: (): Promise<McpServersAnswer> => get<McpServersAnswer>(API_ENDPOINTS.mcpServers),
+  add: (body: McpServerBody): Promise<McpServer> => post<McpServer>(API_ENDPOINTS.mcpServers, body),
+  update: (body: McpServerBody): Promise<McpServer> => put<McpServer>(API_ENDPOINTS.mcpServers, body),
+  remove: (name: string): Promise<void> => del<void>(`${API_ENDPOINTS.mcpServers}?name=${encodeURIComponent(name)}`),
+  test: (request: McpTestRequest): Promise<McpServer> => post<McpServer>(API_ENDPOINTS.mcpTest, request),
 }

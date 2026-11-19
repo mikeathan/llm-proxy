@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"llm-proxy-stacks/agents/mcpclient"
 	"llm-proxy-stacks/sdk"
 )
 
@@ -84,6 +85,10 @@ func (s fileStore) write(rec Record) error {
 type settings struct {
 	ActivityOff    bool `json:"activity_off"`
 	SecretsPassOff bool `json:"secrets_pass_off"`
+	// MCPOff switches the Tools layer off; like the two above it is a negative flag, so an install with nothing stored keeps it on.
+	MCPOff bool `json:"mcp_off"`
+	// MCPServers are the MCP servers the owner listed; a value to sign in with is kept sealed and never in the clear.
+	MCPServers []mcpclient.Server `json:"mcp_servers"`
 }
 
 // watch is the agent security record and its alerts.

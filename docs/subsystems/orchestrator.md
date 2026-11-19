@@ -12,7 +12,7 @@ Start here, then open only what the task needs.
 | | |
 |---|---|
 | **Contract (current behavior)** | [SPEC-005](../SPECS/orchestrator.md) |
-| **Code** | `backend/internal/core/orchestrator/`, `backend/internal/core/llm/`, `backend/internal/core/runlane/`, `backend/internal/core/nodeherder/` |
+| **Code** | `backend/internal/core/orchestrator/`, `backend/internal/core/llm/`, `backend/internal/core/runlane/` |
 | **Architecture** | [map](../architecture/map.md) · [contracts](../architecture/contracts.md) · [checklists](../architecture/checklists.md) · [pitfalls](../architecture/pitfalls.md) — search pitfalls for: budget, max_tokens, provider, lane, residency |
 | **Decisions (why)** | [ADR-0004](../decisions/ADR-0004-explicit-primary-and-fallback-model.md) No model auto-bootstrap; explicit primary and fallback |
 | **Open plans (next)** | [`orchestrator/local-and-cloud-inference-performance.md`](../PLANS/orchestrator/local-and-cloud-inference-performance.md)<br>[`orchestrator/auto-model-router.md`](../PLANS/orchestrator/auto-model-router.md)<br>[`orchestrator/cost-and-savings-ledger.md`](../PLANS/orchestrator/cost-and-savings-ledger.md)<br>[`orchestrator/cloud-safety-threshold-decoupling.md`](../PLANS/orchestrator/cloud-safety-threshold-decoupling.md) |

@@ -259,7 +259,7 @@ func TestWatch_ObserveNeverBlocksAndRunDrains(t *testing.T) {
 	}
 	s := New()
 	s.w, s.started = w, true
-	if st, _ := s.Status(t.Context()); len(st) != 2 || st[0].Problem != ProblemDropped {
+	if st, _ := s.Status(t.Context()); len(st) != 3 || st[0].Problem != ProblemDropped {
 		t.Errorf("status = %+v; an event that did not fit the queue is reported", st)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -343,18 +343,29 @@ func TestStack_ManifestIsValidAndItsPortsArePinned(t *testing.T) {
 	if m.Settings.Key != "agents" || len(m.Storage) != 1 || m.Storage[0] != "agent-watch.json" {
 		t.Errorf("the settings key and the file are unchanged from before the stack: %q %v", m.Settings.Key, m.Storage)
 	}
-	want := []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortSecretScan}
+	want := []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortSecretScan, stacksdk.PortVault, stacksdk.PortHTTP}
 	if strings.Join(m.Requires, ",") != strings.Join(want, ",") {
-		t.Errorf("requires %v; want exactly %v (no dial, no fetch, no program)", m.Requires, want)
+		t.Errorf("requires %v; want exactly %v (no direct dial, no fetch, no program: the guarded client is the only way out)", m.Requires, want)
 	}
-	if len(m.Routes) != 1 || m.Routes[0].Path != "/admin/api/agent-watch" || m.Routes[0].Method != http.MethodGet {
+	if !m.DynamicTools {
+		t.Error("the Tools layer offers tools the core did not list at start")
+	}
+	if len(m.Routes) != 6 || m.Routes[0].Path != "/admin/api/agent-watch" || m.Routes[0].Method != http.MethodGet {
 		t.Errorf("routes = %+v", m.Routes)
+	}
+	for _, rt := range m.Routes[1:] {
+		if rt.Method != http.MethodGet && rt.Level() != stacksdk.AccessStepUp {
+			t.Errorf("%s %s changes or tries a server, so it needs the passphrase again", rt.Method, rt.Path)
+		}
+	}
+	if len(m.Layers) != 2 || m.Layers[0].ID != "tools" || m.Layers[1].ID != "watch" {
+		t.Errorf("layers = %+v; Tools sits below Watch", m.Layers)
 	}
 	ids := map[string]bool{}
 	for _, mod := range m.Modules {
 		ids[mod.ID] = true
 	}
-	if !ids["agent_activity"] || !ids["secrets_pass"] || len(ids) != 2 {
+	if !ids["agent_activity"] || !ids["secrets_pass"] || !ids["mcp_servers"] || len(ids) != 3 {
 		t.Errorf("modules = %v", ids)
 	}
 }
@@ -400,7 +411,7 @@ func TestStack_StatusSaysWhichPartsAreOnAndWhenThePassLastRan(t *testing.T) {
 	defer s.Stop(t.Context()) //nolint:errcheck // the stack's Stop never fails
 	f.settings = `{"activity_off":true}`
 	got, _ := s.Status(t.Context())
-	if len(got) != 2 || got[0].ID != ActivityModuleID || got[0].Enabled || got[1].ID != SecretsModuleID || !got[1].Enabled || !got[1].LastRun.IsZero() {
+	if len(got) != 3 || got[0].ID != ActivityModuleID || got[0].Enabled || got[1].ID != SecretsModuleID || !got[1].Enabled || !got[1].LastRun.IsZero() {
 		t.Fatalf("status = %+v", got)
 	}
 	s.w.scanSecrets(t.Context())

@@ -22,9 +22,6 @@ vi.mock('../../services/admin/adminService', () => ({
 
 const models = { state: ref(null), availableModels: ref([]), refresh: vi.fn() }
 vi.mock('../../composables/models/useModels', () => ({ useModels: () => models }))
-vi.mock('../../composables/system/useMcpServers', () => ({
-  useMcpServers: () => ({ mcpServers: ref([]), addMCPServer: vi.fn(), toggleMCPServer: vi.fn(), removeMCPServer: vi.fn() }),
-}))
 const logLevel = { logLevel: ref('info'), updateLogLevel: vi.fn() }
 vi.mock('../../composables/system/useMetrics', () => ({ useLogLevel: () => logLevel }))
 const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn(), show: vi.fn() }
@@ -43,7 +40,6 @@ const STUBS = {
   InfrastructurePanel: true,
   CommunicationSettings: true,
   SearchSettings: true,
-  McpServers: true,
   GuardrailSettings: true,
   AppearanceSettings: true,
   AgentsSettings: true,
@@ -90,13 +86,13 @@ describe('Settings (global)', () => {
   })
 
   it('shows the six tabs, marks the current one, and lists the sections of a group', async () => {
-    const { w } = await mountSettings('/settings/mcp')
+    const { w } = await mountSettings('/settings/search')
     const tabs = w.get('nav[aria-label="Settings"]')
     expect(tabs.findAll('a').map((a) => a.text())).toEqual(['General', 'Models', 'Safety', 'Connectors', 'Appearance', 'System'])
     expect(tabs.findAll('a[aria-current="page"]').map((a) => a.text())).toEqual(['Connectors'])
     const sections = w.get('nav[aria-label="Connectors sections"]')
-    expect(sections.findAll('a').map((a) => a.attributes('href'))).toEqual(['/settings/communication', '/settings/search', '/settings/mcp'])
-    expect(sections.findAll('a[aria-current="page"]').map((a) => a.attributes('href'))).toEqual(['/settings/mcp'])
+    expect(sections.findAll('a').map((a) => a.attributes('href'))).toEqual(['/settings/communication', '/settings/search'])
+    expect(sections.findAll('a[aria-current="page"]').map((a) => a.attributes('href'))).toEqual(['/settings/search'])
   })
 
   it('splits General into short sections, each its own page', async () => {

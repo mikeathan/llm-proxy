@@ -28,6 +28,10 @@ import (
 // loop (isGuardrailSecurityBoundary).
 var ErrNetworkDisabled = errors.New("agent network is denied by security policy")
 
+// ErrAsksFirst is the refusal of a call to a tool a stack offers at run time (an MCP server's) whose server is set to ask: the call may be approved
+// once, in the approval flow, and never passes on its own. Its words must not contain the ones the agent reads as a hard boundary.
+var ErrAsksFirst = errors.New("this tool's server asks for your approval before each call")
+
 // hostNetworkGatedTools are the agent tools whose execution requires agent
 // egress. When the host network switch is off they are hidden from the schema
 // (DisabledToolNames) and hard-denied (ValidateToolCall) regardless of workspace
@@ -82,6 +86,10 @@ type GuardrailEngine struct {
 	// lockedDown reports whether lock down is on: the terminal and every network-gated tool are then refused before any
 	// override or approval. nil ⇒ no lock down gate.
 	lockedDown func() bool
+
+	// dynamicPolicy says, for a tool a stack offers at run time, whether it is one and whether its server asks first (ADR-0069). nil ⇒ no such
+	// tools exist as far as this engine knows, and a call is judged as before.
+	dynamicPolicy func(name string) (managed, ask bool)
 }
 
 // SetLockedDown installs the lock down switch (lockdown.Manager.On) from the composition root.
@@ -96,6 +104,26 @@ func lockedDownRefuses(name string) bool {
 		return true
 	}
 	return name == models.ToolTerminalExecute || hostNetworkGatedSet[name]
+}
+
+// SetDynamicToolPolicy installs the policy of the tools a stack offers at run time: managed says the name is one of them (or looks like one the
+// service no longer offers, which must ask and never pass), ask says the owner wants to approve each call. Called from the composition root.
+func (e *GuardrailEngine) SetDynamicToolPolicy(policy func(name string) (managed, ask bool)) {
+	e.dynamicPolicy = policy
+}
+
+// dynamicRememberReason is the prompt's answer to "Allow and remember" for a tool of a server that asks first: nothing is written to the workspace,
+// because the choice belongs to the server's setting. Empty for any other tool.
+const dynamicRememberReason = "To stop being asked, set this server to Allow under Agents → Tools."
+
+// DynamicRememberReason is dynamicRememberReason for a tool that asks first, and "" for any other.
+func (e *GuardrailEngine) DynamicRememberReason(name string) string {
+	if e.dynamicPolicy != nil {
+		if managed, ask := e.dynamicPolicy(name); managed && ask {
+			return dynamicRememberReason
+		}
+	}
+	return ""
 }
 
 // SetHostNetworkAllowed installs the host-level network allowance provider
@@ -276,6 +304,17 @@ func (e *GuardrailEngine) validateCategory(ctx context.Context, call proxy.ToolC
 			}
 		}
 		return e.validateNetwork(call, cfg.Network)
+	}
+	return e.validateDynamic(call.Function.Name)
+}
+
+// validateDynamic holds a tool a stack offers at run time to its server's trust: a server that asks first makes the call an approvable refusal.
+func (e *GuardrailEngine) validateDynamic(name string) error {
+	if e.dynamicPolicy == nil {
+		return nil
+	}
+	if managed, ask := e.dynamicPolicy(name); managed && ask {
+		return fmt.Errorf("%w: %s", ErrAsksFirst, name)
 	}
 	return nil
 }

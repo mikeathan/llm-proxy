@@ -82,7 +82,7 @@ func waitForNotRunning(t *testing.T, h *AssistantMessageHandler, workspaceID str
 func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	// Setup
 	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	mockClient := &mocks.MockLLMClientProvider{
 		Client: &mocks.MockLLMClient{},
 	}
@@ -254,7 +254,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 		Client: &mocks.MockLLMClient{},
 	}
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
 	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
@@ -319,7 +319,7 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 	// Setup
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
 	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
@@ -785,7 +785,7 @@ func TestFilterCancelledTurns_IgnoresInvalidIndices(t *testing.T) {
 
 func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	mockClient := &mocks.MockLLMClientProvider{
 		Client: &mocks.MockLLMClient{},
 	}
@@ -1024,7 +1024,7 @@ func (c *blockingLLMClient) ReasoningField() string { return proxy.ReasoningFiel
 // outlives the HTTP request, instead of blocking until the agent finishes.
 func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetToolsResult(nil)
@@ -1105,8 +1105,8 @@ func TestGuardrailDecisionHandler_LateOverridePersists(t *testing.T) {
 	service := mocks.NewMockAssistantService(
 		&mocks.MockLLMClientProvider{},
 		&mocks.MockRateLimiter{},
-		toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
-		mocks.NewMockNodeHerder(nil),
+		toolregistry.NewEngine(mocks.NewMockDynamicTools(nil), &noopLogger{}),
+		mocks.NewMockDynamicTools(nil),
 	)
 	service.LoggerRef = &noopLogger{}
 
@@ -1160,8 +1160,8 @@ func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
 	service := mocks.NewMockAssistantService(
 		&mocks.MockLLMClientProvider{},
 		&mocks.MockRateLimiter{},
-		toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
-		mocks.NewMockNodeHerder(nil),
+		toolregistry.NewEngine(mocks.NewMockDynamicTools(nil), &noopLogger{}),
+		mocks.NewMockDynamicTools(nil),
 	)
 	service.LoggerRef = &noopLogger{}
 	tmp := t.TempDir()

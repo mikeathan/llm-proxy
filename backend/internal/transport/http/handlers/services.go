@@ -7,7 +7,6 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
@@ -81,16 +80,12 @@ type AdminService interface {
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
 
-	// Model/MCP management
+	// Model management
 	PersistModel(models.ModelConfig) error
 	PersistReplaceModel(models.ModelConfig) error
 	PersistDeleteModel(string) error
 	DeleteProviderWithCleanup(provider string) error
 	ResolveModelPath(string, string) string
-	AddMCPServer(models.MCPServerConfig) error
-	UpdateMCPServer(models.MCPServerConfig) error
-	RemoveMCPServer(string) error
-	ListMCPServers() []models.MCPServerConfig
 	ListTemplates() ([]models.TemplateMetadata, error)
 	GetTemplate(id string) (models.Template, error)
 	Models() []models.ModelConfig
@@ -242,7 +237,6 @@ func (s *workspaceService) RecentRuns(ctx context.Context) ([]models.AutomationR
 }
 
 type AssistantService interface {
-	NodeHerder() nodeherder.MCPService
 	ClientProvider() proxy.LLMClientProvider
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger

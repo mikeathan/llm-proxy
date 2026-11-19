@@ -722,9 +722,12 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 
 // rememberPreview is what "Allow and remember" would change for a blocked step,
 // for the approval prompt. Without a guardrail engine there is nothing to save.
-func (a *Agent) rememberPreview(category, args string) guardrails.RememberPreview {
+func (a *Agent) rememberPreview(tool, category, args string) guardrails.RememberPreview {
 	if a.deps.Guardrails == nil {
 		return guardrails.RememberPreview{Reason: "Nothing can be remembered here."}
+	}
+	if reason := a.deps.Guardrails.DynamicRememberReason(tool); reason != "" {
+		return guardrails.RememberPreview{Reason: reason}
 	}
 	return a.deps.Guardrails.PreviewRemember(a.config.WorkspaceID, category, args)
 }
@@ -738,7 +741,7 @@ func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, e
 	approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
 	defer approvalCancel()
 	category := models.CategoryOf(tc.Function.Name)
-	remember := a.rememberPreview(category, tc.Function.Arguments)
+	remember := a.rememberPreview(tc.Function.Name, category, tc.Function.Arguments)
 	decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
 		DecisionID:     fmt.Sprintf("gr_%d", time.Now().UnixNano()),
 		Tool:           tc.Function.Name,

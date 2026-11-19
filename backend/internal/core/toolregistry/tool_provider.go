@@ -6,7 +6,6 @@ package toolregistry
 import (
 	"context"
 	"fmt"
-	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 )
@@ -93,15 +92,17 @@ type Engine interface {
 	ExecuteTool(ctx context.Context, call proxy.ToolCall) (any, error)
 }
 
+// assistantEngine runs the tools a stack offers at run time; the local registry is asked first (CompositeEngine).
 type assistantEngine struct {
-	mcp    nodeherder.MCPService
-	logger logging.Logger
+	dynamic DynamicTools
+	logger  logging.Logger
 }
 
-func NewEngine(mcp nodeherder.MCPService, logger logging.Logger) Engine {
+// NewEngine returns the engine for the tools a stack offers at run time.
+func NewEngine(dynamic DynamicTools, logger logging.Logger) Engine {
 	return &assistantEngine{
-		mcp:    mcp,
-		logger: logger,
+		dynamic: dynamic,
+		logger:  logger,
 	}
 }
 
@@ -116,5 +117,5 @@ func (a *assistantEngine) ExecuteTool(ctx context.Context, call proxy.ToolCall) 
 		args = make(map[string]any)
 	}
 
-	return a.mcp.CallTool(ctx, call.Function.Name, args)
+	return a.dynamic.CallTool(ctx, call.Function.Name, args)
 }

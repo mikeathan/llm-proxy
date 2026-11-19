@@ -21,7 +21,6 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/delegation"
 	"llm-proxy/internal/core/llm"
-	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
@@ -47,9 +46,10 @@ type Core struct {
 }
 
 type Infra struct {
-	Logger       logging.Logger
-	Clock        utils.Clock
-	NodeHerder   nodeherder.MCPService
+	Logger logging.Logger
+	Clock  utils.Clock
+	// Dynamic is the run path's view of the tools the Agents stack offers at run time (MCP servers); the stack is attached when it is hosted.
+	Dynamic      *toolregistry.StackTools
 	ShellManager shell.ShellProvider
 }
 
@@ -203,7 +203,7 @@ func (c *Container) BuildAppServices() *AppServices {
 	s := &AppServices{
 		Runtime:        c.Core.Runtime,
 		AppCtx:         c.Core.AppCtx,
-		nodeHerder:     c.Infra.NodeHerder,
+		dynamicTools:   c.Infra.Dynamic,
 		logger:         c.Infra.Logger,
 		Clock:          c.Infra.Clock,
 		persistence:    persistence.NewWorkspaceManager(resolver),
@@ -235,7 +235,7 @@ func (c *Container) BuildAppServices() *AppServices {
 	// travel together in one deps struct (rule: ≤3 params).
 	s.toolProvider, s.engine, s.guardrailEngine = toolregistry.InitializeAgentStack(
 		s.AppCtx,
-		s.nodeHerder,
+		s.dynamicTools,
 		toolregistry.AgentStackDeps{
 			Persistence:  s.persistence,
 			Logger:       s.logger,
@@ -467,7 +467,7 @@ func (c *Container) initShellOrchestrator(s *AppServices) (shell.ShellProvider, 
 type AppServices struct {
 	Runtime                llm.RuntimeManager
 	AppCtx                 *AppContext
-	nodeHerder             nodeherder.MCPService
+	dynamicTools           *toolregistry.StackTools
 	toolProvider           assistantPkg.ToolProvider
 	clientProvider         proxy.LLMClientProvider
 	engine                 assistantPkg.Engine
@@ -542,10 +542,6 @@ func (s AppServices) Shutdown(ctx context.Context) {
 
 func (s AppServices) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return s.clientProvider.GetClientForModel(ctx, modelName)
-}
-
-func (s AppServices) NodeHerder() nodeherder.MCPService {
-	return s.nodeHerder
 }
 
 func (s AppServices) ToolProvider() assistantPkg.ToolProvider {
@@ -693,20 +689,6 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 		logger.SetLevel(logging.Level(sys.Server.LogLevel))
 	}
 
-	// 1.5 Initialize Network for Infrastructure (MCP, Cloud LLMs)
-	networkTools := tools.NewNetworkTools(func(ctx context.Context) models.NetworkGuardrailsConfig {
-		// Use global guardrails from data manager
-		return dataMgr.Settings().Get().Guardrails.Network
-	}, logger)
-
-	// Configure MCP Service (Bridge logic: we still pass sys config parts)
-	logging.Debug("Configuring MCP services...")
-	nodeHerder, err := configureMCP(dataMgr, logger, networkTools.DialContext())
-	if err != nil {
-		logging.Error("Failed to configure MCP service", "error", err)
-		return nil
-	}
-
 	// 2. Initialize Runtime Manager from Registry
 	logging.Debug("Initializing LLM runtime manager...")
 	registry := dataMgr.Registry().Get()
@@ -744,9 +726,9 @@ func bootstrap(dataMgr *storage.DataManager, logger logging.Logger, recordEnable
 			Runtime: runtime,
 		},
 		Infra: Infra{
-			Logger:     logger,
-			Clock:      clock,
-			NodeHerder: nodeHerder,
+			Logger:  logger,
+			Clock:   clock,
+			Dynamic: toolregistry.NewStackTools(),
 		},
 		RecordDir: runsDir,
 	}

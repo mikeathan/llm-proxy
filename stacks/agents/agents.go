@@ -33,6 +33,8 @@ const ProblemDropped = "the queue was full and some events were not recorded"
 // Stack is the Agents stack.
 type Stack struct {
 	mu      sync.Mutex
+	mcpMu   sync.Mutex // serialises the Tools layer read-modify-write of the server list
+	mcp     *mcpState
 	w       *watch
 	now     func() time.Time
 	started bool
@@ -50,9 +52,18 @@ func New() *Stack {
 // Manifest declares the stack as data.
 func (s *Stack) Manifest() stacksdk.Manifest {
 	return stacksdk.Manifest{
-		ID: ID, Title: "Agents", Purpose: "Watch what the agents on this computer do.",
-		Layers: []stacksdk.Layer{{ID: "watch", Title: "Watch", Purpose: "What the agents did"}},
+		ID: ID, Title: "Agents", Purpose: "Give the agents on this computer their tools, and watch what they do.",
+		Layers: []stacksdk.Layer{
+			{ID: "tools", Title: "Tools", Purpose: "Tool servers the agents can call"},
+			{ID: "watch", Title: "Watch", Purpose: "What the agents did"},
+		},
 		Modules: []stacksdk.ModuleSpec{
+			{ID: MCPModuleID, Title: "MCP servers", Purpose: "Let agents use the tools of the MCP servers you list.", Layer: "tools", Sends: stacksdk.SendsInternet, StepUp: true,
+				About: stacksdk.About{
+					Watches: "The MCP servers you list, and the tools each one offers.",
+					Never:   "No server is contacted until you add one and switch it on, and a tool asks you first unless you set its server to Allow.",
+					ShowsUp: "Under Tools on the Agents page, and as steps in a run.",
+				}},
 			{ID: ActivityModuleID, Title: "Agent activity", Purpose: "Refused tool calls, approvals and new destinations.", Layer: "watch", Sends: stacksdk.SendsMessage, StepUp: true,
 				About: stacksdk.About{
 					Watches: "Refused tool calls, approvals and new destinations of the agents on this computer.",
@@ -66,20 +77,37 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 					ShowsUp: "As a finding and a message.",
 				}},
 		},
-		Routes:   []stacksdk.RouteSpec{{Method: http.MethodGet, Path: RoutePath}},
+		DynamicTools: true,
+		Routes: []stacksdk.RouteSpec{
+			{Method: http.MethodGet, Path: RoutePath},
+			{Method: http.MethodGet, Path: RouteMCPServers},
+			{Method: http.MethodPost, Path: RouteMCPServers, Access: stacksdk.AccessStepUp},
+			{Method: http.MethodPut, Path: RouteMCPServers, Access: stacksdk.AccessStepUp},
+			{Method: http.MethodDelete, Path: RouteMCPServers, Access: stacksdk.AccessStepUp},
+			{Method: http.MethodPost, Path: RouteMCPTest, Access: stacksdk.AccessStepUp},
+		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{File},
 		Observes: []string{stacksdk.ObservedRefused, stacksdk.ObservedApproval, stacksdk.ObservedFetch},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortSecretScan},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortSecretScan, stacksdk.PortVault, stacksdk.PortHTTP},
 	}
 }
 
-// Start builds the watch over the host's ports and runs it under ctx until ctx ends or Stop is called.
+// Start builds the watch over the host's ports and runs it under ctx until ctx ends or Stop is called, then connects the Tools layer's servers.
 func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
+	run, err := s.startWatch(ctx, h)
+	if err != nil {
+		return err
+	}
+	s.startMCP(run, h)
+	return nil
+}
+
+func (s *Stack) startWatch(ctx context.Context, h stacksdk.Host) (context.Context, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
-		return errors.New("the agents stack is already running")
+		return nil, errors.New("the agents stack is already running")
 	}
 	s.w.bind(h)
 	s.started = true
@@ -89,7 +117,7 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 		defer close(done)
 		w.run(run)
 	}(s.w, s.done)
-	return nil
+	return run, nil
 }
 
 // Stop ends the loop and waits for it.
@@ -102,13 +130,17 @@ func (s *Stack) Stop(context.Context) error {
 	if cancel == nil {
 		return nil
 	}
+	s.stopMCP()
 	cancel()
 	<-done
 	return nil
 }
 
-// ConfigChanged has nothing to re-read: the secrets pass reads the switches each time it runs, and the core gates the feed itself.
-func (s *Stack) ConfigChanged(context.Context) error { return nil }
+// ConfigChanged re-reads the Tools layer settings: the secrets pass reads its switches each time it runs, and the core gates the feed itself.
+func (s *Stack) ConfigChanged(ctx context.Context) error {
+	s.reconcileMCP(ctx)
+	return nil
+}
 
 // Observe takes one observation the core saw. It never blocks: before Start it waits in the queue, and one that does not fit is dropped
 // and counted.
@@ -131,7 +163,7 @@ func (s *Stack) Status(ctx context.Context) ([]stacksdk.ModuleStatus, error) {
 	if w.dropped.Load() > 0 {
 		activity.Problem = ProblemDropped
 	}
-	return []stacksdk.ModuleStatus{activity, pass}, nil
+	return []stacksdk.ModuleStatus{activity, pass, s.mcpStatus(ctx)}, nil
 }
 
 // CallTool: the stack declares no tools.
@@ -144,7 +176,10 @@ func (s *Stack) Findings(context.Context) ([]stacksdk.StackFinding, error) { ret
 
 // Handle answers the one route: the newest entries first, and what each automation's destinations look like. A record that cannot be read is
 // an error, never an empty record.
-func (s *Stack) Handle(_ context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+	if resp, found := s.handleMCP(ctx, req); found {
+		return resp, nil
+	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 	}

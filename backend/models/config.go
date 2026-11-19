@@ -274,7 +274,6 @@ type Config struct {
 	Agents        []AgentDefinition       `json:"agents,omitempty"`
 	WorkspacesDir string                  `json:"workspaces_dir,omitempty"`
 	Metrics       MetricsConfig           `json:"metrics,omitempty"`
-	MCPServers    []MCPServerConfig       `json:"mcp_servers,omitempty"`
 	Guardrails    *AgentGuardrailsConfig  `json:"guardrails,omitempty"`
 	Communication CommunicationConfig     `json:"communication,omitempty"`
 	Search        SearchConfig            `json:"search,omitempty"`
@@ -788,13 +787,6 @@ type ProviderItem struct {
 	ModelDir          string            `json:"model_dir,omitempty"`
 	DefaultArgs       []string          `json:"default_args,omitempty"`
 	Environment       map[string]string `json:"environment,omitempty"`
-}
-
-type MCPServerConfig struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Enabled   bool   `json:"enabled"`
-	TLSCACert string `json:"tls_ca_cert,omitempty"`
 }
 
 type ServerConfig struct {

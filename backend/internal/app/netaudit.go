@@ -814,10 +814,15 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	})
 	agents := dataMgr.Agents()
 	// The record lives in the Agents stack; the feed hands it what the bus carries, gated by the operator's switch (read on every event, never cached).
-	agentsHost, err := s.newAgentsHost(agents, s.alertNotifier(alerts.Log, models.NetworkAlertAgent))
+	if err := migrateMCPServers(dataMgr, agents); err != nil {
+		s.logger.Error("the MCP servers of the registry could not be moved", "error", err.Error())
+	}
+	vault := s.newStackVault()
+	agentsHost, err := s.newAgentsHost(agents, s.alertNotifier(alerts.Log, models.NetworkAlertAgent), agentsPorts{Vault: vault, Dial: netTools.DialContext()})
 	if err != nil {
 		s.logger.Error("the Agents stack could not be hosted", "error", err.Error())
 	}
+	s.attachDynamicTools(agentsHost)
 	s.netaudit.Agents = agentsHost
 	s.netaudit.AgentFeed = agentwatch.Feed{Push: agentsHost.Observe, ActivityOn: agentActivitySwitch(agents).Enabled}
 
@@ -825,7 +830,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.RadioPrivileged = &latePrivileged{}
 	asked, netsAsked := &stackport.AskedPurposes{}, &stackport.AskedPurposes{}
 	moveRadioNetworkNames(radioPolicy, store)
-	radioHost, vault, err := s.newRadioHost(radioHostDeps{Policy: radioPolicy, Priv: s.netaudit.RadioPrivileged,
+	radioHost, vault, err := s.newRadioHost(radioHostDeps{Policy: radioPolicy, Vault: vault, Priv: s.netaudit.RadioPrivileged,
 		Notify: s.bellNotifier(alerts.Log, models.NetworkAlertRadio), Inventory: known.Inventory.View, Mesh: s.netaudit.RouterConn.MeshClients,
 		Presence: devicePresence(alerts.PresenceConfig, alerts.Presence), Asked: asked, WifiNetworks: s.netaudit.WifiConfig.Networks, NetsAsked: netsAsked})
 	if err != nil {
@@ -847,7 +852,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	}
 
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
-	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Radio: radioPolicy, Reminders: remindersPolicy, RemindersHost: remindersHost, Guard: guard})
+	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, AgentsHost: agentsHost, Radio: radioPolicy, Reminders: remindersPolicy, RemindersHost: remindersHost, Guard: guard})
 	if err != nil {
 		panic(err)
 	}

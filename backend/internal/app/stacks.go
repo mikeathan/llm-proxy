@@ -72,7 +72,9 @@ type remindersPolicy interface {
 type stackDeps struct {
 	Network *netauditServices
 	Agents  agentsPolicy
-	Radio   radioPolicy
+	// AgentsHost is told when the MCP switch changes, so the connections follow at once (nil when the stack could not be hosted).
+	AgentsHost *stackHost
+	Radio      radioPolicy
 	// Reminders is the stored switch and settings; RemindersHost is told when the switch changes (nil when the stack could not be hosted).
 	Reminders     remindersPolicy
 	RemindersHost *stackHost
@@ -109,8 +111,11 @@ func stackDefinitions() []stack.Stack {
 			},
 		},
 		{
-			ID: stack.Agents, Title: "Agents", Purpose: "Watch what the agents on this computer do.",
-			Layers:  []stack.Layer{{ID: "watch", Title: "Watch", Purpose: "What the agents did"}},
+			ID: stack.Agents, Title: "Agents", Purpose: "Give the agents on this computer their tools, and watch what they do.",
+			Layers: []stack.Layer{
+				{ID: "tools", Title: "Tools", Purpose: "Tool servers the agents can call"},
+				{ID: "watch", Title: "Watch", Purpose: "What the agents did"},
+			},
 			Actions: []stack.Action{{ID: "lockdown", Title: "Lock down", Purpose: "Stop the agents and sign out every other session."}},
 		},
 		{
@@ -189,15 +194,39 @@ func networkReady(g models.NetworkGuardrailsConfig, needLAN, needInternet bool) 
 	return true, ""
 }
 
-// agentModules are the two parts of the Agents stack. Both have always run, so each is stored as an "off" flag; switching either
-// off silences a security record, so it needs the passphrase like erasing the decoys' record does.
+// agentModules are the parts of the Agents stack. Each has always run (or, for MCP servers, does nothing until a server is listed), so each is
+// stored as an "off" flag. Switching a watch off silences a security record, and switching MCP servers on or off decides what the agents may reach,
+// so each needs the passphrase like erasing the decoys' record does.
 func agentModules(d stackDeps) []stack.Module {
 	return []stack.Module{
+		{ID: agents.MCPModuleID, Title: "MCP servers", Purpose: "Let agents use the tools of the MCP servers you list.", Stack: stack.Agents, Layer: "tools", Sends: stack.SendsInternet, StepUp: true,
+			Switch: mcpSwitch{store: d.Agents, host: d.AgentsHost}},
 		{ID: "agent_activity", Title: "Agent activity", Purpose: "Refused tool calls, approvals and new destinations.", Stack: stack.Agents, Layer: "watch", Sends: stack.SendsMessage, StepUp: true,
 			Switch: agentActivitySwitch(d.Agents)},
 		{ID: "secrets_pass", Title: "Secrets pass", Purpose: "A nightly look through workspace files for credentials.", Stack: stack.Agents, Layer: "watch", Sends: stack.SendsMessage, StepUp: true,
 			Switch: secretsPassSwitch(d.Agents)},
 	}
+}
+
+// mcpSwitch is the Agents policy's MCP "off" flag read as a switch: on while the flag is not set. Changing it wakes the stack, so the connections follow at once.
+type mcpSwitch struct {
+	store agentsPolicy
+	host  *stackHost
+}
+
+func (m mcpSwitch) Enabled() bool { return !m.store.Get().MCPOff }
+
+func (m mcpSwitch) Set(enabled bool) error {
+	if err := m.store.Update(func(c *models.AgentsConfig) error {
+		c.MCPOff = !enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the MCP switch: %w", err)
+	}
+	if m.host != nil {
+		_ = m.host.stack.ConfigChanged(context.Background())
+	}
+	return nil
 }
 
 // radioModules are the Radio stack's switches. The stack is off until the operator opts in, and it sends nothing, so its switch needs no passphrase.
@@ -316,7 +345,7 @@ func agentAlertIDs() []string { return agents.AlertIDs() }
 // `agents` key, unchanged), the alert sink (which words each alert and sends it to the connectors), the service's log, the data folder
 // restricted to the one file the manifest lists, and the secrets scan (the folder walk stays in the core, so no file's bytes cross). The
 // record file is removed by a factory reset, as the store it replaces was.
-func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context.Context, message string) error) (*stackHost, error) {
+func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context.Context, message string) error, ports agentsPorts) (*stackHost, error) {
 	st := agentsStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), st.Manifest()); err != nil {
@@ -329,6 +358,9 @@ func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context
 		Log:        stackport.Log{Stack: st.Manifest().ID},
 		DataDir:    stackport.DataDir{Dir: dir, Files: files},
 		SecretScan: agentwatch.Scanner{Workspaces: s.workspaceDirs},
+		// The Tools layer (ADR-0069): the owner's sign-in values are sealed with the vault, and every connection to a tool server is dialled through the guard.
+		Vault: ports.Vault,
+		HTTP:  stackport.HTTP{Dial: ports.Dial},
 	}
 	h, err := newStackHost(st, host)
 	if err != nil {
@@ -336,6 +368,22 @@ func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context
 	}
 	s.AppCtx.AfterFactoryReset("The agent security record", func() error { return stackport.Remove(dir, files) })
 	return h, nil
+}
+
+// agentsPorts are the core services the Agents stack's Tools layer is given: the vault its sign-in values are sealed with, and the guarded dial its
+// connections go through.
+type agentsPorts struct {
+	Vault stackport.Vault
+	Dial  stackport.Dial
+}
+
+// newStackVault is the one vault the hosted stacks share: each purpose derives its own subkey from the master key, so one stack's tags and sealed values
+// never open another's. A factory reset replaces the master key, so the copy held in memory is forgotten with it.
+func (s *AppServices) newStackVault() stackport.Vault {
+	configDir := s.AppCtx.dataMgr.ConfigDir()
+	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
+	s.AppCtx.AfterFactoryReset("The key the stacks seal and tag with, held in memory", func() error { keys.Drop(); return nil })
+	return stackport.Vault{Key: keys.Get}
 }
 
 // radioStack is the Radio stack: the sensors of wireless radios. Only this file imports a stack (Constitution IV.6). It reads the real /sys.
@@ -357,9 +405,7 @@ func (s *AppServices) newRadioHost(d radioHostDeps) (*stackHost, stackport.Vault
 		return nil, stackport.Vault{}, err
 	}
 	dir := s.AppCtx.RootDir()
-	configDir := s.AppCtx.dataMgr.ConfigDir()
-	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
-	vault := stackport.Vault{Key: keys.Get}
+	vault := d.Vault
 	h, err := newStackHost(st, stacksdk.Host{
 		Config:     stackport.Config[models.RadioConfig]{Store: d.Policy},
 		Events:     stackalerts.Sink{Words: radiowatch.Words, Notify: d.Notify, OnError: func(err error) { logging.Warn("radio watch", "error", err.Error()) }},
@@ -382,14 +428,14 @@ func (s *AppServices) newRadioHost(d radioHostDeps) (*stackHost, stackport.Vault
 		return nil, stackport.Vault{}, err
 	}
 	s.AppCtx.AfterFactoryReset("The radio database", func() error { return stackport.Remove(dir, files) })
-	// The reset replaces the master key: forget the one held in memory, or every tag would still be made with the old one.
-	s.AppCtx.AfterFactoryReset("The radio key held in memory", func() error { keys.Drop(); return nil })
 	return h, vault, nil
 }
 
 // radioHostDeps are the core services the Radio stack's ports are built over.
 type radioHostDeps struct {
 	Policy radioPolicy
+	// Vault is the vault the hosted stacks share (newStackVault).
+	Vault  stackport.Vault
 	Priv   *latePrivileged
 	Notify func(ctx context.Context, message string) error
 	// Inventory is the network inventory; Presence what the presence check says of a device now; Asked remembers the purposes the stack asked.

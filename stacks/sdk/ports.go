@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
 	"net/netip"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Host is what the core hands a stack when it starts it: one adapter per port the manifest requires. A port the manifest did not
@@ -37,6 +40,8 @@ type Host struct {
 	Notify Notify
 	// Schedule evaluates cron expressions with the service's one grammar; nil unless the manifest requires PortSchedule.
 	Schedule Schedule
+	// HTTP gives a guarded HTTP client for a long-lived exchange; nil unless the manifest requires PortHTTP.
+	HTTP HTTP
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -690,8 +695,104 @@ type Schedule interface {
 	Next(expr string, after time.Time) (time.Time, error)
 }
 
+// HTTPOptions are what a stack may ask of the client it is given: nothing that widens the guard, only the extra trust a server it was told to use
+// needs. Plain data.
+type HTTPOptions struct {
+	// RootCAPEM is one or more PEM certificates to trust in addition to the system's, for a server with its own certificate authority.
+	RootCAPEM []byte `json:"root_ca_pem,omitempty"`
+}
+
+// HTTP hands a stack an *http.Client whose every connection is dialled through the core's guard (Constitution I.1 to I.3): DNS-rebinding protection
+// and the LAN-versus-internet boundary apply at the socket, the environment's proxy is never used, a redirect is followed only to the same host,
+// and there is no overall timeout (a streamed answer must not be cut), so the caller bounds each call with a context. Like Guard it is a
+// capability, not a data call. Failures are an *Error: CodeInvalid for an option that does not parse.
+type HTTP interface {
+	Client(opts HTTPOptions) (*http.Client, error)
+}
+
+// The bounds on what a stack that provides dynamic tools may offer. The core enforces them and cuts or drops what exceeds them.
+const (
+	// MaxDynamicToolName is the longest name a tool the model sees may have.
+	MaxDynamicToolName = 64
+	// MaxDynamicToolDescription is the longest description kept, in bytes.
+	MaxDynamicToolDescription = 1024
+	// MaxDynamicToolSchema is the largest JSON schema kept, in bytes.
+	MaxDynamicToolSchema = 16 * 1024
+	// MaxDynamicTools is the most tools one stack may offer in all.
+	MaxDynamicTools = 128
+	// MaxDynamicResult is the largest answer of one call that crosses back, in bytes.
+	MaxDynamicResult = 256 * 1024
+)
+
+// ValidDynamicToolName reports whether name is one the model's tool-calling interface accepts: letters, digits, underscore and hyphen, from
+// one to MaxDynamicToolName characters.
+func ValidDynamicToolName(name string) bool {
+	if name == "" || len(name) > MaxDynamicToolName {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// DynamicTool is one tool a stack offers at run time. Name is the name the model sees; the core refuses a name that is not valid, that a built-in
+// or a declared tool has, or that appears twice. Description and Schema are text from outside and the core cuts and cleans them. Source is who
+// provides it (an MCP server's name), shown on the approval prompt and in the step timeline; Title is the tool's own short name. Ask says the owner
+// wants to approve each call: the guardrail engine refuses an unapproved call of such a tool.
+type DynamicTool struct {
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Source      string          `json:"source,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Schema      json.RawMessage `json:"schema"`
+	Ask         bool            `json:"ask,omitempty"`
+}
+
+// ToolResult is the answer of one dynamic tool call as text for the model: what the tool returned, or its own error message when IsError is set
+// (a tool that ran and failed, not a failure to reach it). Truncated says the text was cut at MaxDynamicResult.
+type ToolResult struct {
+	Text      string `json:"text"`
+	IsError   bool   `json:"is_error,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// CleanText makes a piece of text from outside fit for a prompt or a screen: bytes that are not UTF-8 become a question mark, control characters other
+// than a new line, a carriage return and a tab are removed, and the result is cut at limit bytes on a character boundary. Both the stack and the core use
+// it, so the two never clean text differently.
+func CleanText(s string, limit int) string {
+	s = strings.ToValidUTF8(s, "?")
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || (r >= 0x20 && r != 0x7f && (r < 0x80 || r >= 0xa0)) {
+			return r
+		}
+		return -1
+	}, s)
+	if len(s) <= limit {
+		return s
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end]
+}
+
+// ToolSource is implemented by a stack whose manifest sets DynamicTools. The core calls it, so it is a method set and not a Host port. ListTools
+// must answer at once from what the stack already knows, and answer with nothing while the stack is off, not running or cannot reach what it
+// serves: no run may wait on it. CallDynamic runs one tool by the name ListTools gave, with JSON arguments; a failure to reach the tool is an
+// *Error, a tool that ran and failed is a ToolResult with IsError.
+type ToolSource interface {
+	ListTools(ctx context.Context) ([]DynamicTool, error)
+	CallDynamic(ctx context.Context, name string, args json.RawMessage) (ToolResult, error)
+}
+
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}}
 }

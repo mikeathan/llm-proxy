@@ -279,10 +279,11 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/api/mcp` | List MCP servers |
-| POST | `/admin/api/mcp` | Add MCP server |
-| PUT | `/admin/api/mcp` | Update MCP server |
-| DELETE | `/admin/api/mcp?name={name}` | Remove MCP server |
+| GET | `/admin/api/mcp/servers` | List MCP servers with status and tools (Agents stack) |
+| POST | `/admin/api/mcp/servers` | Add a server (step-up; the sign-in value is sealed, never returned) |
+| PUT | `/admin/api/mcp/servers` | Change a server, name in the body (step-up) |
+| DELETE | `/admin/api/mcp/servers?name={name}` | Remove a server (step-up) |
+| POST | `/admin/api/mcp/test` | Try a saved server by name, or an entry as typed (step-up) |
 
 ---
 

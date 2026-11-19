@@ -30,7 +30,6 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   openai: "OpenAI / Compatible",
   openrouter: "OpenRouter",
   nvidia: "NVIDIA NIM",
-  mcp: "MCP Servers",
   communication: "Communication",
   search: "Search",
   agents: "Agents",

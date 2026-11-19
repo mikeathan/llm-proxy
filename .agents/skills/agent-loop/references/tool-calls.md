@@ -82,7 +82,7 @@ The model sees `UserRole` messages with `"Tool result"` text prefixes instead.
 
 | Value | Behaviour |
 |-------|-----------|
-| `nil` (unset) | Use `provider.UseNativeTools()` — `LocalToolRegistry` returns `false`, `MockNodeHerder` returns `true` |
+| `nil` (unset) | Use `provider.UseNativeTools()` — `LocalToolRegistry` returns `false`, `StackTools` (and its test double `MockDynamicTools`) return `true` |
 | `&true` | Force native mode — `tool_choice: "required"` in automation, `NormalizeHistory` keeps ToolRole |
 | `&false` | Force XML mode — `tool_choice` not set, `NormalizeHistory` converts ToolRole → UserRole |
 

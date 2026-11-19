@@ -53,9 +53,8 @@ func (h *ModelHandlers) AdminDeleteAllModelsHandler(w http.ResponseWriter, r *ht
 func (h *ModelHandlers) AdminRegistryHandler(w http.ResponseWriter, r *http.Request) {
 	reg := h.admin.GetRegistry()
 	view := adminRegistryView{
-		Catalogue:  reg.Catalogue,
-		Providers:  getProvidersView(h.admin),
-		MCPServers: reg.MCPServers,
+		Catalogue: reg.Catalogue,
+		Providers: getProvidersView(h.admin),
 	}
 	respondJSON(w, view)
 }
@@ -70,7 +69,6 @@ func (h *ModelHandlers) AdminRegistryPutHandler(w http.ResponseWriter, r *http.R
 	err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
 		reg.Catalogue = req.Catalogue
 		reg.Providers = translateProvidersToRegistry(req.Providers)
-		reg.MCPServers = req.MCPServers
 		// Clear any primary/fallback that pointed at a now-removed model.
 		models.ClearDanglingModelRefs(reg)
 	})

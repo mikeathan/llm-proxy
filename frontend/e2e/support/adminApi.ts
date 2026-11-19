@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '../../src/composables/models/useConfig'
 
 // What every admin page asks for when it loads, so a spec names only the answers it cares about. Endpoints the pages
 // read as lists answer `[]` (a `{}` there throws in the page and hides the section under test); anything unknown `{}`.
-const LIST_ENDPOINTS = ['/manifests', '/mcp', '/workspaces', '/profiles', '/profile-schema', '/automations']
+const LIST_ENDPOINTS = ['/manifests', '/workspaces', '/profiles', '/profile-schema', '/automations']
 const READY = { ready: true, requirements: [], notices: [] }
 // No devices seen and the new-device check off, the answers the Devices card needs to draw.
 const DEVICES = { devices: [], gateway: { changed: false }, baselined: true, updated_at: '0001-01-01T00:00:00Z' }
@@ -29,6 +29,7 @@ const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevat
 
 const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/stacks': STACKS,
+  '/mcp/servers': { enabled: true, servers: [] },
   '/netaudit/readiness': READY,
   '/auth/status': SIGNED_IN,
   '/netaudit/devices': DEVICES,

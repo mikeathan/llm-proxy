@@ -10,6 +10,7 @@ import { useElapsedTimer } from '../../../composables/useElapsedTimer'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
 import { activityLabel, helpersLabel, tokenUsageLabel } from '../../../constants/labels'
 import { formatElapsedSeconds } from '../../../utils/format/time'
+import { toolDisplayName } from '../../../utils/assistant/toolSteps'
 import { isFinishedPhase, isStreamingPhase, type InsetPhase } from '../../../types/inset'
 
 // The assistant's side of a turn, read like a document: one activity line
@@ -201,7 +202,7 @@ watch(
               <span class="timeline-marker timeline-marker--error" aria-hidden="true"><Icon name="warning" size="xs" /></span>
               <div class="timeline-body">
                 <span class="inset-label inset-label--error">Blocked by a guardrail</span>
-                <span class="inset-guardrail-tool">{{ seg.tool }}</span>
+                <span class="inset-guardrail-tool" :title="seg.tool">{{ toolDisplayName(seg.tool) }}</span>
                 <span class="timeline-text">{{ seg.error }}</span>
               </div>
             </li>
