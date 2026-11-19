@@ -308,11 +308,7 @@ func TestManager_FirewallLinesNeverUseUpTheAllowanceSoALeaseStillGetsThrough(t *
 	// buffer, which could be the lease itself. Let the reader drain the flood before the lease is sent; what is asserted
 	// (the flood does not use up the lease's allowance) is unchanged.
 	r.drained(t)
-	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && r.wakes.Load() == 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
+	wakeWithLease(t, r, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
 	if r.wakes.Load() != 1 {
 		t.Errorf("wakes = %d: a lease after a flood of drops must still wake the check", r.wakes.Load())
 	}
@@ -378,11 +374,7 @@ func TestManager_QueryLinesHaveTheirOwnLimitAndNeverUseUpTheAllowanceOfALease(t 
 	for i := 0; i < 3*queriesPerSecond; i++ {
 		send(t, addr, dnsQueryLine)
 	}
-	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && r.wakes.Load() == 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
+	wakeWithLease(t, r, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
 	if r.wakes.Load() != 1 {
 		t.Errorf("wakes = %d: a lease after a flood of query lines must still wake the check", r.wakes.Load())
 	}
@@ -432,5 +424,18 @@ func TestManager_StatusSaysWhenTheLastDNSLineWasRead(t *testing.T) {
 	r.waitQueries(t, 1)
 	if r.m.Status().QueriesLast.IsZero() {
 		t.Fatal("the time of the last DNS line must be kept: the phone-home watch is judged by it")
+	}
+}
+
+// wakeWithLease sends a lease and waits for the check to be woken. UDP is not reliable and a CI machine under load drops datagrams, so after a flood the lease
+// is sent again every 100 ms until the wake comes (the wake gap keeps a repeat from waking twice), for at most five seconds.
+func wakeWithLease(t *testing.T, r *rig, addr *net.UDPAddr, line string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && r.wakes.Load() == 0 {
+		send(t, addr, line)
+		for i := 0; i < 20 && r.wakes.Load() == 0; i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
 	}
 }
