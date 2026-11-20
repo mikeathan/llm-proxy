@@ -1,11 +1,11 @@
-import type { SourceKind, SourceKindInfo, TopicStatus } from '../types/newsroom'
+import type { HelpSection, SourceKind, SourceKindInfo, TopicStatus } from '../types/newsroom'
 import type { ChoiceOption, StatusState } from '../types/ui'
 
 // The words of the Newsroom screens.
 
 export const NEWSROOM_TITLE = 'Newsroom'
 export const NEWSROOM_SUBTITLE = 'Topics you follow, and what is new in them. Ask the assistant to follow one, or add one here.'
-export const NEWSROOM_TAB_LABELS = { feed: 'Feed', topics: 'Topics', sources: 'Sources', settings: 'Settings' } as const
+export const NEWSROOM_TAB_LABELS = { feed: 'Feed', topics: 'Topics', sources: 'Sources', settings: 'Settings', help: 'Help' } as const
 export const NEWSROOM_LOAD_FAILED = 'The Newsroom could not be read.'
 export const NEWSROOM_ACTION_FAILED = 'The change could not be made.'
 export const NEWSROOM_RELOAD_HINT = 'Check that the service is running, then reload the page.'
@@ -46,6 +46,8 @@ export const NEWSROOM_CARD_RELOAD = 'It is read again in a minute.'
 export const NEW_TOPIC_LABEL = 'New topic'
 export const TOPIC_NAME_LABEL = 'Name'
 export const TOPIC_NAME_MAX = 80
+export const TOPIC_NAME_HINT = 'Only a label for you, such as "AI news". Where it reads is set under Sources below.'
+export const TOPIC_FORM_INTRO = 'A topic is something you follow. Give it a name, then say where to read about it.'
 export const TOPIC_INTERVAL_LABEL = 'Check every'
 export const TOPIC_CHANNEL_LABEL = 'Send a message when something is new'
 export const TOPIC_CHANNEL_HINT = 'Every change is kept in the feed either way. Pick a channel to be told as well.'
@@ -104,3 +106,44 @@ export const TOPIC_STATUS_TAG: Record<TopicStatus, { state: StatusState; label: 
   analysis_failed: { state: 'warning', label: 'Could not compare' },
   failing: { state: 'error', label: 'Source failing' },
 }
+
+export const HELP_TITLE = 'How the Newsroom works'
+/** The words of the Help tab: what a topic is, where to find sources, and what the states mean. Plain text only. */
+export const HELP_SECTIONS: readonly HelpSection[] = [
+  {
+    title: 'What it does',
+    lines: [
+      'You follow topics. Each topic reads the places you give it on a timer and keeps what is new in the Feed.',
+      'A topic is a name plus its sources. The name is only a label for you; the sources are where it reads. It follows everything a source publishes, so pick sources that are about what you care about.',
+    ],
+  },
+  {
+    title: 'Follow something in four steps',
+    lines: [
+      '1. Topics tab, New topic. Type a name, then add a source (see the next section).',
+      '2. Save. Press Check now on the topic. The first check only records what is there already and tells you nothing.',
+      '3. Wait for something new, then press Check now again, or let the timer do it.',
+      '4. Open the Feed. New items appear there. Pick a channel on the topic if you also want a message.',
+    ],
+  },
+  {
+    title: 'Where to find sources',
+    lines: [
+      'News feed or site: the address of its feed, such as https://go.dev/blog/feed.atom. Try /feed, /rss or /atom.xml on a site\'s address, or look for an RSS link on the page.',
+      'GitHub releases: https://github.com/OWNER/REPO/releases.atom, with the owner and project name filled in.',
+      'Hacker News search: words such as llm or rust. Stories that match them are new at almost every check.',
+      'Mastodon tag: the tag without the #, and the server it is read from, such as mastodon.social.',
+      'Telegram public channel: the channel username, without @ or t.me/. It is the name in the channel\'s share link. Open https://t.me/s/NAME in a browser first: if recent posts show there, it works here. A private channel has no public preview. Telegram is checked every 10 minutes at most.',
+      'Web page: any address. You are told when its visible text changes.',
+    ],
+  },
+  {
+    title: 'Good to know',
+    lines: [
+      'Feed only means changes are kept in the Feed and nothing is sent. Choose a channel on a topic to be messaged as well.',
+      'Source failing means the address could not be read. Check it in a browser, and check that this computer can reach the internet.',
+      'Not compared means no model is chosen, so every item is announced as new instead of being compared with what you saw before.',
+      'Deleting a topic removes what it found from the Feed.',
+    ],
+  },
+]

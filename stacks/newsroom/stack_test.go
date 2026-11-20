@@ -127,13 +127,13 @@ func TestCreateListUpdateDeleteThroughRoutes(t *testing.T) {
 	}
 	params := map[string]string{"id": "1"}
 	upd := strings.Replace(feedTopic, `"Go"`, `"Rust"`, 1)
-	if got, err = s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: RouteTopic, Params: params, Body: []byte(upd)}); err != nil || !strings.Contains(string(got.Body), "Rust") {
+	if got, err = s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: topicPath("1", ""), Params: params, Body: []byte(upd)}); err != nil || !strings.Contains(string(got.Body), "Rust") {
 		t.Errorf("update = %s, %v", got.Body, err)
 	}
-	if got, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: RouteTopic, Params: params}); err != nil || got.Status != http.StatusNoContent {
+	if got, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: topicPath("1", ""), Params: params}); err != nil || got.Status != http.StatusNoContent {
 		t.Errorf("delete = %+v, %v", got, err)
 	}
-	if _, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: RouteTopic, Params: params}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+	if _, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: topicPath("1", ""), Params: params}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("a second delete is not_found, got %v", err)
 	}
 }
@@ -151,7 +151,7 @@ func TestRefusalsAreInvalidNotServerErrors(t *testing.T) {
 			t.Errorf("%s: want invalid, got %v", name, err)
 		}
 	}
-	if _, err := s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: RouteTopic, Params: map[string]string{"id": "x"}}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+	if _, err := s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: topicPath("x", ""), Params: map[string]string{"id": "x"}}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("a non-numeric id is not_found, got %v", err)
 	}
 }
@@ -178,7 +178,7 @@ func TestManualRunBaselinesThenFeedStaysEmpty(t *testing.T) {
 	s := startEvery(t, "", &rssFetch{}, time.Hour)
 	ctx := context.Background()
 	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
-	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteRun, Params: map[string]string{"id": "1"}})
+	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: topicPath("1", "/run"), Params: map[string]string{"id": "1"}})
 	if err != nil || !strings.Contains(string(got.Body), "baseline") {
 		t.Fatalf("first run = %s, %v", got.Body, err)
 	}
@@ -269,7 +269,7 @@ func TestAManualRunFollowsTheSwitchAndFetchesNothingWhileOff(t *testing.T) {
 	f := &rssFetch{}
 	s := start(t, `{"disabled":true}`, f)
 	s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
-	_, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteRun, Params: map[string]string{"id": "1"}})
+	_, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: topicPath("1", "/run"), Params: map[string]string{"id": "1"}})
 	if stacksdk.CodeOf(err) != stacksdk.CodeUnavailable || f.count() != 0 {
 		t.Errorf("err = %v, fetches = %d", err, f.count())
 	}
@@ -289,3 +289,6 @@ func TestEraseAllEmptiesTheTopicsAndIsHarmlessWhenNotRunning(t *testing.T) {
 		t.Errorf("topics after erase = %s", got.Body)
 	}
 }
+
+// topicPath is the path the core really passes: the route with the id filled in, not the {id} pattern.
+func topicPath(id, suffix string) string { return RouteTopics + "/" + id + suffix }

@@ -9,7 +9,7 @@ export class NewsroomService {
   static async topics(): Promise<NewsroomTopic[]> {
     const res = await apiFetch(`${BASE}/topics`)
     if (!res.ok) throw await failureReason(res, 'list topics')
-    return res.json()
+    return (await res.json()) ?? []
   }
 
   /** The feed in days. `zone` is the zone the days are drawn in (the browser's), so Today is the reader's today. */
@@ -19,7 +19,7 @@ export class NewsroomService {
     if (filter.unreadOnly) query.set('unread', 'true')
     const res = await apiFetch(`${BASE}/feed?${query}`)
     if (!res.ok) throw await failureReason(res, 'read the feed')
-    return res.json()
+    return (await res.json()) ?? []
   }
 
   static async create(edit: NewsroomTopicEdit): Promise<NewsroomTopic> {

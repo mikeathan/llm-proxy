@@ -9,6 +9,7 @@ import EmptyState from "../components/common/feedback/EmptyState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
+import NewsroomHelp from "../components/newsroom/NewsroomHelp.vue"
 import NewsroomSources from "../components/newsroom/NewsroomSources.vue"
 import NewsroomFeed from "../components/newsroom/NewsroomFeed.vue"
 import NewsroomTopicEditor from "../components/newsroom/NewsroomTopicEditor.vue"
@@ -29,12 +30,16 @@ import type { NewsroomTopic, NewsroomTopicEdit } from "../types/newsroom"
 // cards only show). Everything on the page comes from one composable that refreshes while the page is open.
 const route = useRoute()
 const router = useRouter()
-const tab = computed<"feed" | "topics" | "sources" | "settings">(() => (route.params.tab === "topics" || route.params.tab === "sources" || route.params.tab === "settings" ? route.params.tab : "feed"))
+const tab = computed<"feed" | "topics" | "sources" | "settings" | "help">(() => {
+  const asked = route.params.tab
+  return asked === "topics" || asked === "sources" || asked === "settings" || asked === "help" ? asked : "feed"
+})
 const tabs: readonly StackTabItem[] = [
   { id: "feed", label: NEWSROOM_TAB_LABELS.feed, to: toNewsroom() },
   { id: "topics", label: NEWSROOM_TAB_LABELS.topics, to: toNewsroom("topics") },
   { id: "sources", label: NEWSROOM_TAB_LABELS.sources, to: toNewsroom("sources") },
   { id: "settings", label: NEWSROOM_TAB_LABELS.settings, to: toNewsroom("settings") },
+  { id: "help", label: NEWSROOM_TAB_LABELS.help, to: toNewsroom("help") },
 ]
 
 const NEW = "new" as const
@@ -81,12 +86,13 @@ async function check(t: NewsroomTopic) {
 <template>
   <div class="flex flex-col gap-4">
     <PageHeader eyebrow="Stacks" :title="NEWSROOM_TITLE" :subtitle="NEWSROOM_SUBTITLE">
-      <template v-if="tab !== 'settings'" #actions>
+      <template v-if="tab !== 'settings' && tab !== 'help'" #actions>
         <BaseButton size="sm" icon="plus" :disabled="editing === NEW" @click="startNew">{{ NEW_TOPIC_LABEL }}</BaseButton>
       </template>
     </PageHeader>
     <StackTabs label="Newsroom" :tabs="tabs" :active="tab" />
     <StackModules v-if="tab === 'settings'" stack="newsroom" />
+    <NewsroomHelp v-else-if="tab === 'help'" />
 
     <template v-else>
       <LoadingState v-if="loading" label="Loading the Newsroom" :rows="3" />

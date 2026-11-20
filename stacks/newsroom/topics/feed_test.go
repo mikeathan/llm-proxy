@@ -2,6 +2,7 @@ package topics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -211,5 +212,14 @@ func TestChannelIsValidated(t *testing.T) {
 	x.Channel = " Email "
 	if got, err := Normalize(x); err != nil || got.Channel != "email" {
 		t.Errorf("channel is normalised: %+v %v", got, err)
+	}
+}
+
+// An empty feed is the JSON [], never null: the page reads the answer with .length and a null crashed it (a topic that had only recorded its baseline).
+func TestAnEmptyFeedIsAnEmptyListNotNull(t *testing.T) {
+	var s Store
+	got, err := json.Marshal(s.Feed(time.Now(), time.UTC, 7, Filter{}))
+	if err != nil || string(got) != "[]" {
+		t.Fatalf("empty feed = %s (%v), want []", got, err)
 	}
 }
