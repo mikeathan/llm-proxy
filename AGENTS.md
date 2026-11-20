@@ -45,6 +45,9 @@ only when the conflict cannot be resolved safely.
 - Load only what the task needs. Every loaded file costs context — prefer `file:line` pointers and
   targeted reads over opening whole docs. When unsure whether a large doc is needed, ask first.
 - Load the matching rule file and the affected subsystem's hub, SPEC and skill only — never all of them.
+- Keep large output out of the context: for test logs, build output, big diffs or data files, filter with a command or
+  a small script (`tail`, `grep` for failures, a count) and read only the result. Read a whole log or file only when
+  the filtered result is not enough.
 - Finished plans in `docs/PLANS/ARCHIVE/` are evidence, not instructions: open one only when its topic is in
   play; the SPECs, `docs/architecture/` and the ADRs win if they disagree.
 

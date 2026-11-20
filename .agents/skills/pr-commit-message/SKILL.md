@@ -2,7 +2,7 @@
 name: pr-commit-message
 description: "Draft PR titles, descriptions, and commit messages from the branch implementation, emphasizing core work and material secondary fixes. Use when preparing PR or commit text."
 metadata:
-  last_reviewed: "2026-10-04"
+  last_reviewed: "2026-11-20"
 ---
 
 # PR and Commit Text
@@ -34,3 +34,22 @@ Return all three unless a subset is requested; put scope assumptions and uncerta
 Use plain, concrete language; avoid file inventories, vague improvements, and low-value details. Treat tests as validation, not features. Claim passes only from observed results for the relevant revision; otherwise mark validation unverified. Drafting alone need not rerun the suite.
 
 Cross-check claims against each deliverable's scope: core work leads, important fixes remain visible, and incidental work does not dominate.
+
+## Example (shape to match)
+
+A real merged commit, trimmed (`0cdb0058`, PR #281). Read it with `git show 0cdb0058`.
+
+```
+Network becomes one dashboard tab with five sub-tabs; the page scrollbar keeps its room (v0.113.0)
+
+The Network board was thirteen cards in one column, nine of them full width and
+five of them five views of one overview read. The page scrollbar also flickered.
+
+- Scrollbar: html and card lists get scrollbar-gutter: stable. The scrollbar
+  appearing narrowed the cards, their text re-wrapped and shortened the page,
+  and the scrollbar left again (pitfall 76).
+- Sub-tabs: a stack's boards share one tab with a row of sub-tabs.
+- 13 cards become 6.
+```
+
+What to copy: the title names the outcome, the opening is the problem, and each bullet is one observable behavior. It lists no files or docs.
