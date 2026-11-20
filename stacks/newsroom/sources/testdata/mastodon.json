@@ -1,0 +1,133 @@
+[
+ {
+  "id": "117649634212965393",
+  "created_at": "2026-11-20T16:09:06.000Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": "de",
+  "uri": "https://gruene.social/ap/users/116390677461288584/statuses/117649633868047702",
+  "url": "https://gruene.social/@thoralf/117649633868047702",
+  "replies_count": 0,
+  "reblogs_count": 0,
+  "favourites_count": 0,
+  "quotes_count": 0,
+  "edited_at": null,
+  "content": "<p>Update zum Thema lokales <a href=\"https://gruene.social/tags/LLM\" class=\"mention hashtag\" rel=\"nofollow noopener\" target=\"_blank\">#<span>LLM</span></a> </p><p>Der Mac Mini M4 mit 32 GB RAM ist da und grundinstalliert.<br>Erste Tests zeigen, dass 28000 MiB GPU wired limit stabil laufen, wenn man den Mac debloated.</p><p>Derzeit läuft die Installation von MLX und Qwen3.6-35B-A3B-4bit.<br>Damit sollten rechnerisch 2 parallele Sessions mit vollem Kontext (256k) möglich sein und theoretisch sogar noch eine 3. mit kleinerem.<br>(Theoretisch, in der Praxis wird mich die Bandbreite ausbremsen.)</p><p>Es wird spannend ...</p>",
+  "reblog": null,
+  "account": {
+   "acct": "thoralf@gruene.social"
+  },
+  "tags": [
+   {
+    "name": "llm",
+    "url": "https://mastodon.social/tags/llm"
+   }
+  ],
+  "tagged_collections": [],
+  "quote": null,
+  "quote_approval": {
+   "automatic": [
+    "public"
+   ],
+   "manual": [],
+   "current_user": "denied"
+  }
+ },
+ {
+  "id": "117649627617608846",
+  "created_at": "2026-11-20T16:07:31.119Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": "en",
+  "uri": "https://mastodon.social/users/MedicalNewsBulletin/statuses/117649627617608846",
+  "url": "https://mastodon.social/@MedicalNewsBulletin/117649627617608846",
+  "replies_count": 0,
+  "reblogs_count": 0,
+  "favourites_count": 0,
+  "quotes_count": 0,
+  "edited_at": null,
+  "content": "<p>What do people with lower back pain have in common? a new study says less abdominal muscle support. AI isn&#39;t just LLMs. Machine learning with easier to use <a href=\"https://mastodon.social/tags/LLM\" class=\"mention hashtag\" rel=\"tag\">#<span>LLM</span></a> powered interfaces are allowing research that was impossible just a few years ago. <a href=\"https://medicalnewsbulletin.com/radiologists-link-small-abdominal-muscles-to-chronic-lower-back-pain/\" target=\"_blank\" rel=\"nofollow noopener\" translate=\"no\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">medicalnewsbulletin.com/radiol</span><span class=\"invisible\">ogists-link-small-abdominal-muscles-to-chronic-lower-back-pain/</span></a> 🧪 <a href=\"https://mastodon.social/tags/spinehealth\" class=\"mention hashtag\" rel=\"tag\">#<span>spinehealth</span></a></p>",
+  "reblog": null,
+  "application": {
+   "name": "Buffer",
+   "website": "https://buffer.com"
+  },
+  "account": {
+   "acct": "MedicalNewsBulletin"
+  },
+  "tags": [
+   {
+    "name": "llm",
+    "url": "https://mastodon.social/tags/llm"
+   },
+   {
+    "name": "SpineHealth",
+    "url": "https://mastodon.social/tags/SpineHealth"
+   }
+  ],
+  "tagged_collections": [],
+  "quote": null,
+  "quote_approval": {
+   "automatic": [
+    "public"
+   ],
+   "manual": [],
+   "current_user": "denied"
+  }
+ },
+ {
+  "id": "117649581242643410",
+  "created_at": "2026-11-20T15:55:42.000Z",
+  "in_reply_to_id": null,
+  "in_reply_to_account_id": null,
+  "sensitive": false,
+  "spoiler_text": "",
+  "visibility": "public",
+  "language": "ja",
+  "uri": "https://mastodon.crazynewworld.net/users/hans/statuses/117649581167666409",
+  "url": "https://mastodon.crazynewworld.net/@hans/117649581167666409",
+  "replies_count": 0,
+  "reblogs_count": 4,
+  "favourites_count": 0,
+  "quotes_count": 0,
+  "edited_at": null,
+  "content": "<p>Buffalo、ヒトにも亜人にも大きな意味がありそうです</p><p>Buffalo、同社初のトラックボールBSTBB700Xシリーズにも対応したマウス・カスタマイズアプリ「マウスカスタム＋」のMac版をリリース。 <a href=\"https://applech2.com/archives/20261119-buffalo-mouse-custom-plus-for-mac.html\" rel=\"nofollow noopener\" translate=\"no\" target=\"_blank\"><span class=\"invisible\">https://</span><span class=\"ellipsis\">applech2.com/archives/20261119</span><span class=\"invisible\">-buffalo-mouse-custom-plus-for-mac.html</span></a></p><p><a href=\"https://mastodon.crazynewworld.net/tags/Apple\" class=\"mention hashtag\" rel=\"nofollow noopener\" target=\"_blank\">#<span>Apple</span></a> <a href=\"https://mastodon.crazynewworld.net/tags/LLM\" class=\"mention hashtag\" rel=\"nofollow noopener\" target=\"_blank\">#<span>LLM</span></a> <a href=\"https://mastodon.crazynewworld.net/tags/news\" class=\"mention hashtag\" rel=\"nofollow noopener\" target=\"_blank\">#<span>news</span></a> <a href=\"https://mastodon.crazynewworld.net/tags/bot\" class=\"mention hashtag\" rel=\"nofollow noopener\" target=\"_blank\">#<span>bot</span></a></p>",
+  "reblog": null,
+  "account": {
+   "acct": "hans@mastodon.crazynewworld.net"
+  },
+  "tags": [
+   {
+    "name": "apple",
+    "url": "https://mastodon.social/tags/apple"
+   },
+   {
+    "name": "llm",
+    "url": "https://mastodon.social/tags/llm"
+   },
+   {
+    "name": "news",
+    "url": "https://mastodon.social/tags/news"
+   },
+   {
+    "name": "bot",
+    "url": "https://mastodon.social/tags/bot"
+   }
+  ],
+  "tagged_collections": [],
+  "quote": null,
+  "quote_approval": {
+   "automatic": [
+    "public"
+   ],
+   "manual": [],
+   "current_user": "denied"
+  }
+ }
+]

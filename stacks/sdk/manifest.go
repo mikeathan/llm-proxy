@@ -204,9 +204,15 @@ const (
 	// every connection it makes is dialled through the core's guard, it follows a redirect only to the same host and has no overall timeout of its
 	// own (ADR-0069). A stack cannot build an http.Transport itself, so this is the only way it gets one.
 	PortHTTP = "httpclient"
+	// PortModel lets a stack ask the core for one model answer: a system and a user text in, text out (ADR-0071). The core chooses the model; the stack names no
+	// provider, model or parameter, and the call carries no tools, no memory and no history.
+	PortModel = "model"
+	// PortNotice lets a stack hand the core a structured notice (a topic, the items found, the facts that changed) to send to one connector type the owner
+	// enabled. The core words it from fixed wording and sends it as plain text; the stack never sends and never writes the message (ADR-0036, ADR-0071).
+	PortNotice = "notice"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP, PortModel, PortNotice}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

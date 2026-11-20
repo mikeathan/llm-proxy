@@ -21,6 +21,7 @@ modifying or extending the subsystem it describes. Lifecycle and change rules:
 | SPEC-010 | `agent-loop-strategies.md` | Agent Loop Strategies | stable | II.4, II.5, II.6, II.7, II.10, II.13 |
 | SPEC-011 | `reminders.md` | Reminders | stable | II.2, II.14, V |
 | SPEC-012 | `prompt-profiles.md` | Prompt Profiles | draft | II.13, II.3 |
+| SPEC-013 | `newsroom.md` | Newsroom | stable | I.1, III.6, IV.6, V.2 |
 
 **Adding a SPEC:** take the next unused ID, write the sections (Intent, Functional Requirements, Data
 Model, Behavior, Error Handling), add a row above, and follow `docs/SPEC-change-management.md`.

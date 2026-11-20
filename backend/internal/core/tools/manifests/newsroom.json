@@ -1,0 +1,73 @@
+{
+  "tool_name": "newsroom",
+  "version": "1.0",
+  "description": "Newsroom tools: follow a topic (a name and the sources to read) and list the topics being followed.",
+  "runtime": {
+    "newsroom_follow": {
+      "description": "Follow a new topic in the Newsroom: the Newsroom reads its sources on a timer and keeps what is new in the owner's feed. Use it when the user says 'keep an eye on …', 'follow …' or 'tell me when … has news'. A topic made here only fills the feed; it never sends a message and has no channel (the user picks one in the Newsroom screen). Each source is a kind and a target: 'feed' (an RSS or Atom URL, or a GitHub releases feed), 'hackernews' (a search word), 'mastodon' (a tag, with the instance), 'page' (a web page URL, watched for changes) or 'telegram' (a public channel name). Pass only sources the user named or that you know are real; do not invent URLs. 'interval' is optional (for example '1h'; the default and the shortest allowed are applied). The result describes the topic made: repeat its name and sources to the user. If this tool returns an error, the topic was NOT saved: tell the user.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A short name for the topic, e.g. 'Go releases'."
+          },
+          "interval": {
+            "type": "string",
+            "description": "How often to read, as a duration such as '1h'. Omit for the default."
+          },
+          "sources": {
+            "type": "array",
+            "description": "One or more sources to read.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "feed",
+                    "hackernews",
+                    "mastodon",
+                    "page",
+                    "telegram"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "description": "The URL, search word, tag or channel name."
+                },
+                "instance": {
+                  "type": "string",
+                  "description": "For mastodon only: the instance host, e.g. 'mastodon.social'."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Optional short label."
+                }
+              },
+              "required": [
+                "kind",
+                "target"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name",
+          "sources"
+        ]
+      }
+    },
+    "newsroom_topics": {
+      "description": "List the topics the Newsroom follows, with their sources, interval, channel and last result. Use it to answer 'what am I following?' and before adding a topic, to avoid a duplicate.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  },
+  "guardrails": {
+    "enabled": false
+  }
+}

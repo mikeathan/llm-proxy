@@ -8,7 +8,7 @@ export type DashboardCols = 3 | 4 | 6 | 8 | 12
 export type DashboardRows = 1 | 2
 
 /** Where a card's facts come from; shown as the chip in its header and used to group the catalogue. */
-export type DashboardSource = 'host' | 'assistant' | 'automations' | 'reminders' | 'network' | 'radio' | 'agents'
+export type DashboardSource = 'host' | 'assistant' | 'automations' | 'reminders' | 'network' | 'radio' | 'agents' | 'newsroom'
 
 /** One card on a board, as the server stores it. */
 export interface DashboardPlacement {

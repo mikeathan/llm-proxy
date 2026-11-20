@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type LocationQuery, type RouteLocationRaw, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
-import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, NEWSROOM_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toAgents, toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
 import { homeLocation } from '../utils/navigation'
 import { DASHBOARD_TITLE, NETWORK_CARD_BOARD } from '../constants/dashboard'
@@ -17,6 +17,7 @@ const StacksView = () => import('../views/StacksView.vue')
 const RadioView = () => import('../views/RadioView.vue')
 const RadioDeviceView = () => import('../views/RadioDeviceView.vue')
 const RemindersView = () => import('../views/RemindersView.vue')
+const NewsroomView = () => import('../views/NewsroomView.vue')
 const ModelsView = () => import('../views/ModelsView.vue')
 const ActivityView = () => import('../views/ActivityView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
@@ -34,6 +35,7 @@ const NETWORK_TAB_PATTERN = NETWORK_TABS.join('|')
 const AGENTS_TAB_PATTERN = AGENTS_TABS.join('|')
 const RADIO_TAB_PATTERN = RADIO_TABS.join('|')
 const REMINDERS_TAB_PATTERN = REMINDERS_TABS.join('|')
+const NEWSROOM_TAB_PATTERN = NEWSROOM_TABS.join('|')
 const SECTION_PATTERN = WORKSPACE_SECTIONS.join('|')
 
 // Dev-only living design reference (D23): `import.meta.env.DEV` is a build-time
@@ -78,6 +80,7 @@ export const routes: RouteRecordRaw[] = [
   { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', fullWidth: true, title: 'Radio' } },
   // One device in full. Its own segment ("device"), so the tab pattern above never captures it.
   { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', fullWidth: true, title: 'Radio device' } },
+  { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', title: 'Newsroom' } },
   { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

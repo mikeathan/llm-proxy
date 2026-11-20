@@ -49,6 +49,7 @@ export const SOURCE_LABELS: Record<DashboardSource, string> = {
   network: 'Network',
   radio: 'Radio',
   agents: 'Agents',
+  newsroom: 'Newsroom',
 }
 /** The short chip in a card's header. */
 export const SOURCE_CHIPS: Record<DashboardSource, string> = {
@@ -59,12 +60,13 @@ export const SOURCE_CHIPS: Record<DashboardSource, string> = {
   network: 'NETWORK',
   radio: 'RADIO',
   agents: 'AGENTS',
+  newsroom: 'NEWSROOM',
 }
 /** The tab a group of boards has in the strip. */
 export const GROUP_LABELS: Record<DashboardGroup, string> = { network: 'Network' }
 /** The name of the row of sub-tabs, for screen readers. */
 export const SUB_TABS_LABEL = (group: string): string => `${group} views`
-export const SOURCE_ORDER: readonly DashboardSource[] = ['host', 'assistant', 'automations', 'reminders', 'network', 'radio', 'agents']
+export const SOURCE_ORDER: readonly DashboardSource[] = ['host', 'assistant', 'automations', 'reminders', 'network', 'radio', 'agents', 'newsroom']
 
 export const PRESET_OPTIONS: ChoiceOption[] = [
   { value: 'default', label: 'Default' },
@@ -165,6 +167,7 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
   },
+  { id: 'newsroom', name: 'Newsroom', source: 'newsroom', cards: [{ id: 'newsroom-latest', cols: 12, rows: 1 }] },
   {
     id: 'agents',
     name: 'Agents',

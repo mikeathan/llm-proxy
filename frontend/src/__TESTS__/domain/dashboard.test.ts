@@ -211,7 +211,7 @@ describe("boardTabs: a stack's boards are one tab with sub-tabs", () => {
 
   it('shows Network once, with every Network board as a sub-tab, in the shipped order', () => {
     const tabs = boardTabs(shipped.boards, on)
-    expect(tabs.map((t) => t.label)).toEqual(['Home', 'LLM and host', 'Network', 'Radio', 'Agents', 'Automations'])
+    expect(tabs.map((t) => t.label)).toEqual(['Home', 'LLM and host', 'Network', 'Radio', 'Newsroom', 'Agents', 'Automations'])
     const network = tabs.find((t) => t.group === 'network')!
     expect(network.subTabs.map((s) => s.label)).toEqual(['Overview', 'Devices', 'Traffic', 'Findings', 'Activity'])
     expect(network.id).toBe('network')

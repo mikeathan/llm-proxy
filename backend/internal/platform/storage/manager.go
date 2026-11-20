@@ -42,6 +42,7 @@ type DataManager struct {
 	agentsView    *agentsView
 	radioView     *radioView
 	remindersView *remindersView
+	newsroomView  *newsroomView
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -98,6 +99,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 	m.agentsView = &agentsView{mgr: m}
 	m.radioView = &radioView{mgr: m}
 	m.remindersView = &remindersView{mgr: m}
+	m.newsroomView = &newsroomView{mgr: m}
 
 	return m, nil
 }
@@ -373,6 +375,9 @@ func (m *DataManager) Agents() *agentsView { return m.agentsView }
 
 // Radio is the Radio stack's policy (settings.yml → radio:), off until the operator switches it on.
 func (m *DataManager) Radio() *radioView { return m.radioView }
+
+// Newsroom is the Newsroom stack's settings (settings.yml → newsroom:): the zone and the module's switch.
+func (m *DataManager) Newsroom() *newsroomView { return m.newsroomView }
 
 // Reminders is the Reminders stack's settings (settings.yml → reminders:): the skipped connectors, the zone and the module's switch.
 func (m *DataManager) Reminders() *remindersView { return m.remindersView }

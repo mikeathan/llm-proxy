@@ -138,6 +138,12 @@ var moduleAbout = map[string]stack.About{
 		ShowsUp:  "As a message on your connectors, in the web page, and on the Reminders card.",
 		Settings: true,
 	},
+	"topics": {
+		Watches:  "The feeds, pages and channels you add to a topic, on the interval you chose.",
+		Never:    "It does not send a message itself, and it does not announce what was already there when you added a topic.",
+		ShowsUp:  "In the Newsroom feed and, for a topic with a channel, as a message the core words and sends.",
+		Settings: true,
+	},
 	"secrets_pass": {
 		Watches: "Workspace files, each night, for credentials left in them.",
 		Never:   "It never shows a secret, only the file and the kind.",

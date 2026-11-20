@@ -66,6 +66,10 @@ const (
 	ToolListReminders    = "list_reminders"
 	ToolCancelReminder   = "cancel_reminder"
 
+	// Newsroom (the Newsroom stack's topics; attended chat only)
+	ToolNewsroomFollow = "newsroom_follow"
+	ToolNewsroomTopics = "newsroom_topics"
+
 	// FileSystem
 	ToolFileRead      = "read_file"
 	ToolFileWrite     = "write_file"
@@ -116,6 +120,7 @@ const (
 	CategoryGlobal      = "security"
 	CategoryMemory      = "memory"
 	CategoryReminders   = "reminders"
+	CategoryNewsroom    = "newsroom"
 	CategoryAutomation  = "automation"
 	CategorySystem      = "system"
 	// CategoryDelegation is governed by a profile's delegates list, not by its tools list.

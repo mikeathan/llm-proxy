@@ -42,6 +42,10 @@ type Host struct {
 	Schedule Schedule
 	// HTTP gives a guarded HTTP client for a long-lived exchange; nil unless the manifest requires PortHTTP.
 	HTTP HTTP
+	// Model asks the core for one model answer; nil unless the manifest requires PortModel.
+	Model Model
+	// Notice hands the core a structured notice to word and send; nil unless the manifest requires PortNotice.
+	Notice Notice
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -688,6 +692,63 @@ type Notify interface {
 	Send(ctx context.Context, channel, text string) error
 }
 
+// NoticeItem is one thing found: plain data the core words. Title and Link are what the source gave; the core clips the title to one line and sends only
+// an http or https link.
+type NoticeItem struct {
+	Title string `json:"title"`
+	Link  string `json:"link,omitempty"`
+}
+
+// NoticeChange is one changed fact: the 1-based index of the item it is about, and a short was and now.
+type NoticeChange struct {
+	Item int    `json:"item"`
+	Was  string `json:"was"`
+	Now  string `json:"now"`
+}
+
+// NoticeRequest is what a stack offers: the topic's name, the items and the changed facts. It has no prose of the stack's own: the core words the
+// message from fixed wording around these fields.
+type NoticeRequest struct {
+	Topic   string         `json:"topic"`
+	Items   []NoticeItem   `json:"items"`
+	Changes []NoticeChange `json:"changes,omitempty"`
+}
+
+// MaxNoticeItems bounds the items of one notice; a request over it is refused with CodeInvalid, never cut.
+const MaxNoticeItems = 50
+
+// Notice is the one way a stack has the core tell the owner something it found. The core words and sends the message; a channel is a connector type
+// such as "telegram", never an address, and one that is not enabled is refused. Failures are an *Error: CodeInvalid for a channel that is not enabled,
+// an empty request or one over MaxNoticeItems, CodeUnavailable when the connector could not be reached. Nothing was sent when it fails.
+type Notice interface {
+	Send(ctx context.Context, channel string, n NoticeRequest) error
+}
+
+// The bounds of one model call (ADR-0071): a call over either is refused with CodeInvalid, never truncated.
+const (
+	MaxModelPromptBytes = 64 * 1024
+	MaxModelAnswerBytes = 16 * 1024
+)
+
+// ModelRequest is one question: a system text and a user text. Nothing else crosses: no model name, no tools, no history.
+type ModelRequest struct {
+	System string `json:"system"`
+	User   string `json:"user"`
+}
+
+// ModelResponse is the model's answer as text.
+type ModelResponse struct {
+	Text string `json:"text"`
+}
+
+// Model asks the core's configured model one question (ADR-0071). The core picks the model, local or cloud, as the owner set it up, and sends no tool
+// list, memory or history with it. Failures are an *Error: CodeInvalid for an empty or oversized prompt or an answer over MaxModelAnswerBytes, CodeDenied
+// when the stack's daily limit is spent, CodeUnavailable when the module is off, a call is already running or no model could answer, CodeTimeout when it
+// ran out of time.
+type Model interface {
+	Complete(ctx context.Context, req ModelRequest) (ModelResponse, error)
+}
+
 // Schedule evaluates cron expressions (five fields: minute, hour, day of month, month, day of week; or a descriptor such as @daily; never seconds).
 // Next is the first time strictly after the given time at which the expression fires, in the given time's own location, and the zero time when it
 // never fires again. An expression that is not valid is an *Error with CodeInvalid and the grammar's own message.
@@ -794,5 +855,5 @@ type ToolSource interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}, ModelRequest{}, ModelResponse{}}
 }

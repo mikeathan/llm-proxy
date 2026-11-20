@@ -176,7 +176,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [agents, example, network, radio, reminders, sdk]
+        stack: [agents, example, network, newsroom, radio, reminders, sdk]
     defaults:
       run:
         working-directory: stacks/${{ matrix.stack }}

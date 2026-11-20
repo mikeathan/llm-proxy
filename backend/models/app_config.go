@@ -20,6 +20,7 @@ type AppConfig struct {
 	Netaudit       *NetauditConfig          `yaml:"netaudit,omitempty" json:"netaudit,omitempty"`
 	Agents         *AgentsConfig            `yaml:"agents,omitempty" json:"agents,omitempty"`
 	Radio          *RadioConfig             `yaml:"radio,omitempty" json:"radio,omitempty"`
+	Newsroom       *NewsroomConfig          `yaml:"newsroom,omitempty" json:"newsroom,omitempty"`
 }
 
 // AppServerConfig is the infrastructure-level server section of AppConfig
