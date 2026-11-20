@@ -1,5 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAgents, toAutomations, toDashboard, toModels, toNetwork, toRadio, toReminders, toSettings, toStacks, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAgents, toAutomations, toDashboard, toModels, toNetwork, toNewsroom, toRadio, toReminders, toSettings, toStacks, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import { HOME_BOARD_ID } from '../constants/dashboard'
 import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
@@ -62,6 +62,7 @@ const SPECS: readonly NavSpec[] = [
   { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', stack: 'agents', to: () => toAgents(), current: onDestination('agents') },
   { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', stack: 'radio', to: () => toRadio(), current: onDestination('radio') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: false, group: 'stacks', stack: 'reminders', to: () => toReminders(), current: onDestination('reminders') },
+  { id: 'newsroom', label: 'Newsroom', icon: 'nav-newsroom', tab: false, group: 'stacks', stack: 'newsroom', to: () => toNewsroom(), current: onDestination('newsroom') },
   { id: 'stacks', label: 'Add a stack', icon: 'nav-stacks', tab: false, group: 'stacks', to: () => toStacks(), current: onDestination('stacks') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },

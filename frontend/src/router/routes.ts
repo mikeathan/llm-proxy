@@ -2,7 +2,7 @@ import type { RouteLocationNamedRaw } from 'vue-router'
 import { NETWORK_CARD_BOARD } from '../constants/dashboard'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
-import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, NewsroomTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -94,6 +94,9 @@ export const toRadioDevice = (id: string): RouteLocationNamedRaw => ({ name: ROU
 /** The place a requirement's fix points at: `network-scan` is the Network page's Settings tab, anything else a Settings section. */
 export const toRequirementFix = (section: RequirementFixSection): RouteLocationNamedRaw =>
   section === 'network-scan' ? toNetwork('settings') : toSettings(section)
+
+/** The Newsroom page; without a tab it is the feed. */
+export const toNewsroom = (tab?: NewsroomTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.newsroom, params: tab ? { tab } : {} })
 
 /** The Reminders page; without a tab it is the list of reminders. */
 export const toReminders = (tab?: RemindersTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders, params: tab ? { tab } : {} })

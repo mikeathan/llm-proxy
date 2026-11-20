@@ -14,6 +14,7 @@ import (
 	"llm-proxy-stacks/agents"
 	"llm-proxy-stacks/network"
 	"llm-proxy-stacks/network/oui"
+	"llm-proxy-stacks/newsroom"
 	"llm-proxy-stacks/radio"
 	"llm-proxy-stacks/reminders"
 	"llm-proxy-stacks/sdk"
@@ -68,6 +69,12 @@ type remindersPolicy interface {
 	Update(func(*models.RemindersConfig) error) error
 }
 
+// newsroomPolicy is the Newsroom stack's stored settings: *storage's newsroom view.
+type newsroomPolicy interface {
+	Get() models.NewsroomConfig
+	Update(func(*models.NewsroomConfig) error) error
+}
+
 // stackDeps are what the registry is built from.
 type stackDeps struct {
 	Network *netauditServices
@@ -78,6 +85,9 @@ type stackDeps struct {
 	// Reminders is the stored switch and settings; RemindersHost is told when the switch changes (nil when the stack could not be hosted).
 	Reminders     remindersPolicy
 	RemindersHost *stackHost
+	// Newsroom is the stored switch and zone; NewsroomHost is told when the switch changes (nil when the stack could not be hosted).
+	Newsroom     newsroomPolicy
+	NewsroomHost *stackHost
 	// Guard reads the network Guardrails each time, so a change in Settings shows at once.
 	Guard func() models.NetworkGuardrailsConfig
 }
@@ -90,7 +100,7 @@ const (
 )
 
 func newStackRegistry(d stackDeps) (*stack.Registry, error) {
-	reg, err := stack.New(stackDefinitions(), described(slices.Concat(networkModules(d), agentModules(d), radioModules(d), remindersModules(d))))
+	reg, err := stack.New(stackDefinitions(), described(slices.Concat(networkModules(d), agentModules(d), radioModules(d), remindersModules(d), newsroomModules(d))))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the stack registry: %w", err)
 	}
@@ -125,6 +135,10 @@ func stackDefinitions() []stack.Stack {
 		{
 			ID: stack.Reminders, Title: "Reminders", Purpose: "Remind you of things, word for word, at the right time.",
 			Layers: []stack.Layer{{ID: "remind", Title: "Remind", Purpose: "What you asked to be reminded of"}},
+		},
+		{
+			ID: stack.Newsroom, Title: "Newsroom", Purpose: "Follow topics you care about and see what is new.",
+			Layers: []stack.Layer{{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"}},
 		},
 	}
 }
@@ -243,6 +257,38 @@ func remindersModules(d stackDeps) []stack.Module {
 		{ID: reminders.ModuleID, Title: "Reminders", Purpose: "Keep the reminders you ask for and send them on time.", Stack: stack.Reminders, Layer: "remind", Sends: stack.SendsMessage,
 			Switch: remindersSwitch{store: d.Reminders, host: d.RemindersHost}},
 	}
+}
+
+// newsroomModules is the Newsroom stack's one switch. The module reads public sources over the internet, so it is blocked while internet access is off in
+// Guardrails; it sends no message itself, so its switch needs no passphrase.
+func newsroomModules(d stackDeps) []stack.Module {
+	guard := d.Guard
+	return []stack.Module{
+		{ID: newsroom.ModuleID, Title: "Topics", Purpose: "Read the sources of each topic you follow and keep what is new.", Stack: stack.Newsroom, Layer: "follow", Sends: stack.SendsInternet,
+			Switch: newsroomSwitch{store: d.Newsroom, host: d.NewsroomHost},
+			Ready:  func() (bool, string) { return networkReady(guard(), false, true) }},
+	}
+}
+
+// newsroomSwitch is the Newsroom settings' "off" flag read as a switch: on while the flag is not set.
+type newsroomSwitch struct {
+	store newsroomPolicy
+	host  *stackHost
+}
+
+func (n newsroomSwitch) Enabled() bool { return !n.store.Get().Disabled }
+
+func (n newsroomSwitch) Set(enabled bool) error {
+	if err := n.store.Update(func(c *models.NewsroomConfig) error {
+		c.Disabled = !enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the newsroom switch: %w", err)
+	}
+	if n.host != nil {
+		_ = n.host.stack.ConfigChanged(context.Background())
+	}
+	return nil
 }
 
 // remindersSwitch is the Reminders settings' "off" flag read as a switch: on while the flag is not set. Changing it wakes the stack, so a reminder
@@ -594,6 +640,43 @@ func (s *AppServices) radioOn(ctx context.Context) bool {
 	return ok && st.Enabled
 }
 
+// newsroomStack is the Newsroom stack: the topics the owner follows (stacks/newsroom). Only this file imports a stack (Constitution IV.6).
+func newsroomStack() stacksdk.Stack { return newsroom.New() }
+
+// newNewsroomHost hosts the Newsroom stack over the core's own services, one adapter per port its manifest requires: the settings document, the log, the
+// data folder restricted to the one file the manifest lists, and the guarded fetch. A factory reset removes the topics file.
+func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetch) (*stackHost, error) {
+	st := newsroomStack()
+	files := st.Manifest().Storage
+	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), radioStack().Manifest(), remindersStack().Manifest(), st.Manifest()); err != nil {
+		return nil, err
+	}
+	dir := s.AppCtx.RootDir()
+	h, err := newStackHost(st, stacksdk.Host{
+		Config:  stackport.Config[models.NewsroomConfig]{Store: policy},
+		Log:     stackport.Log{Stack: st.Manifest().ID},
+		DataDir: stackport.DataDir{Dir: dir, Files: files},
+		Fetch:   fetch,
+		// The owner's configured model answers one tool-free question, while the Topics module is on (ADR-0071).
+		Model: s.stackModelPort(st.Manifest().ID, func() bool { return !policy.Get().Disabled }),
+		// The core words a topic's notice and sends it to the connector the topic names, if the owner enabled it (ADR-0036).
+		Notice: stackport.Notice{Notify: s.notifyPort()},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The stack holds its topics in memory and would write them back, so it forgets them first and the file is removed after.
+	s.AppCtx.AfterFactoryReset("The topics you follow", func() error {
+		if nr, ok := h.stack.(*newsroom.Stack); ok {
+			if err := nr.EraseAll(); err != nil {
+				return err
+			}
+		}
+		return stackport.Remove(dir, files)
+	})
+	return h, nil
+}
+
 // remindersStack is the Reminders stack: the reminders the owner asks for, kept and sent word for word (ADR-0068). Only this file imports a stack (Constitution IV.6).
 func remindersStack() stacksdk.Stack { return reminders.New() }
 
@@ -609,34 +692,39 @@ func (s *AppServices) newRemindersHost(policy remindersPolicy) (*stackHost, erro
 		return nil, err
 	}
 	dir := s.AppCtx.RootDir()
-	connectors := func() *tools.CommunicationTools { return communicationTools(s.toolProvider) }
 	h, err := newStackHost(st, stacksdk.Host{
 		Config:   stackport.Config[models.RemindersConfig]{Store: policy},
 		Log:      stackport.Log{Stack: st.Manifest().ID},
 		DataDir:  stackport.DataDir{Dir: dir, Files: files},
 		Schedule: stackport.Schedule{Parse: func(expr string) (interface{ Next(time.Time) time.Time }, error) { return automation.ParseCron(expr) }},
-		Notify: stackport.Notify{
-			Types: func() []string {
-				if c := connectors(); c != nil {
-					return c.Types()
-				}
-				return nil
-			},
-			Deliver: func(ctx context.Context, channel, text string) error {
-				c := connectors()
-				if c == nil {
-					return errors.New("no connector is set up")
-				}
-				// Plain: the reminder is the owner's own text and must not be parsed as markup.
-				return c.NotifyAllPlain(ctx, text, channel)
-			},
-		},
+		Notify:   s.notifyPort(),
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.AppCtx.AfterFactoryReset("Your reminders", func() error { return s.eraseReminders(context.Background(), h) })
 	return h, nil
+}
+
+// notifyPort is the core's way to send plain text to a connector the owner enabled. The connectors are read each time, so one switched on later is
+// included. The text is sent as plain text and never parsed as markup.
+func (s *AppServices) notifyPort() stackport.Notify {
+	connectors := func() *tools.CommunicationTools { return communicationTools(s.toolProvider) }
+	return stackport.Notify{
+		Types: func() []string {
+			if c := connectors(); c != nil {
+				return c.Types()
+			}
+			return nil
+		},
+		Deliver: func(ctx context.Context, channel, text string) error {
+			c := connectors()
+			if c == nil {
+				return errors.New("no connector is set up")
+			}
+			return c.NotifyAllPlain(ctx, text, channel)
+		},
+	}
 }
 
 // eraseStackReminders empties the Reminders stack's database.

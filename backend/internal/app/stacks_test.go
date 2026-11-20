@@ -58,6 +58,28 @@ func (m *memReminders) Update(f func(*models.RemindersConfig) error) error {
 	return nil
 }
 
+// memNewsroom is the in-memory Newsroom settings.
+type memNewsroom struct {
+	mu  sync.Mutex
+	cfg models.NewsroomConfig
+}
+
+func (m *memNewsroom) Get() models.NewsroomConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg
+}
+func (m *memNewsroom) Update(f func(*models.NewsroomConfig) error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	next := m.cfg
+	if err := f(&next); err != nil {
+		return err
+	}
+	m.cfg = next
+	return nil
+}
+
 type memAgents struct{ cfg models.AgentsConfig }
 
 func (m *memAgents) Get() models.AgentsConfig { return m.cfg }
@@ -101,17 +123,19 @@ type testStackDeps struct {
 	store     *memPolicy
 	agents    *memAgents
 	reminders *memReminders
+	newsroom  *memNewsroom
 	guard     models.NetworkGuardrailsConfig
 	reg       *stack.Registry
 }
 
 func newTestStacks(t *testing.T) *testStackDeps {
 	t.Helper()
-	d := &testStackDeps{store: &memPolicy{}, agents: &memAgents{}, reminders: &memReminders{}, guard: models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true, AllowInternetAccess: true}}
+	d := &testStackDeps{store: &memPolicy{}, agents: &memAgents{}, reminders: &memReminders{}, newsroom: &memNewsroom{}, guard: models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true, AllowInternetAccess: true}}
 	reg, err := newStackRegistry(stackDeps{
 		Network:   testNetworkServices(d.store),
 		Agents:    d.agents,
 		Reminders: d.reminders,
+		Newsroom:  d.newsroom,
 		Guard:     func() models.NetworkGuardrailsConfig { return d.guard },
 	})
 	if err != nil {
@@ -439,7 +463,7 @@ func TestStackRegistry_TheKnownBadComparisonNeedsThePhoneHomeWatch(t *testing.T)
 func allModules(t *testing.T, reg *stack.Registry) []stack.Module {
 	t.Helper()
 	var out []stack.Module
-	for _, id := range []stack.StackID{stack.Network, stack.Agents, stack.Reminders} {
+	for _, id := range []stack.StackID{stack.Network, stack.Agents, stack.Reminders, stack.Newsroom} {
 		v, err := reg.View(id, nil)
 		if err != nil {
 			t.Fatal(err)

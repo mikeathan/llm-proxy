@@ -81,6 +81,9 @@ var toolCatalog = []ToolSpec{
 	{Name: ToolScheduleReminder, Category: CategoryReminders},
 	{Name: ToolListReminders, Category: CategoryReminders, Effect: EffectReadOnly},
 	{Name: ToolCancelReminder, Category: CategoryReminders},
+	// newsroom_follow makes a topic whose sources the Newsroom stack reads from now on; the topic is feed-only and the stack never sends.
+	{Name: ToolNewsroomFollow, Category: CategoryNewsroom},
+	{Name: ToolNewsroomTopics, Category: CategoryNewsroom, Effect: EffectReadOnly},
 	{Name: ToolAutomationJournal, Category: CategoryAutomation, Effect: EffectHousekeeping},
 	{Name: ToolSystemError, Category: CategorySystem},
 	{Name: ToolDelegate, Category: CategoryDelegation},

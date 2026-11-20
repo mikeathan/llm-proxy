@@ -47,6 +47,7 @@ var toolCategoryLabels = map[string]string{
 	models.CategoryNetFindings:   "Read network audit and radio findings",
 	models.CategoryMemory:        "Memory",
 	models.CategoryReminders:     "Reminders",
+	models.CategoryNewsroom:      "Follow topics in the Newsroom",
 }
 
 // Schema lists the fields of a profile in the order the editor draws them.

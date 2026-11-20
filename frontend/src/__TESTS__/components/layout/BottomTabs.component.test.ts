@@ -48,16 +48,16 @@ describe('BottomTabs', () => {
     expect(more(wrapper).attributes('aria-expanded')).toBe('false')
     await more(wrapper).trigger('click')
     const sheet = wrapper.get('[role="dialog"]')
-    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings'])
+    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Network', 'Agents', 'Radio', 'Reminders', 'Newsroom', 'Models', 'Activity', 'Settings'])
     expect(more(wrapper).attributes('aria-expanded')).toBe('true')
   })
 
-  it('shows Network, Agents, Radio and Reminders under a Stacks heading in the More sheet', async () => {
+  it('shows Network, Agents, Radio, Reminders and Newsroom under a Stacks heading in the More sheet', async () => {
     const { wrapper } = await mountAt('/automations')
     await more(wrapper).trigger('click')
     const sheet = wrapper.get('[role="dialog"]')
     expect(sheet.get('[data-test="sheet-heading-stacks"]').text()).toBe('Stacks')
-    expect(sheet.findAll('[role="group"][aria-labelledby="sheet-heading-stacks"] a').map((a) => a.attributes('aria-label'))).toEqual(['Network', 'Agents', 'Radio', 'Reminders'])
+    expect(sheet.findAll('[role="group"][aria-labelledby="sheet-heading-stacks"] a').map((a) => a.attributes('aria-label'))).toEqual(['Network', 'Agents', 'Radio', 'Reminders', 'Newsroom'])
   })
 
   it('closes the sheet on Escape, on the scrim and after choosing a destination', async () => {

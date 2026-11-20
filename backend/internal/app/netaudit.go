@@ -138,6 +138,8 @@ type netauditServices struct {
 	// RemindersLegacy stages the rows the service kept in its main database before the stack existed, just before the stack starts.
 	Reminders       *stackHost
 	RemindersLegacy func(ctx context.Context)
+	// Newsroom is the Newsroom stack as it runs in the service: the topics the owner follows and the feed of what is new.
+	Newsroom *stackHost
 	// Join is where the network inventory meets what Radio heard over the air (ADR-0061): the Network page's air facts, the new-device alert's
 	// note and the mapping of Radio's findings by tag. It reads on demand and runs nothing of its own.
 	Join *devicejoin.Join
@@ -538,6 +540,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 		}
 		n.Reminders.Run(ctx)
 	})
+	add(n.Newsroom != nil, func(ctx context.Context) { n.Newsroom.Run(ctx) })
 	add(n.CheckIn != nil, func(ctx context.Context) { n.CheckIn.Run(ctx) })
 	return loops
 }
@@ -546,7 +549,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 // nowhere else, so no loop over "every stack" can miss one.
 func (n *netauditServices) hosts() []*stackHost {
 	var out []*stackHost
-	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders, n.Newsroom} {
 		if h != nil {
 			out = append(out, h)
 		}
@@ -851,8 +854,16 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		s.netaudit.RemindersLegacy = func(ctx context.Context) { s.stageLegacyReminders(ctx, remindersHost) }
 	}
 
+	// The topics the owner follows live in their own stack. A host that could not be built leaves Newsroom unavailable and everything else as it was.
+	newsroomPolicy := dataMgr.Newsroom()
+	newsroomHost, err := s.newNewsroomHost(newsroomPolicy, stackport.Fetch{Opener: netTools})
+	if err != nil {
+		s.logger.Error("the Newsroom stack could not be hosted", "error", err.Error())
+	}
+	s.netaudit.Newsroom = newsroomHost
+
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
-	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, AgentsHost: agentsHost, Radio: radioPolicy, Reminders: remindersPolicy, RemindersHost: remindersHost, Guard: guard})
+	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, AgentsHost: agentsHost, Radio: radioPolicy, Reminders: remindersPolicy, RemindersHost: remindersHost, Newsroom: newsroomPolicy, NewsroomHost: newsroomHost, Guard: guard})
 	if err != nil {
 		panic(err)
 	}
@@ -863,6 +874,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }, s.digestSource().Digest))
 		registry.Use(findingstool.Module(s.findingsReader(), s.auditNames))
 		registry.Use(radiodigest.Module(s.radioDigest, s.radioOn))
+		if newsroomHost != nil {
+			registry.Use(newsroomToolModule(newsroomHost))
+		}
 	}
 }
 

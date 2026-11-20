@@ -21,6 +21,8 @@ const (
 	Radio   StackID = "radio"
 	// Reminders is the Reminders stack (ADR-0068).
 	Reminders StackID = "reminders"
+	// Newsroom is the Newsroom stack: the topics the owner follows.
+	Newsroom StackID = "newsroom"
 )
 
 // Valid reports whether the id is well formed: lower-case letters, digits and underscores, starting with a letter. Which stacks exist

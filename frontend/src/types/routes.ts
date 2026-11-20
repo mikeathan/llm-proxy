@@ -21,6 +21,7 @@ export const ROUTE_NAMES = {
   radio: 'radio',
   radioDevice: 'radio-device',
   reminders: 'reminders',
+  newsroom: 'newsroom',
   models: 'models',
   activity: 'activity',
   settings: 'settings',
@@ -33,12 +34,12 @@ export const ROUTE_NAMES = {
 export type RouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES]
 
 // The top-level destinations shown in the sidebar (plan D9).
-export type Destination = 'dashboard' | 'workspaces' | 'automations' | 'network' | 'agents' | 'stacks' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
+export type Destination = 'dashboard' | 'workspaces' | 'automations' | 'network' | 'agents' | 'stacks' | 'radio' | 'reminders' | 'newsroom' | 'models' | 'activity' | 'settings'
 
 // The entries of the shell navigation (sidebar and phone tab bar). Assistant and
 // Workspace both live under the `workspaces` route destination; the entry that is
 // current is told apart by route name (utils/navigation.ts).
-export type NavId = 'dashboard' | 'assistant' | 'workspace' | 'automations' | 'network' | 'agents' | 'stacks' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
+export type NavId = 'dashboard' | 'assistant' | 'workspace' | 'automations' | 'network' | 'agents' | 'stacks' | 'radio' | 'reminders' | 'newsroom' | 'models' | 'activity' | 'settings'
 
 // A named set of destinations the shell folds under one heading: a sidebar group, a heading in
 // the phone's More sheet. Stacks is the umbrella for the platform's top-level areas (ADR-0028); Network and
@@ -92,6 +93,10 @@ export type RadioTab = (typeof RADIO_TABS)[number]
 // The tabs of the Reminders page, addressable at /reminders/:tab. The list of reminders is the page without a tab.
 export const REMINDERS_TABS = ['modules'] as const
 export type RemindersTab = (typeof REMINDERS_TABS)[number]
+
+// The tabs of the Newsroom page, addressable at /newsroom/:tab. The feed is the page without a tab.
+export const NEWSROOM_TABS = ['topics', 'sources', 'settings'] as const
+export type NewsroomTab = (typeof NEWSROOM_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
 // assistant have their own routes; `settings` is the workspace guardrail layer.
