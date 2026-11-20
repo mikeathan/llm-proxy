@@ -124,6 +124,15 @@ func TestNormalize(t *testing.T) {
 		"http feed":        func(x *Topic) { x.Sources[0].Target = "http://news.example/feed" },
 		"unknown kind":     func(x *Topic) { x.Sources[0].Kind = "rumour" },
 		"mastodon no host": func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindMastodon, Target: "llm"} },
+		"bad channel":      func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindTelegram, Target: "ab"} },
+		"tag with space": func(x *Topic) {
+			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social", Target: "go lang"}
+		},
+		"bad instance": func(x *Topic) {
+			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social:8080/x", Target: "go"}
+		},
+		"empty search":     func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindHN, Target: "  "} },
+		"feed no host":     func(x *Topic) { x.Sources[0].Target = "https:///feed" },
 		"under the floor":  func(x *Topic) { x.Interval = time.Minute },
 		"limited no count": func(x *Topic) { x.Search = SearchLimited },
 		"unknown search":   func(x *Topic) { x.Search = "always" },
@@ -139,6 +148,12 @@ func TestNormalize(t *testing.T) {
 	x.Interval = MinInterval
 	if _, err := Normalize(x); err != nil {
 		t.Errorf("the floor itself must be allowed: %v", err)
+	}
+	y := feedTopic()
+	y.Sources = []SourceSpec{{Kind: KindTelegram, Target: "https://t.me/s/aipost"}, {Kind: KindMastodon, Instance: "https://Mastodon.social/", Target: "#golang"}}
+	got, err := Normalize(y)
+	if err != nil || got.Sources[0].Target != "aipost" || got.Sources[1].Target != "golang" || got.Sources[1].Instance != "mastodon.social" {
+		t.Errorf("pasted forms must reduce to bare names: %+v, %v", got.Sources, err)
 	}
 }
 
