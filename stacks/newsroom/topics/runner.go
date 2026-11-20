@@ -320,7 +320,7 @@ func Build(spec SourceSpec, f stacksdk.Fetch) sources.Source {
 	case KindPage:
 		return sources.Page{Label: name, URL: spec.Target, Fetcher: f}
 	case KindTelegram:
-		return &sources.TelegramChannel{Label: name, Channel: spec.Target, Fetcher: f}
+		return &sources.TelegramChannel{Label: name, Channel: sources.ChannelName(spec.Target), Fetcher: f}
 	}
 	return failing{name: name, kind: string(spec.Kind)}
 }

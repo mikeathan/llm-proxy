@@ -1,4 +1,4 @@
-import type { HelpSection, SourceKind, SourceKindInfo, TopicStatus } from '../types/newsroom'
+import type { HelpSection, SourceGuide, SourceKind, SourceKindInfo, TopicStatus } from '../types/newsroom'
 import type { ChoiceOption, StatusState } from '../types/ui'
 
 // The words of the Newsroom screens.
@@ -90,10 +90,20 @@ export const SOURCE_KIND_INFO: Record<SourceKind, SourceKindInfo> = {
   hackernews: { label: 'Hacker News search', targetLabel: 'Search words', hint: 'Stories matching these words' },
   mastodon: { label: 'Mastodon tag', targetLabel: 'Tag', hint: 'The tag without the #' },
   page: { label: 'Web page (told when it changes)', targetLabel: 'Address', hint: 'The page is read and compared by its visible text' },
-  telegram: { label: 'Telegram public channel', targetLabel: 'Channel name', hint: 'Reads the channel’s public preview page; adding it is your opt-in' },
+  telegram: { label: 'Telegram public channel', targetLabel: 'Channel name', hint: 'The name or the link, such as aipost or t.me/aipost. Adding it is your opt-in' },
 }
 export const SOURCE_KIND_OPTIONS: ChoiceOption[] = (Object.keys(SOURCE_KIND_INFO) as SourceKind[]).map((k) => ({ value: k, label: SOURCE_KIND_INFO[k].label }))
 export const SOURCE_TARGET_MAX = 500
+/** Why a source's words are refused, per kind. The server checks the same rules again (stacks/newsroom/sources/validate.go). */
+export const SOURCE_PROBLEMS = {
+  address: 'Use a full https:// address, such as https://example.com/feed.',
+  query: 'Type 1 to 200 characters of search words, such as rust async.',
+  channel: 'A channel name is 4 to 32 letters, digits or underscores, starting with a letter, such as aipost.',
+  tag: 'A tag is letters, digits or underscores with no spaces, such as golang.',
+  instance: 'The server is a host name such as mastodon.social.',
+  instanceMissing: 'Type the Mastodon server, such as mastodon.social.',
+} as const
+export const HN_QUERY_MAX = 200
 
 /** What a topic's last run says, in plain words. */
 export const TOPIC_STATUS_TAG: Record<TopicStatus, { state: StatusState; label: string }> = {
@@ -107,43 +117,71 @@ export const TOPIC_STATUS_TAG: Record<TopicStatus, { state: StatusState; label: 
   failing: { state: 'error', label: 'Source failing' },
 }
 
-export const HELP_TITLE = 'How the Newsroom works'
-/** The words of the Help tab: what a topic is, where to find sources, and what the states mean. Plain text only. */
-export const HELP_SECTIONS: readonly HelpSection[] = [
-  {
-    title: 'What it does',
-    lines: [
-      'You follow topics. Each topic reads the places you give it on a timer and keeps what is new in the Feed.',
-      'A topic is a name plus its sources. The name is only a label for you; the sources are where it reads. It follows everything a source publishes, so pick sources that are about what you care about.',
+export const HELP_TITLE = 'Help'
+export const HELP_INTRO = 'You follow topics. A topic is a name plus the places it reads. The Newsroom reads them on a timer and keeps only what is new in the Feed.'
+export const HELP_STEPS_TITLE = 'Follow something'
+export const HELP_STEPS: readonly string[] = [
+  'Topics tab, then New topic. Give it a name and add a source.',
+  'Save, then press Check now. The first check only records what is already there and tells you nothing.',
+  'Later checks add what is new to the Feed. Pick a channel on the topic if you also want a message.',
+]
+export const HELP_SOURCES_TITLE = 'Sources you can add'
+export const HELP_SOURCES_INTRO = 'Pick a source to see how to fill it in.'
+export const GUIDE_STEPS_LABEL = 'How to fill it in'
+export const GUIDE_EXAMPLE_LABEL = 'Example'
+export const GUIDE_SHOW_LABEL = 'How do I find this?'
+export const SOURCE_GUIDES: Record<SourceKind, SourceGuide> = {
+  feed: {
+    name: 'News site or feed',
+    goodFor: 'Blogs, news sites, podcasts and GitHub releases.',
+    steps: [
+      'Open the site and look for an RSS or Atom link. It is often an orange icon, or in the footer.',
+      'No link? Add /feed, /rss or /atom.xml to the end of the site address.',
+      'Paste the feed address. It must start with https://.',
+      'For GitHub releases use https://github.com/OWNER/REPO/releases.atom with the owner and project filled in.',
     ],
+    example: 'https://go.dev/blog/feed.atom',
   },
-  {
-    title: 'Follow something in four steps',
-    lines: [
-      '1. Topics tab, New topic. Type a name, then add a source (see the next section).',
-      '2. Save. Press Check now on the topic. The first check only records what is there already and tells you nothing.',
-      '3. Wait for something new, then press Check now again, or let the timer do it.',
-      '4. Open the Feed. New items appear there. Pick a channel on the topic if you also want a message.',
+  hackernews: {
+    name: 'Hacker News search',
+    goodFor: 'New stories on Hacker News about words you choose.',
+    steps: ['Type one to three words that describe what you care about.', 'Pick specific words. A broad word such as ai finds new stories at almost every check.'],
+    example: 'rust async',
+  },
+  mastodon: {
+    name: 'Mastodon tag',
+    goodFor: 'Public posts that use a tag on one Mastodon server.',
+    steps: ['In Server, type the Mastodon site you want to read, such as mastodon.social.', 'In Tag, type the tag without the #.'],
+    example: 'Server mastodon.social, tag golang',
+  },
+  page: {
+    name: 'Web page',
+    goodFor: 'A page with no feed: a status page, a changelog, a price.',
+    steps: [
+      'Open the page in your browser and copy its address.',
+      'Paste it. The first check records the page as it is now.',
+      'You are told when its visible text changes.',
     ],
+    example: 'https://status.example.com/',
+    note: 'A page that shows the time or a counter changes at every check.',
   },
-  {
-    title: 'Where to find sources',
-    lines: [
-      'News feed or site: the address of its feed, such as https://go.dev/blog/feed.atom. Try /feed, /rss or /atom.xml on a site\'s address, or look for an RSS link on the page.',
-      'GitHub releases: https://github.com/OWNER/REPO/releases.atom, with the owner and project name filled in.',
-      'Hacker News search: words such as llm or rust. Stories that match them are new at almost every check.',
-      'Mastodon tag: the tag without the #, and the server it is read from, such as mastodon.social.',
-      'Telegram public channel: the channel username, without @ or t.me/. It is the name in the channel\'s share link. Open https://t.me/s/NAME in a browser first: if recent posts show there, it works here. A private channel has no public preview. Telegram is checked every 10 minutes at most.',
-      'Web page: any address. You are told when its visible text changes.',
+  telegram: {
+    name: 'Telegram channel',
+    goodFor: 'Posts from a public Telegram channel.',
+    steps: [
+      'In Telegram open the channel, tap its name and copy its link. It looks like t.me/aipost.',
+      'Paste the link or just the name. Both work.',
+      'To be sure, open t.me/s/NAME in a browser first. If recent posts show there, it works here.',
     ],
+    example: 't.me/aipost',
+    note: 'A private channel, or one that has turned the web preview off, cannot be read. A channel is read at most every 10 minutes.',
   },
-  {
-    title: 'Good to know',
-    lines: [
-      'Feed only means changes are kept in the Feed and nothing is sent. Choose a channel on a topic to be messaged as well.',
-      'Source failing means the address could not be read. Check it in a browser, and check that this computer can reach the internet.',
-      'Not compared means no model is chosen, so every item is announced as new instead of being compared with what you saw before.',
-      'Deleting a topic removes what it found from the Feed.',
-    ],
-  },
+}
+
+export const HELP_GOOD_TITLE = 'Good to know'
+export const HELP_GOOD_TO_KNOW: readonly HelpSection[] = [
+  { title: 'Feed only', lines: ['Changes are kept in the Feed and nothing is sent. Choose a channel on a topic to be messaged as well.'] },
+  { title: 'Source failing', lines: ['The address could not be read. Open it in a browser, and check that this computer can reach the internet.'] },
+  { title: 'Could not compare', lines: ['No model is chosen, so every item is announced as new instead of being compared with what you saw before.'] },
+  { title: 'Deleting a topic', lines: ['It removes what the topic found from the Feed.'] },
 ]

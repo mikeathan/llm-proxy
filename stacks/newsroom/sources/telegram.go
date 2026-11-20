@@ -22,6 +22,20 @@ var (
 	datetimeRe = regexp.MustCompile(`<time[^>]*datetime="([^"]+)"`)
 )
 
+// ChannelName reduces what an owner pastes to the bare channel name: "aipost", "@aipost", "t.me/aipost", "https://t.me/s/aipost" all give "aipost".
+func ChannelName(s string) string {
+	s = strings.TrimSpace(s)
+	for _, p := range []string{"https://", "http://"} {
+		s = strings.TrimPrefix(s, p)
+	}
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "telegram.me/"), "t.me/")
+	s = strings.TrimPrefix(s, "s/")
+	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimPrefix(s, "@")
+}
+
 // TelegramChannel reads the public web preview of one channel (https://t.me/s/<channel>). No login, no Bot API: only a channel that has a public
 // preview works, and one without it answers ErrShape.
 type TelegramChannel struct {

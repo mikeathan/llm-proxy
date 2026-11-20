@@ -117,3 +117,12 @@ export interface SourceRow {
 
 /** One block of the Newsroom Help tab. */
 export interface HelpSection { title: string; lines: readonly string[] }
+
+/** How to use one kind of source: what it is for, the steps to fill it in, and an example of what to type. */
+export interface SourceGuide {
+  name: string
+  goodFor: string
+  steps: readonly string[]
+  example: string
+  note?: string
+}

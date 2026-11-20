@@ -137,11 +137,11 @@ describe('NewsroomView', () => {
     expect(w.text()).toContain('No sources yet')
   })
 
-  it('shows the Help tab: what a topic is and where to find a Telegram name', async () => {
+  it('shows the Help tab with one card per source, its steps opening on a click', async () => {
     const { w } = await mountView('/newsroom/help', [], [])
-    const text = w.get('[data-test="newsroom-help"]').text()
-    expect(text).toContain('only a label for you')
-    expect(text).toContain('t.me/s/NAME')
+    for (const k of ['feed', 'hackernews', 'mastodon', 'page', 'telegram']) expect(w.find('[data-test="source-card-' + k + '"]').exists()).toBe(true)
+    await w.get('[data-test="source-card-telegram"] button').trigger('click')
+    expect(w.get('[data-test="guide-telegram"]').text()).toContain('t.me/s/NAME')
   })
 
 })

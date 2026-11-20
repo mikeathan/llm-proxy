@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"llm-proxy-stacks/newsroom/sources"
 )
 
 // Limits and defaults (owner decisions D4 and D5, 2026-11-20).
@@ -135,6 +137,8 @@ func Normalize(t Topic) (Topic, error) {
 	}
 	t.Sources = append([]SourceSpec(nil), t.Sources...)
 	for i, s := range t.Sources {
+		s = s.canonical()
+		t.Sources[i] = s
 		if err := s.validate(); err != nil {
 			return Topic{}, fmt.Errorf("%w: source %d: %v", ErrInvalid, i+1, err)
 		}
@@ -173,24 +177,40 @@ func normalizeSearch(t Topic) (Topic, error) {
 	return t, nil
 }
 
+// canonical reduces what the owner typed to the form the source reads: a bare channel name, a bare tag, a bare host, no stray spaces.
+func (s SourceSpec) canonical() SourceSpec {
+	s.Target = strings.TrimSpace(s.Target)
+	switch s.Kind {
+	case KindTelegram:
+		s.Target = sources.ChannelName(s.Target)
+	case KindMastodon:
+		s.Target = sources.TagName(s.Target)
+		s.Instance = sources.InstanceName(s.Instance)
+	}
+	return s
+}
+
 func (s SourceSpec) validate() error {
-	if strings.TrimSpace(s.Target) == "" {
+	if s.Target == "" {
 		return errors.New("a target is needed")
 	}
 	switch s.Kind {
 	case KindFeed, KindPage:
-		if !strings.HasPrefix(s.Target, "https://") {
-			return errors.New("the address must start with https://")
-		}
-	case KindHN, KindTelegram:
+		return sources.CheckAddress(s.Target)
+	case KindHN:
+		return sources.CheckQuery(s.Target)
+	case KindTelegram:
+		return sources.CheckChannel(s.Target)
 	case KindMastodon:
 		if s.Instance == "" {
-			return errors.New("a Mastodon source needs an instance")
+			return errors.New("a Mastodon source needs a server")
 		}
-	default:
-		return fmt.Errorf("unknown source kind %q", s.Kind)
+		if err := sources.CheckInstance(s.Instance); err != nil {
+			return err
+		}
+		return sources.CheckTag(s.Target)
 	}
-	return nil
+	return fmt.Errorf("unknown source kind %q", s.Kind)
 }
 
 // Due reports whether a topic should be read at now: enabled, and never read or read at least one interval ago.

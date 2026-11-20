@@ -4,9 +4,11 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import BaseToggle from "../common/buttons/BaseToggle.vue"
 import FormField from "../common/forms/FormField.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
+import NewsroomSourceGuide from "./NewsroomSourceGuide.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
+import { sourceProblem } from "../../utils/newsroom/sourceCheck"
 import {
-  ADD_SOURCE_LABEL, DEFAULT_INTERVAL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
+  ADD_SOURCE_LABEL, DEFAULT_INTERVAL, GUIDE_SHOW_LABEL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
   SOURCE_KIND_LABEL, SOURCE_KIND_OPTIONS, SOURCE_TARGET_MAX, TOPIC_CHANNEL_HINT, TOPIC_CHANNEL_LABEL, TOPIC_INTERVAL_LABEL, TOPIC_NAME_LABEL, TOPIC_NAME_HINT, TOPIC_FORM_INTRO, TOPIC_NAME_MAX,
   TOPIC_ON_LABEL, TOPIC_SOURCES_LABEL,
 } from "../../constants/newsroom"
@@ -35,7 +37,8 @@ const channelOptions = computed<ChoiceOption[]>(() =>
 )
 
 const filled = computed(() => sources.value.filter((s) => s.target.trim() !== ""))
-const canSave = computed(() => !props.saving && name.value.trim() !== "" && filled.value.length > 0)
+const problems = computed(() => sources.value.map(sourceProblem))
+const canSave = computed(() => !props.saving && name.value.trim() !== "" && filled.value.length > 0 && problems.value.every((p) => p === ""))
 
 function setKind(source: NewsroomSource, kind: string) {
   source.kind = kind as SourceKind
@@ -70,14 +73,18 @@ function submit() {
           <SelectInput :model-value="source.kind" :options="SOURCE_KIND_OPTIONS" :label="SOURCE_KIND_LABEL" @update:model-value="setKind(source, $event)" />
           <BaseButton v-if="sources.length > 1" variant="ghost" size="sm" :label="REMOVE_SOURCE_LABEL" icon="trash" icon-only @click="sources.splice(i, 1)" />
         </div>
-        <FormField :label="SOURCE_KIND_INFO[source.kind].targetLabel" :hint="SOURCE_KIND_INFO[source.kind].hint">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="source.target" :aria-describedby="describedBy" type="text" :maxlength="SOURCE_TARGET_MAX" class="form-control" />
+        <FormField :label="SOURCE_KIND_INFO[source.kind].targetLabel" :hint="SOURCE_KIND_INFO[source.kind].hint" :error="source.kind === 'mastodon' ? '' : problems[i]">
+          <template #default="{ id, describedBy, invalid }">
+            <input :id="id" v-model="source.target" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" :maxlength="SOURCE_TARGET_MAX" class="form-control" />
           </template>
         </FormField>
-        <FormField v-if="source.kind === 'mastodon'" :label="SOURCE_INSTANCE_LABEL" :hint="SOURCE_INSTANCE_HINT">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="source.instance" :aria-describedby="describedBy" type="text" class="form-control" />
+        <details class="text-[length:var(--text-small)]">
+          <summary class="cursor-pointer text-accent-brand">{{ GUIDE_SHOW_LABEL }}</summary>
+          <div class="mt-2"><NewsroomSourceGuide :kind="source.kind" /></div>
+        </details>
+        <FormField v-if="source.kind === 'mastodon'" :label="SOURCE_INSTANCE_LABEL" :hint="SOURCE_INSTANCE_HINT" :error="problems[i]">
+          <template #default="{ id, describedBy, invalid }">
+            <input :id="id" v-model="source.instance" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" class="form-control" />
           </template>
         </FormField>
       </div>
