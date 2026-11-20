@@ -26,23 +26,25 @@ function isHttps(addr: string): boolean {
   }
 }
 
+function mastodonProblem(source: NewsroomSource): string {
+  const target = source.target.trim()
+  const instance = (source.instance ?? '').trim()
+  if (target === '' && instance === '') return ''
+  if (instance === '') return SOURCE_PROBLEMS.instanceMissing
+  if (!HOST.test(hostName(instance))) return SOURCE_PROBLEMS.instance
+  return TAG.test(target.replace(/^#/, '')) ? '' : SOURCE_PROBLEMS.tag
+}
+
+const addressProblem = (t: string): string => (isHttps(t) ? '' : SOURCE_PROBLEMS.address)
+const queryProblem = (t: string): string => ([...t].length <= HN_QUERY_MAX ? '' : SOURCE_PROBLEMS.query)
+const channelProblem = (t: string): string => (CHANNEL.test(channelName(t)) ? '' : SOURCE_PROBLEMS.channel)
+
 /** The problem with a source's target (or server), in words, or '' when it is fine or still empty. */
 export function sourceProblem(source: NewsroomSource): string {
+  if (source.kind === 'mastodon') return mastodonProblem(source)
   const target = source.target.trim()
-  if (target === '' && source.kind !== 'mastodon') return ''
-  switch (source.kind) {
-    case 'feed':
-    case 'page':
-      return isHttps(target) ? '' : SOURCE_PROBLEMS.address
-    case 'hackernews':
-      return [...target].length <= HN_QUERY_MAX ? '' : SOURCE_PROBLEMS.query
-    case 'telegram':
-      return CHANNEL.test(channelName(target)) ? '' : SOURCE_PROBLEMS.channel
-    case 'mastodon': {
-      if (target === '' && !(source.instance ?? '').trim()) return ''
-      if (!(source.instance ?? '').trim()) return SOURCE_PROBLEMS.instanceMissing
-      if (!HOST.test(hostName(source.instance ?? ''))) return SOURCE_PROBLEMS.instance
-      return TAG.test(target.replace(/^#/, '')) ? '' : SOURCE_PROBLEMS.tag
-    }
-  }
+  if (target === '') return ''
+  if (source.kind === 'hackernews') return queryProblem(target)
+  if (source.kind === 'telegram') return channelProblem(target)
+  return addressProblem(target)
 }
