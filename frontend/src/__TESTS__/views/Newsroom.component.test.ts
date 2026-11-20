@@ -30,7 +30,7 @@ const day = (): NewsroomDay => ({
 async function mountView(path = '/newsroom', topics: NewsroomTopic[] = [topic()], feed: NewsroomDay[] = [day()]) {
   topicsMock.mockResolvedValue(topics)
   feedMock.mockResolvedValue(feed)
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(topics|sources|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(topics|sources|settings|help)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
   await router.push(path)
   const w = mount(NewsroomView, { global: { plugins: [router], stubs: { Icon: true, BrandMark: true, StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' } } } })
   await flushPromises()
@@ -49,7 +49,7 @@ beforeEach(() => {
 describe('NewsroomView', () => {
   it('is a stack page: Feed, Topics, Sources and a Settings tab that shows the stack switchboard', async () => {
     const { w } = await mountView()
-    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Topics', 'Sources', 'Settings'])
+    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Topics', 'Sources', 'Settings', 'Help'])
     const m = await mountView('/newsroom/settings')
     expect(m.w.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('newsroom')
   })
@@ -136,4 +136,12 @@ describe('NewsroomView', () => {
     const { w } = await mountView('/newsroom/sources', [], [])
     expect(w.text()).toContain('No sources yet')
   })
+
+  it('shows the Help tab: what a topic is and where to find a Telegram name', async () => {
+    const { w } = await mountView('/newsroom/help', [], [])
+    const text = w.get('[data-test="newsroom-help"]').text()
+    expect(text).toContain('only a label for you')
+    expect(text).toContain('t.me/s/NAME')
+  })
+
 })

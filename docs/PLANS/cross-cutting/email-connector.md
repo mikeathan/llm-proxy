@@ -51,6 +51,15 @@ SMTP host and port; security mode (implicit TLS or STARTTLS); username; an **app
 
 A provider that blocks app passwords or rate-limits a new sender (the owner sees the fixed error and the provider's limit is theirs). Sending through the owner's own account means the mail carries their identity: it only ever goes to their own address. Provider SPF and DKIM are the provider's.
 
+## Phase 0 note (2026-11-20, read from code; nothing built)
+
+- **`net/smtp` fits (S10).** Go 1.26.2 has `smtp.NewClient(conn net.Conn, host)`: give it a connection already dialled and (for implicit TLS) already wrapped by `tls.Client`; for STARTTLS call `Client.StartTLS(&tls.Config{ServerName, MinVersion: tls.VersionTLS12})` before `Auth`. `smtp.PlainAuth` itself refuses to send a password over a non-TLS link to a non-local host, a second guard for S1. No new dependency.
+- **The guarded dial exists:** `NetworkTools.DialContext()` (`backend/internal/core/tools/network.go:437`) resolves the host, checks every address against the LAN and internet guardrails and blocked domains, and dials the checked IP (DNS-rebinding safe). A factory receives `network *tools.NetworkTools`, so the email notifier can dial through it (Connector skill, Step 3).
+- **Open point for S7:** that dial enforces the Guardrails (internet or LAN on, blocked domains), **not** the egress allow-list (`egress.HostListPolicy`, `core/egress/egress.go`), which applies only to traffic that rides the egress proxy (an HTTP proxy; `SetProxy` makes the HTTP client use it). A raw SMTP dial bypasses that proxy. So "needs a grant like any host" is true for Guardrails, not for the allow-list. Options: (a) accept Guardrails only and say so in the Settings text; (b) tunnel SMTP through the proxy's CONNECT and so apply the allow-list (more work, and the proxy is loopback-only when sandboxing is on). *Needs the owner.*
+- **Registration is by factory:** `tools.RegisterConnectorFactory("email", ...)` in `core/tools/notifiers/email.go` (as `telegram.go`); settings from `cfg.Settings`, the password from `secrets.GetSecret("connector", name)`; a missing field returns `(nil, false)`. Connectors are rebuilt on every registry or secrets change, so the factory must do no network work. The type constant goes in `models/config.go` next to `ConnectorTypeTelegram`; the Communication tab (`CommunicationSettings.vue`) gets one option.
+- **Settings fields:** `host`, `port`, `security` (`tls` or `starttls`, no other value), `username`, `from`, `to`; the app password is the stored secret. No CC, BCC or Reply-To field exists (S4).
+- **Not yet read:** the step-up wiring for the connector secret route (S2) and the `MaskedSecret` code path; read both at the start of Phase 2.
+
 ## Remaining Work
 
-All of it. First step: Phase 0.
+Phases 1 to 4. First step: the owner's call on the S7 open point, then Phase 1 (the notifier with a fake SMTP server in tests).

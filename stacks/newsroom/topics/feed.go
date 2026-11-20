@@ -70,7 +70,7 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 	}
 	today := now.In(loc).Format("2006-01-02")
 	yesterday := now.In(loc).AddDate(0, 0, -1).Format("2006-01-02")
-	var out []DayCard
+	out := []DayCard{} // never nil: an empty feed is the JSON [], not null, which the page reads with .length
 	for _, d := range days {
 		card := DayCard{Day: d, Label: dayLabel(d, today, yesterday, loc)}
 		for k, es := range groups {

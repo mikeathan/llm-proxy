@@ -7,7 +7,7 @@ import SelectInput from "../common/forms/SelectInput.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
 import {
   ADD_SOURCE_LABEL, DEFAULT_INTERVAL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
-  SOURCE_KIND_LABEL, SOURCE_KIND_OPTIONS, SOURCE_TARGET_MAX, TOPIC_CHANNEL_HINT, TOPIC_CHANNEL_LABEL, TOPIC_INTERVAL_LABEL, TOPIC_NAME_LABEL, TOPIC_NAME_MAX,
+  SOURCE_KIND_LABEL, SOURCE_KIND_OPTIONS, SOURCE_TARGET_MAX, TOPIC_CHANNEL_HINT, TOPIC_CHANNEL_LABEL, TOPIC_INTERVAL_LABEL, TOPIC_NAME_LABEL, TOPIC_NAME_HINT, TOPIC_FORM_INTRO, TOPIC_NAME_MAX,
   TOPIC_ON_LABEL, TOPIC_SOURCES_LABEL,
 } from "../../constants/newsroom"
 import type { ChoiceOption } from "../../types/ui"
@@ -56,9 +56,10 @@ function submit() {
 
 <template>
   <form class="flex flex-col gap-3" @submit.prevent="submit">
-    <FormField :label="TOPIC_NAME_LABEL">
-      <template #default="{ id }">
-        <input :id="id" v-model="name" type="text" :maxlength="TOPIC_NAME_MAX" required class="form-control" />
+    <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ TOPIC_FORM_INTRO }}</p>
+    <FormField :label="TOPIC_NAME_LABEL" :hint="TOPIC_NAME_HINT">
+      <template #default="{ id, describedBy }">
+        <input :id="id" v-model="name" :aria-describedby="describedBy" type="text" :maxlength="TOPIC_NAME_MAX" required class="form-control" />
       </template>
     </FormField>
 

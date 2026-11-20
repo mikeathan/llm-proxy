@@ -114,3 +114,6 @@ export interface SourceRow {
   /** The server's words for the failure, when there is one. */
   detail: string
 }
+
+/** One block of the Newsroom Help tab. */
+export interface HelpSection { title: string; lines: readonly string[] }

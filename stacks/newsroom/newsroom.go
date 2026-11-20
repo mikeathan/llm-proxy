@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -355,7 +356,17 @@ func (s *Stack) handleTopic(ctx context.Context, store *topics.Store, runner *to
 	if err != nil {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 	}
-	switch req.Method + " " + req.Path {
+	// The core passes the real path (/topics/1, /topics/1/run), with the id also in Params; name the route by its shape.
+	route := ""
+	if rest, ok := strings.CutPrefix(req.Path, RouteTopics+"/"); ok {
+		switch parts := strings.Split(rest, "/"); {
+		case len(parts) == 1:
+			route = RouteTopic
+		case len(parts) == 2 && parts[1] == "run":
+			route = RouteRun
+		}
+	}
+	switch req.Method + " " + route {
 	case "PUT " + RouteTopic:
 		return save(req, func(t topics.Topic) (topics.Topic, error) { return store.Update(id, t) }, http.StatusOK)
 	case "DELETE " + RouteTopic:

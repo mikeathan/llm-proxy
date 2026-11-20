@@ -15,6 +15,12 @@ describe('NewsroomService.feed', () => {
     expect(fetchMock.mock.calls[1]![0]).toBe('/admin/api/newsroom/feed?zone=UTC&topic=3&unread=true')
   })
 
+  it('reads a null answer as an empty list, not as null', async () => {
+    vi.stubGlobal('fetch', ok(null))
+    expect(await NewsroomService.feed({ topic: null, unreadOnly: false }, 'UTC')).toEqual([])
+    expect(await NewsroomService.topics()).toEqual([])
+  })
+
   it('reports the reason the server gives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"topic must be a topic id"}' }))
     await expect(NewsroomService.feed({ topic: null, unreadOnly: false }, 'UTC')).rejects.toThrow('topic must be a topic id')
