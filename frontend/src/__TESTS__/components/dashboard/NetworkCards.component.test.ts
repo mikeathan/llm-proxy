@@ -10,13 +10,17 @@ const overview = ref<NetworkOverview | null>(null)
 const error = ref('')
 const hasAudit = ref(true)
 vi.mock('../../../composables/netaudit/useNetworkSnapshot', () => ({ useNetworkSnapshot: () => ({ overview, error, hasAudit: computed(() => hasAudit.value) }) }))
+vi.mock('../../../composables/netaudit/useModuleSources', () => ({ useModuleSources: () => ({ modules: ref([]), load: vi.fn().mockResolvedValue(undefined) }) }))
+vi.mock('../../../components/netaudit/FindingsReport.vue', () => ({ default: { template: '<div data-test="findings-report" />' } }))
+const audit = ref<{ workspaceId: string; automation: string } | null>(null)
+vi.mock('../../../composables/netaudit/useNetworkAudit', () => ({ useNetworkAudit: () => ({ audit, loaded: ref(true) }) }))
 vi.mock('../../../services/stacks/stacksService', () => ({ StacksService: { stack: vi.fn().mockResolvedValue(null) } }))
 
-import NetworkPostureCard from '../../../components/dashboard/cards/NetworkPostureCard.vue'
-import NetworkFiguresCard from '../../../components/dashboard/cards/NetworkFiguresCard.vue'
-import NetworkChangesCard from '../../../components/dashboard/cards/NetworkChangesCard.vue'
-import NetworkAttackPathsCard from '../../../components/dashboard/cards/NetworkAttackPathsCard.vue'
-import NetworkStandingCard from '../../../components/dashboard/cards/NetworkStandingCard.vue'
+import OverviewVerdict from '../../../components/netaudit/overview/OverviewVerdict.vue'
+import OverviewFigures from '../../../components/netaudit/overview/OverviewFigures.vue'
+import OverviewChanges from '../../../components/netaudit/overview/OverviewChanges.vue'
+import NetworkOverviewCard from '../../../components/dashboard/cards/NetworkOverviewCard.vue'
+import NetworkFindingsCard from '../../../components/dashboard/cards/NetworkFindingsCard.vue'
 
 const make = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
   posture: 'quiet',
@@ -36,10 +40,10 @@ beforeEach(() => {
   hasAudit.value = true
 })
 
-describe('NetworkPostureCard', () => {
+describe('OverviewVerdict', () => {
   it('says the verdict and shows nothing to do while the network is quiet', () => {
     overview.value = make({ findings: { scanned: true, open: 1, serious: 0, new: 0 } })
-    const w = show(NetworkPostureCard)
+    const w = show(OverviewVerdict)
     expect(w.text()).toContain('Quiet')
     expect(w.text()).toContain('Your network looks as you left it')
     expect(w.find('[data-test="next-action"]').exists()).toBe(false)
@@ -47,36 +51,36 @@ describe('NetworkPostureCard', () => {
 
   it('lists why something needs a look, and links the one next step to where it is done', () => {
     overview.value = make({ posture: 'attention', gateway_changed: true, devices: { known: 12, unnamed: 3, new: 1, active: 9 }, findings: { scanned: true, open: 2, serious: 0, new: 0 } })
-    const w = show(NetworkPostureCard)
+    const w = show(OverviewVerdict)
     expect(w.text()).toContain('Something needs a look')
     expect(w.findAll('[aria-label="What needs a look"] li').map((l) => l.text())).toEqual(["The router's hardware address changed", '1 new device nobody has approved'])
     const next = w.get('[data-test="next-action"]')
     expect(next.text()).toBe('Review devices →')
-    expect(next.attributes('href')).toBe('/dashboard?board=network&card=network-devices')
+    expect(next.attributes('href')).toBe('/dashboard?board=network-devices&card=network-devices')
   })
 
   it('says it has not looked yet instead of calling an unwatched network quiet', () => {
     overview.value = make({ posture: 'unknown', series: [], recent: [], devices: { known: 0, unnamed: 0, new: 0, active: 0 }, findings: { scanned: false, open: 0, serious: 0, new: 0 }, presence: {} })
     hasAudit.value = false
-    expect(show(NetworkPostureCard).text()).toContain('Not looked at yet')
+    expect(show(OverviewVerdict).text()).toContain('Not looked at yet')
   })
 
   it('shows why the new-device check cannot look, as an alert', () => {
     overview.value = make({ presence: { problem: 'only Linux can list devices' } })
-    expect(show(NetworkPostureCard).get('[role="alert"]').text()).toContain('only Linux can list devices')
+    expect(show(OverviewVerdict).get('[role="alert"]').text()).toContain('only Linux can list devices')
   })
 
   it('says it is reading, and says when it could not', () => {
     overview.value = null
-    expect(show(NetworkPostureCard).text()).toContain('Reading the network')
+    expect(show(OverviewVerdict).text()).toContain('Reading the network')
     error.value = 'the server is down'
-    expect(show(NetworkPostureCard).text()).toContain('the server is down')
+    expect(show(OverviewVerdict).text()).toContain('the server is down')
   })
 })
 
-describe('NetworkFiguresCard', () => {
+describe('OverviewFigures', () => {
   it('shows the devices and problems with what they mean', () => {
-    const w = show(NetworkFiguresCard)
+    const w = show(OverviewFigures)
     const values = w.findAll('[data-test="stat-value"]').map((v) => v.text())
     expect(values[0]).toBe('12')
     expect(values[1]).toBe('4')
@@ -86,34 +90,50 @@ describe('NetworkFiguresCard', () => {
 
   it('does not show problems as zero when no audit is set up', () => {
     hasAudit.value = false
-    const w = show(NetworkFiguresCard)
+    const w = show(OverviewFigures)
     expect(w.findAll('[data-test="stat-value"]')[1]!.text()).toBe('–')
     expect(w.text()).toContain('No network audit is set up')
   })
 })
 
-describe('NetworkChangesCard', () => {
+describe('OverviewChanges', () => {
   it('lists what changed lately, and says when nothing did', () => {
-    expect(show(NetworkChangesCard).text()).toContain('192.168.1.77 appeared on the network')
+    expect(show(OverviewChanges).text()).toContain('192.168.1.77 appeared on the network')
     overview.value = make({ recent: [] })
-    expect(show(NetworkChangesCard).text()).toContain('Nothing has changed in the last two weeks.')
+    expect(show(OverviewChanges).text()).toContain('Nothing has changed in the last two weeks.')
   })
 })
 
-describe('NetworkAttackPathsCard and NetworkStandingCard', () => {
-  const path = { id: 'network|this-computer', entry: { kind: 'network' as const, text: 'Any device on your network' }, steps: [{ key: 'k', check: 'c', title: 'SSH accepts password login', severity: 'low' }], prize: { kind: 'computer' as const, where: 'this-computer' }, fix: { key: 'k', text: 'Turn it off.' }, breaks: 1 }
-
-  it('shows the ways in only while the module is on and an audit has run', () => {
-    overview.value = make({ attack_paths: [path], attack_paths_on: true })
-    expect(show(NetworkAttackPathsCard).find('[data-test="attack-paths"]').exists()).toBe(true)
-    overview.value = make({ attack_paths: [], attack_paths_on: false })
-    const off = show(NetworkAttackPathsCard)
-    expect(off.find('[data-test="attack-paths"]').exists()).toBe(false)
-    expect(off.find('[data-test="network-attack-paths-off"]').exists()).toBe(true)
+describe('NetworkOverviewCard', () => {
+  it('puts the verdict, the changes, the figures, the standing and the coverage in one card, and links to the rest of the activity', () => {
+    const w = show(NetworkOverviewCard)
+    for (const part of ['network-overview-verdict', 'network-overview-changes', 'network-overview-figures']) expect(w.find(`[data-test="${part}"]`).exists()).toBe(true)
+    expect(w.get('[data-test="all-activity"]').attributes('href')).toBe('/dashboard?board=network-activity&card=network-timeline')
   })
 
   it('says the standing fills in after the first audit', () => {
     overview.value = make({ findings: { scanned: false, open: 0, serious: 0, new: 0 } })
-    expect(show(NetworkStandingCard).find('[data-test="network-standing-none"]').exists()).toBe(true)
+    expect(show(NetworkOverviewCard).find('[data-test="network-standing-none"]').exists()).toBe(true)
+  })
+
+  it('shows only the latest few changes', () => {
+    overview.value = make({ recent: Array.from({ length: 9 }, (_, i) => ({ kind: 'new_device' as const, at: '2026-10-30T10:00:00Z', ip: `192.168.1.${i + 10}` })) })
+    expect(show(OverviewChanges).findAll('[aria-label="Recent changes"] li')).toHaveLength(5)
+  })
+})
+
+describe('NetworkFindingsCard', () => {
+  const path = { id: 'network|this-computer', entry: { kind: 'network' as const, text: 'Any device on your network' }, steps: [{ key: 'k', check: 'c', title: 'SSH accepts password login', severity: 'low' }], prize: { kind: 'computer' as const, where: 'this-computer' }, fix: { key: 'k', text: 'Turn it off.' }, breaks: 1 }
+
+  it('offers the ways in as a second view only once an audit has run with the module on', async () => {
+    audit.value = { workspaceId: 'w', automation: 'a' }
+    overview.value = make({ attack_paths: [path], attack_paths_on: false })
+    expect(show(NetworkFindingsCard).find('[data-test="findings-view"]').exists()).toBe(false)
+    overview.value = make({ attack_paths: [path], attack_paths_on: true })
+    const w = show(NetworkFindingsCard)
+    expect(w.find('[data-test="findings-view"]').exists()).toBe(true)
+    expect(w.find('[data-test="attack-paths"]').exists()).toBe(false)
+    await w.findAll('[role="radio"]')[1]!.trigger('click')
+    expect(w.find('[data-test="attack-paths"]').exists()).toBe(true)
   })
 })

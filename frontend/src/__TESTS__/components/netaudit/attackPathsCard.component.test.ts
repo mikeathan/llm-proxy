@@ -54,7 +54,7 @@ describe('AttackPathsCard links', () => {
     const key = '192.168.50.7|tcp|22|ssh_password_login'
     const w = mount(AttackPathsCard, { props: { paths: [path({ steps: [{ key, check: 'ssh_password_login', title: 'SSH accepts password login', severity: 'low' }] })] }, global: { plugins: [router] } })
     const link = w.get('[data-test="path-step-link"]')
-    expect(link.attributes('href')).toBe(`/dashboard?board=network&card=network-findings&finding=${key}`)
+    expect(link.attributes('href')).toBe(`/dashboard?board=network-findings&card=network-findings&finding=${key}`)
     expect(link.attributes('aria-label')).toBe('Show SSH accepts password login in the findings')
   })
 })

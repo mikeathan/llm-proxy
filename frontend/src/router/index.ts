@@ -2,7 +2,7 @@ import { createRouter, createWebHistory, type LocationQuery, type RouteLocationR
 import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toAgents, toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
 import { homeLocation } from '../utils/navigation'
-import { DASHBOARD_TITLE } from '../constants/dashboard'
+import { DASHBOARD_TITLE, NETWORK_CARD_BOARD } from '../constants/dashboard'
 
 // Route table (plan D18). Every page is a lazy chunk. Routes that share a
 // loader render the same component, so moving between them keeps one instance
@@ -69,7 +69,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/automations/:id/edit', name: ROUTE_NAMES.automationEdit, component: AutomationsView, meta: AUTOMATIONS_META },
 
   // The tabs that became cards of the dashboard's boards keep their addresses: a bookmark or an old link lands on the card (and keeps a `?finding=` or `?device=`).
-  { path: `/network/:tab(${Object.keys(NETWORK_TAB_CARDS).join('|')})`, redirect: (to) => toBoardCard('network', NETWORK_TAB_CARDS[String(to.params.tab)]!, to.query) },
+  { path: `/network/:tab(${Object.keys(NETWORK_TAB_CARDS).join('|')})`, redirect: (to) => toBoardCard(NETWORK_CARD_BOARD[NETWORK_TAB_CARDS[String(to.params.tab)]!]!, NETWORK_TAB_CARDS[String(to.params.tab)]!, to.query) },
   { path: '/radio/devices', redirect: (to) => toBoardCard('radio', 'radio-devices', to.query) },
   { path: '/radio/sensors', redirect: (to) => toBoardCard('radio', 'radio-sensors', to.query) },
   { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', fullWidth: true, title: 'Network' } },

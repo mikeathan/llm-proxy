@@ -32,13 +32,13 @@ for (const view of ['simple', 'advanced'] as const) {
       await mockAdminApi(page, { answers: { '/netaudit/overview': STATES[name] } })
       await page.goto('dashboard?board=network')
       await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
-      await expect(page.locator('[data-test="network-posture-card"]')).toBeVisible()
+      await expect(page.locator('[data-test="network-overview-verdict"]')).toBeVisible()
       await expectNoSidewaysScroll(page)
       // The page uses the whole width (not the narrow reading column) on a wide screen and fits a phone.
-      const width = (await page.locator('[data-test="network-posture-card"]').boundingBox())?.width ?? 0
+      const width = (await page.locator('[data-test="network-overview-verdict"]').boundingBox())?.width ?? 0
       if (testInfo.project.name === 'desktop') expect(width).toBeGreaterThan(600)
       // A value that is words is regular weight, never the bold figure style.
-      expect(await page.locator('[data-test="network-figures-card"] [data-test="stat-value"]').nth(2).evaluate((el) => getComputedStyle(el).fontWeight)).toBe('400')
+      expect(await page.locator('[data-test="network-overview-figures"] [data-test="stat-value"]').nth(2).evaluate((el) => getComputedStyle(el).fontWeight)).toBe('400')
       if (name === 'attention') await expect(page.getByText("The router's hardware address changed")).toBeVisible()
       await lookAt(page, testInfo, `network-${name}-${view}`)
     })

@@ -1,32 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import SegmentedControl from "../common/forms/SegmentedControl.vue"
-import NetauditToolbar from "../netaudit/NetauditToolbar.vue"
+import DashboardStackToolbar from "./DashboardStackToolbar.vue"
 import NetauditHelp from "../netaudit/NetauditHelp.vue"
 import ReadinessBanner from "../netaudit/ReadinessBanner.vue"
-import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
+import { stackSourcesOf } from "../../domain/dashboard"
 import { HOME_BOARD_ID } from "../../constants/dashboard"
-import { RADIO_DETAIL_LABEL } from "../../constants/radio"
-import { VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import type { DashboardBoard, DashboardCardDef } from "../../types/dashboard"
-import type { NetauditViewMode } from "../../types/netaudit"
 
 // What the cards of a stack share, shown above any board that holds one of them: Simple or Advanced (one remembered choice for Network and Radio), Help,
-// and what is missing before a scan can run. It used to sit on the stack's own page, which no longer shows the cards.
-const props = defineProps<{ board: DashboardBoard; defs: ReadonlyMap<string, DashboardCardDef> }>()
-const { mode, set } = useNetauditViewMode()
-const sources = computed(() => new Set(props.board.cards.map((c) => props.defs.get(c.id)?.source)))
-const network = computed(() => sources.value.has("network"))
-const radio = computed(() => sources.value.has("radio"))
+// and what is missing before a scan can run. It used to sit on the stack's own page, which no longer shows the cards. When the board has sub-tabs
+// (`toolbar` false) Simple or Advanced sits at the end of the sub-tab row instead, so no row of controls is spent on it.
+const props = withDefaults(defineProps<{ board: DashboardBoard; defs: ReadonlyMap<string, DashboardCardDef>; toolbar?: boolean }>(), { toolbar: true })
+const stacks = computed(() => stackSourcesOf(props.board, props.defs))
 </script>
 
 <template>
-  <div v-if="board.id !== HOME_BOARD_ID && (network || radio)" class="flex flex-col gap-3" data-test="stack-chrome">
-    <div class="flex justify-end">
-      <NetauditToolbar v-if="network" />
-      <SegmentedControl v-else :model-value="mode" :options="VIEW_MODE_OPTIONS" :label="RADIO_DETAIL_LABEL" variant="compact" @update:model-value="set($event as NetauditViewMode)" />
-    </div>
-    <ReadinessBanner v-if="network" />
-    <NetauditHelp v-if="network" />
+  <div v-if="board.id !== HOME_BOARD_ID && (stacks.network || stacks.radio)" class="flex flex-col gap-3" data-test="stack-chrome">
+    <DashboardStackToolbar v-if="toolbar" :board="board" :defs="defs" />
+    <ReadinessBanner v-if="stacks.network" />
+    <NetauditHelp v-if="stacks.network" />
   </div>
 </template>

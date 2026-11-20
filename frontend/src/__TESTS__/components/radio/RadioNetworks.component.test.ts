@@ -30,7 +30,7 @@ describe('RadioNetworks', () => {
     expect(w.get('[data-test="radio-ap"]').attributes('data-confirmed')).toBe('false')
     expect(w.text()).toContain('1 access point broadcasts one of your network names and is not confirmed')
     expect(w.get('[data-test="radio-network-line"]').text()).toBe('No access point confirmed yet')
-    expect(w.get('[data-test="radio-networks-open"]').attributes('href')).toBe('/network/settings?group=watching')
+    expect(w.get('[data-test="radio-networks-open"]').attributes('href')).toBe('/network/settings?group=devices')
     expect(w.find('[data-test="radio-ap-confirm"]').exists()).toBe(false)
     expect(w.find('[data-test="radio-network-add-open"]').exists()).toBe(false)
   })

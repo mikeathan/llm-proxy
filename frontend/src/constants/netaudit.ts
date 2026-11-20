@@ -304,14 +304,15 @@ export const SETTINGS_WATCHING_TITLE = 'Watching for changes'
 export const SETTINGS_EXTRAS_TITLE = 'Optional extras'
 /** Which Settings group holds the details of a module that has any; a module not listed is in the first group. */
 export const MODULE_SETTINGS_GROUP: Readonly<Record<string, NetworkSettingsGroup>> = {
-  presence: 'watching', wifi_lookalikes: 'watching', nearby: 'watching', router_log: 'watching', decoys: 'watching', dns_check: 'watching',
+  presence: 'devices', wifi_lookalikes: 'devices', nearby: 'devices', decoys: 'devices', router_log: 'router', dns_check: 'router',
   outside_lookup: 'outside', known_bad: 'outside', phone_home: 'outside',
 }
 export const SETTINGS_GROUPS_LABEL = 'Network settings'
 /** The groups of the Settings tab: what each is called and the one line that says what is inside, so a setting is found by its job. */
 export const SETTINGS_GROUP_COPY: Readonly<Record<NetworkSettingsGroup, { label: string; hint: string }>> = {
   scanning: { label: 'What to scan', hint: 'Which networks may be scanned, and how long a scan may spend on one device.' },
-  watching: { label: 'Watching', hint: 'What is kept an eye on: new devices, decoy services, the router\'s log and DNS, nearby devices and Wi-Fi look-alikes.' },
+  devices: { label: 'Devices & Wi-Fi', hint: 'What is kept an eye on among the devices: new devices, decoy services, nearby devices and Wi-Fi look-alikes.' },
+  router: { label: 'Router', hint: 'What the router tells this computer: its log, the connections it is read for, and a check of its DNS.' },
   outside: { label: 'Outside services', hint: 'Looks that ask a service on the internet. Each stays off until you turn it on here.' },
   data: { label: 'Downloaded data', hint: 'Tables kept on this computer so a check can run without asking anyone: known flaws, Ubuntu security notices, and who runs each internet address and where it is used (for Traffic).' },
   helper: { label: 'Privileged helper', hint: 'The small program that lets this one computer do the few things that need more rights, and the actions it may take.' },
@@ -515,6 +516,22 @@ export const NEARBY_SERVICE_NAMES: Record<string, string> = {
 // The Timeline card (dashboard, Network board): one timeline of what happened lately. Simple shows the latest few rows, Advanced a long list with each
 // device's address.
 export const ACTIVITY_TITLE = 'What happened lately'
+/** The Network tab's cards (ADR-0070): sections of the overview, and the views one card switches between. */
+export const OVERVIEW_CHANGES_TITLE = 'What changed'
+export const OVERVIEW_ALL_ACTIVITY = 'All activity'
+export const OVERVIEW_COVERAGE_TITLE = 'What is watching'
+export const OVERVIEW_STANDING_PENDING = 'This fills in after the first audit has run.'
+export const DEVICES_VIEW_LABEL = 'Which devices'
+export const DEVICES_VIEW_OPTIONS: ChoiceOption[] = [
+  { value: 'network', label: 'On your network' },
+  { value: 'nearby', label: 'Nearby, not on your list' },
+]
+export const FINDINGS_VIEW_LABEL = 'How to read the findings'
+export const FINDINGS_VIEW_OPTIONS: ChoiceOption[] = [
+  { value: 'list', label: 'Findings' },
+  { value: 'paths', label: 'Ways in' },
+]
+export const TRAFFIC_TRACE_TITLE = 'Trace a route'
 export const ACTIVITY_LIMIT_SIMPLE = 20
 export const ACTIVITY_LIMIT_ADVANCED = 100
 export const ACTIVITY_FILTER_LABEL = 'Show activity'

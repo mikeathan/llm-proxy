@@ -23,7 +23,7 @@ const n = useRadioNetworks()
 const { advanced } = useNetauditViewMode()
 const groups = computed(() => (n.networks.value ? networkGroups(n.networks.value) : []))
 const candidates = computed(() => groups.value.flatMap((g) => g.candidates))
-const wifiSettings = toNetworkSettings("watching")
+const wifiSettings = toNetworkSettings("devices")
 
 onMounted(() => { void n.load() })
 </script>

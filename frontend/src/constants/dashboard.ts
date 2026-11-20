@@ -1,4 +1,4 @@
-import type { BoardHintKey, DashboardBoardTemplate, DashboardCardSize, DashboardCols, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
+import type { BoardHintKey, DashboardBoardTemplate, DashboardGroup, DashboardCardSize, DashboardCols, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
 import type { ChoiceOption } from '../types/ui'
 
 // The dashboard's words and shipped layouts. The limits match core/dashboard on the server, which refuses more.
@@ -10,7 +10,7 @@ export const IN_DASHBOARD_CARD: InjectionKey<boolean> = Symbol('in-dashboard-car
 
 /** Provided by a dashboard card to everything inside it: the size its own width gives it. Outside a card (or before it is measured) it is large. */
 /** The room a card's list gets at each card size: the list scrolls inside it, so a smaller card shows fewer rows at a time and never hides the rest. */
-export const CARD_LIST_SCROLL: Record<DashboardCardSize, string> = { xs: '', sm: 'max-h-72 overflow-y-auto', lg: 'max-h-[36rem] overflow-y-auto' }
+export const CARD_LIST_SCROLL: Record<DashboardCardSize, string> = { xs: '', sm: 'max-h-72 overflow-y-auto [scrollbar-gutter:stable]', lg: 'max-h-[36rem] overflow-y-auto [scrollbar-gutter:stable]' }
 
 export const DASHBOARD_CARD_SIZE: InjectionKey<Ref<DashboardCardSize>> = Symbol('dashboard-card-size')
 /** Provided by a dashboard card to everything inside it: whether the card is on screen now. Polling inside a card pauses while it is not, and catches up when it returns. */
@@ -24,7 +24,7 @@ export const DASHBOARD_EYEBROW = 'Control center'
 export const DASHBOARD_SUBTITLE = 'Your boards, made of cards from every part of the system'
 export const HOME_BOARD_ID = 'home'
 
-export const MAX_BOARDS = 12
+export const MAX_BOARDS = 20
 export const MAX_CARDS_PER_BOARD = 40
 export const MAX_BOARD_NAME = 40
 export const NEW_BOARD_NAME = 'New board'
@@ -60,6 +60,10 @@ export const SOURCE_CHIPS: Record<DashboardSource, string> = {
   radio: 'RADIO',
   agents: 'AGENTS',
 }
+/** The tab a group of boards has in the strip. */
+export const GROUP_LABELS: Record<DashboardGroup, string> = { network: 'Network' }
+/** The name of the row of sub-tabs, for screen readers. */
+export const SUB_TABS_LABEL = (group: string): string => `${group} views`
 export const SOURCE_ORDER: readonly DashboardSource[] = ['host', 'assistant', 'automations', 'reminders', 'network', 'radio', 'agents']
 
 export const PRESET_OPTIONS: ChoiceOption[] = [
@@ -76,9 +80,18 @@ export const PINNED_COLS: DashboardCols = 4
  * dashboard can say so when the owner's saved board does not have it yet.
  */
 export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; board: string }> = {
-  network: { text: 'Devices, findings, audits, traffic and the timeline are on the dashboard.', link: 'Open the Network board', board: 'network' },
+  network: { text: 'Devices, findings, audits, traffic and the timeline are on the dashboard.', link: 'Open the Network tab', board: 'network' },
   agents: { text: 'What the agents did, and where they fetched from, is on the dashboard.', link: 'Open the Agents board', board: 'agents' },
   radio: { text: 'The radar, your devices, your networks and what changed are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
+}
+/** The Network sub-tab (board) each Network card is on, so a link to a card opens the board that holds it. */
+export const NETWORK_CARD_BOARD: Readonly<Record<string, string>> = {
+  'network-overview': 'network',
+  'network-devices': 'network-devices',
+  'network-traffic': 'network-traffic',
+  'network-findings': 'network-findings',
+  'network-audits': 'network-findings',
+  'network-timeline': 'network-activity',
 }
 export const CARD_MISSING = (title: string): string => `${title} is not on this board.`
 export const CARD_MISSING_ADD = 'Add it'
@@ -124,26 +137,21 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'recent-runs', cols: 6, rows: 1 },
     ],
   },
+  // Network is one tab with five sub-tabs, one topic each (ADR-0070). The first keeps the id `network`, which the stack's links use.
+  { id: 'network', name: 'Overview', group: 'network', source: 'network', cards: [{ id: 'network-overview', cols: 12, rows: 1 }] },
+  { id: 'network-devices', name: 'Devices', group: 'network', source: 'network', cards: [{ id: 'network-devices', cols: 12, rows: 1 }] },
+  { id: 'network-traffic', name: 'Traffic', group: 'network', source: 'network', cards: [{ id: 'network-traffic', cols: 12, rows: 1 }] },
   {
-    id: 'network',
-    name: 'Network',
+    id: 'network-findings',
+    name: 'Findings',
+    group: 'network',
     source: 'network',
     cards: [
-      { id: 'network-posture', cols: 8, rows: 1 },
-      { id: 'network-changes', cols: 4, rows: 1 },
-      { id: 'network-figures', cols: 12, rows: 1 },
-      { id: 'network-devices', cols: 12, rows: 1 },
       { id: 'network-findings', cols: 12, rows: 1 },
-      { id: 'network-attack-paths', cols: 6, rows: 1 },
-      { id: 'network-standing', cols: 6, rows: 1 },
-      { id: 'network-timeline', cols: 12, rows: 1 },
-      { id: 'network-traffic', cols: 12, rows: 1 },
-      { id: 'network-audits', cols: 6, rows: 1 },
-      { id: 'network-trace', cols: 6, rows: 1 },
-      { id: 'network-nearby', cols: 12, rows: 1 },
-      { id: 'network-coverage', cols: 12, rows: 1 },
+      { id: 'network-audits', cols: 12, rows: 1 },
     ],
   },
+  { id: 'network-activity', name: 'Activity', group: 'network', source: 'network', cards: [{ id: 'network-timeline', cols: 12, rows: 1 }] },
   {
     id: 'radio',
     name: 'Radio',

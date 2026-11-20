@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth, visibleLayout, newShippedCards } from '../../domain/dashboard'
+import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth, visibleLayout, newShippedCards, boardTabs } from '../../domain/dashboard'
 import { BOARD_TEMPLATES, HOME_BOARD_ID, MAX_BOARDS, MAX_CARDS_PER_BOARD } from '../../constants/dashboard'
 import type { DashboardBoard, DashboardCardDef, DashboardLayout } from '../../types/dashboard'
 
@@ -164,7 +164,7 @@ describe('sizeForWidth', () => {
     })
 
     it('offers a stack board only while the stack is on', () => {
-      const without: DashboardLayout = { boards: shippedLayout().boards.filter((b) => b.id !== 'radio' && b.id !== 'network') }
+      const without: DashboardLayout = { boards: shippedLayout().boards.filter((b) => b.id !== 'radio' && !b.id.startsWith('network')) }
       expect(boardsToOffer(without, new Set(['radio'])).map((t) => t.id)).toEqual(['radio'])
       expect(boardsToOffer(without, new Set()).map((t) => t.id)).toEqual([])
       expect(boardsToOffer(without, null).map((t) => t.id)).toEqual(['network', 'radio'])
@@ -174,7 +174,7 @@ describe('sizeForWidth', () => {
 
 describe('visibleLayout and newShippedCards', () => {
   const def = (id: string, source: DashboardCardDef['source']) => [id, { id, source } as DashboardCardDef] as const
-  const defs = new Map([def('a', 'host'), def('n', 'network'), def('r', 'radio'), def('network-posture', 'network'), def('network-changes', 'network')])
+  const defs = new Map([def('a', 'host'), def('n', 'network'), def('r', 'radio'), def('network-posture', 'network'), def('network-overview', 'network')])
   const layout: DashboardLayout = {
     boards: [
       { id: 'home', name: 'Home', cards: [{ id: 'a', cols: 4, rows: 1 }, { id: 'n', cols: 4, rows: 1 }, { id: 'r', cols: 4, rows: 1 }] },
@@ -198,9 +198,52 @@ describe('visibleLayout and newShippedCards', () => {
 
   it('lists the cards a shipped board now has and the saved copy lacks, except those already offered', () => {
     const saved: DashboardBoard = { id: 'network', name: 'Network', cards: [{ id: 'network-posture', cols: 8, rows: 1 }] }
-    expect(newShippedCards(saved, [], null, defs)).toEqual(['network-changes'])
-    expect(newShippedCards(saved, ['network-changes'], null, defs)).toEqual([])
+    expect(newShippedCards(saved, [], null, defs)).toEqual(['network-overview'])
+    expect(newShippedCards(saved, ['network-overview'], null, defs)).toEqual([])
     expect(newShippedCards(saved, [], new Set(), defs)).toEqual([]) // the stack is off
     expect(newShippedCards({ id: 'mine', name: 'Mine', cards: [] } as DashboardBoard, [], null, defs)).toEqual([]) // a board that did not ship has no shipped cards
+  })
+})
+
+describe("boardTabs: a stack's boards are one tab with sub-tabs", () => {
+  const shipped = shippedLayout()
+  const on = new Set(['network', 'radio'])
+
+  it('shows Network once, with every Network board as a sub-tab, in the shipped order', () => {
+    const tabs = boardTabs(shipped.boards, on)
+    expect(tabs.map((t) => t.label)).toEqual(['Home', 'LLM and host', 'Network', 'Radio', 'Agents', 'Automations'])
+    const network = tabs.find((t) => t.group === 'network')!
+    expect(network.subTabs.map((s) => s.label)).toEqual(['Overview', 'Devices', 'Traffic', 'Findings', 'Activity'])
+    expect(network.id).toBe('network')
+    expect(network.subTabs.every((s) => s.present)).toBe(true)
+  })
+
+  it('lists a sub-tab the saved layout lacks, marked absent, so opening it can add it', () => {
+    const saved = { boards: shipped.boards.filter((b) => b.id !== 'network-traffic') }
+    const network = boardTabs(saved.boards, on).find((t) => t.group === 'network')!
+    expect(network.subTabs.find((s) => s.id === 'network-traffic')).toMatchObject({ label: 'Traffic', present: false })
+  })
+
+  it('opens the first board of the group the layout has when the group tab is chosen', () => {
+    const saved = { boards: shipped.boards.filter((b) => b.id !== 'network') }
+    expect(boardTabs(saved.boards, on).find((t) => t.group === 'network')!.id).toBe('network-devices')
+  })
+
+  it('has no Network tab when no Network board is on the layout or the stack is off', () => {
+    expect(boardTabs(shipped.boards.filter((b) => !b.id.startsWith('network')), on).some((t) => t.group === 'network')).toBe(false)
+    expect(boardTabs(shipped.boards, new Set(['radio'])).some((t) => t.group === 'network')).toBe(false)
+  })
+
+  it("leaves a board of the owner's own as one tab with its own name", () => {
+    const own = { id: 'mine', name: 'My board', cards: [] }
+    expect((() => { const t = boardTabs([...shipped.boards, own], on); return t[t.length - 1] })()).toMatchObject({ id: 'mine', label: 'My board', subTabs: [] })
+  })
+})
+
+describe('boards offered when a group is on the layout', () => {
+  it('offers a group once, as its first board, and not at all when any of it is on the layout', () => {
+    const without = { boards: shippedLayout().boards.filter((b) => !b.id.startsWith('network')) }
+    expect(boardsToOffer(without).filter((t) => t.group === 'network').map((t) => t.id)).toEqual(['network'])
+    expect(boardsToOffer({ boards: shippedLayout().boards.filter((b) => b.id !== 'network-traffic') }).some((t) => t.group === 'network')).toBe(false)
   })
 })

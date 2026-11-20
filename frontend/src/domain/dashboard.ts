@@ -1,6 +1,6 @@
-import { BOARD_TEMPLATES, HOME_BOARD_ID, LARGE_CARD_FROM_PX, SMALL_CARD_BELOW_PX, MAX_BOARDS, MAX_BOARD_NAME, MAX_CARDS_PER_BOARD, NEW_BOARD_NAME, PINNED_COLS, PRESET_COLS } from '../constants/dashboard'
+import { BOARD_TEMPLATES, GROUP_LABELS, HOME_BOARD_ID, LARGE_CARD_FROM_PX, SMALL_CARD_BELOW_PX, MAX_BOARDS, MAX_BOARD_NAME, MAX_CARDS_PER_BOARD, NEW_BOARD_NAME, PINNED_COLS, PRESET_COLS } from '../constants/dashboard'
 import { STACK_IDS } from '../types/stacks'
-import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCardSize, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
+import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCardSize, DashboardCols, DashboardGroup, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows, DashboardSource, DashboardTab } from '../types/dashboard'
 
 // The dashboard's layout rules, as pure functions: each takes a layout (or a board's cards) and returns a new one, so the
 // composable that owns the state stays thin and every rule is testable without a screen.
@@ -17,6 +17,9 @@ const clone = (cards: readonly DashboardPlacement[]): DashboardPlacement[] => ca
 const boardFromTemplate = (t: DashboardBoardTemplate): DashboardBoard => ({ id: t.id, name: t.name, cards: clone(t.cards) })
 
 export const templateOf = (boardId: string): DashboardBoardTemplate | undefined => BOARD_TEMPLATES.find((t) => t.id === boardId)
+
+/** The group a shipped board belongs to (its tab in the strip), if any. */
+export const groupOf = (boardId: string): DashboardGroup | undefined => templateOf(boardId)?.group
 
 /** The boards a person starts with: Home and every board a stack ships. */
 export function shippedLayout(): DashboardLayout {
@@ -118,6 +121,12 @@ export function renameBoard(layout: DashboardLayout, boardId: string, name: stri
   return replaceBoard(layout, boardId, (b) => ({ ...b, name: trimmed }))
 }
 
+/** Which stacks the cards of a board come from, for what the stacks' cards share above the board. */
+export function stackSourcesOf(board: DashboardBoard, defs: ReadonlyMap<string, DashboardCardDef>): { network: boolean; radio: boolean } {
+  const sources = new Set(board.cards.map((c) => defs.get(c.id)?.source))
+  return { network: sources.has('network'), radio: sources.has('radio') }
+}
+
 const STACK_SOURCES: ReadonlySet<string> = new Set(STACK_IDS)
 
 /**
@@ -153,8 +162,43 @@ export function newShippedCards(board: DashboardBoard, seen: readonly string[], 
 /** The cards the catalogue offers: those whose stack is on. */
 export const cardsToOffer = (defs: readonly DashboardCardDef[], on: ReadonlySet<string> | null): DashboardCardDef[] => defs.filter((d) => sourceIsOn(d.source, on))
 
-/** The shipped boards that are not on the dashboard now and whose stack is on, for the "Add board" menu. */
+/**
+ * The shipped boards that are not on the dashboard now and whose stack is on, for the "Add board" menu. A group is offered once (its first board,
+ * which brings the tab and opens the rest as sub-tabs), and not at all while any board of it is on the layout: the sub-tabs offer the others.
+ */
 export function boardsToOffer(layout: DashboardLayout, on: ReadonlySet<string> | null = null): DashboardBoardTemplate[] {
   const present = new Set(layout.boards.map((b) => b.id))
-  return BOARD_TEMPLATES.filter((t) => t.source !== null && !present.has(t.id) && sourceIsOn(t.source, on))
+  const grouped = (g: DashboardGroup) => BOARD_TEMPLATES.some((t) => t.group === g && present.has(t.id))
+  const firstOf = new Set<DashboardGroup>()
+  return BOARD_TEMPLATES.filter((t) => {
+    if (t.source === null || present.has(t.id) || !sourceIsOn(t.source, on)) return false
+    if (!t.group) return true
+    if (grouped(t.group) || firstOf.has(t.group)) return false
+    firstOf.add(t.group)
+    return true
+  })
+}
+
+/**
+ * The tabs of the strip for the boards on the layout. A stack's boards share one tab with a row of sub-tabs: every board the stack ships is a
+ * sub-tab, in the shipped order, whether or not the owner's layout has it yet (opening one that is missing adds it). A board of the owner's own is a
+ * tab with its own name. The group's tab sits where its first board is, and opens the first of its boards the layout has.
+ */
+export function boardTabs(boards: readonly DashboardBoard[], on: ReadonlySet<string> | null): DashboardTab[] {
+  const tabs: DashboardTab[] = []
+  const have = new Set(boards.map((b) => b.id))
+  const done = new Set<DashboardGroup>()
+  for (const b of boards) {
+    const group = templateOf(b.id)?.group
+    if (!group) {
+      tabs.push({ id: b.id, label: b.name, subTabs: [] })
+      continue
+    }
+    if (done.has(group)) continue
+    done.add(group)
+    const members = BOARD_TEMPLATES.filter((t) => t.group === group && sourceIsOn(t.source, on))
+    const first = members.find((t) => have.has(t.id))
+    if (first) tabs.push({ id: first.id, label: GROUP_LABELS[group], group, subTabs: members.map((t) => ({ id: t.id, label: t.name, present: have.has(t.id) })) })
+  }
+  return tabs
 }

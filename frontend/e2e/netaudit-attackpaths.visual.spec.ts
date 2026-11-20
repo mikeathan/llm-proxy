@@ -20,7 +20,8 @@ const PATHS = [
 
 test('the ways in fit the screen and read top to bottom', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': { ...base, attack_paths: PATHS } } })
-  await page.goto('dashboard?board=network')
+  await page.goto('dashboard?board=network-findings')
+  await page.getByRole('radio', { name: 'Ways in' }).click() // the second view of the Findings card
   const card = page.locator('[data-test="attack-paths"]')
   await expect(card).toBeVisible()
   await expect(card.locator('[data-test="path-step"]').first()).toContainText('Admin or metrics service')
@@ -32,17 +33,20 @@ test('the ways in fit the screen and read top to bottom', async ({ page }, testI
 
 test('an accepted path is kept and says so in words', async ({ page }) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': { ...base, attack_paths: [{ ...PATHS[0], steps: [telnet], all_accepted: true }] } } })
-  await page.goto('dashboard?board=network')
+  await page.goto('dashboard?board=network-findings')
+  await page.getByRole('radio', { name: 'Ways in' }).click() // the second view of the Findings card
   await expect(page.locator('[data-test="path-step"]')).toContainText('accepted')
   await expectNoSidewaysScroll(page)
 })
 
 test('with nothing found it says so, and with the module off the card is not there', async ({ page }) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': { ...base, attack_paths: [] } } })
-  await page.goto('dashboard?board=network')
+  await page.goto('dashboard?board=network-findings')
+  await page.getByRole('radio', { name: 'Ways in' }).click() // the second view of the Findings card
   await expect(page.locator('[data-test="attack-paths-none"]')).toContainText('No way in found')
   await mockAdminApi(page, { answers: { '/netaudit/overview': { ...base, attack_paths: [], attack_paths_on: false } } })
   await page.reload()
-  await expect(page.locator('[data-test="network-posture-card"]')).toBeVisible()
+  await expect(page.locator('[data-test="network-findings-card"]')).toBeVisible()
+  await expect(page.getByRole('radio', { name: 'Ways in' })).toHaveCount(0) // not offered while the module is off
   await expect(page.locator('[data-test="attack-paths"]')).toHaveCount(0)
 })

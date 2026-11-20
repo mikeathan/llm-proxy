@@ -24,7 +24,7 @@ async function open(page: Page, view: 'simple' | 'advanced', activity: unknown, 
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/automations': [AUDIT] } })
   await page.route('**/admin/api/netaudit/activity*', (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(activity) }))
-  await page.goto('dashboard?board=network')
+  await page.goto('dashboard?board=network-activity')
   await expect(page.getByRole('region', { name: 'What happened lately' })).toBeVisible()
 }
 
@@ -67,7 +67,7 @@ test('the Network page no longer has a Timeline tab: it is a card on the Network
   await mockAdminApi(page, {})
   await page.goto('network')
   await expect(page.getByRole('link', { name: 'Timeline' })).toHaveCount(0)
-  await page.goto('dashboard?board=network')
+  await page.goto('dashboard?board=network-activity')
   await expect(page.getByRole('region', { name: 'What happened lately' })).toBeVisible()
 })
 

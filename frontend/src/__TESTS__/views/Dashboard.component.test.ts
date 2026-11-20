@@ -79,6 +79,40 @@ describe('DashboardView', () => {
     expect(current(w)).toEqual(['LLM and host'])
   })
 
+  it('shows Network as one tab with its sub-tabs under it, and moves between them without more tabs', async () => {
+    const { w, router } = await open('/dashboard?board=network')
+    expect(tabs(w).map((t) => t.text())).toEqual(['Home', 'LLM and host', 'Network', 'Radio', 'Automations'])
+    expect(current(w)).toEqual(['Network'])
+    const subs = () => w.findAll('[data-test="sub-tab"]')
+    expect(subs().map((s) => s.text())).toEqual(['Overview', 'Devices', 'Traffic', 'Findings', 'Activity'])
+    await subs()[3]!.trigger('click')
+    await flushPromises()
+    expect(subs().filter((s) => s.attributes('aria-current') === 'page').map((s) => s.text())).toEqual(['Findings'])
+    expect(current(w)).toEqual(['Network']) // still the one tab
+    await tabs(w)[0]!.trigger('click')
+    expect(w.find('[data-test="sub-tabs"]').exists()).toBe(false) // the row belongs to Network only
+    expect(router.currentRoute.value.path).toBe('/dashboard')
+  })
+
+  it('does not add a sub-tab of a stack that is off when its address is opened', async () => {
+    stacksService.list.mockResolvedValue([{ id: 'radio', title: 'Radio', purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 }])
+    const { w } = await open('/dashboard?board=network-traffic')
+    expect(current(w)).toEqual(['Home'])
+    expect(service.save).not.toHaveBeenCalled()
+  })
+
+  it('adds a sub-tab the saved layout lacks when it is opened', async () => {
+    const saved: DashboardLayout = { boards: [{ id: 'home', name: 'Home', cards: [] }, { id: 'network', name: 'Network', cards: [] }] }
+    service.layout.mockResolvedValue(saved)
+    const { w } = await open('/dashboard?board=network')
+    expect(w.findAll('[data-test="sub-tab"]')).toHaveLength(5) // all of them are offered, present or not
+    await w.findAll('[data-test="sub-tab"]')[2]!.trigger('click')
+    await flushPromises()
+    const last = service.save.mock.calls[service.save.mock.calls.length - 1]![0] as DashboardLayout
+    expect(last.boards.map((b) => b.id)).toContain('network-traffic')
+    expect(w.findAll('[data-test="sub-tab"]').filter((s) => s.attributes('aria-current') === 'page').map((s) => s.text())).toEqual(['Traffic'])
+  })
+
   it('opens the board named in the address on arrival', async () => {
     const { w } = await open('/dashboard?board=radio')
     expect(current(w)).toEqual(['Radio'])

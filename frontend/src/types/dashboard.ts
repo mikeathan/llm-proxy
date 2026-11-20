@@ -39,13 +39,33 @@ export interface DashboardCardDef {
   control: () => RouteLocationRaw
 }
 
+/** A stack whose shipped boards are shown as one tab with a row of sub-tabs under it, not one tab each. */
+export type DashboardGroup = 'network'
+
 /** A board that ships ready-made: a name and the cards it starts with. */
 export interface DashboardBoardTemplate {
   id: string
   name: string
+  /** Boards that share a group are one tab in the strip; the board's name is then its sub-tab. */
+  group?: DashboardGroup
   /** Boards a stack ships carry the stack's source, so the catalogue can say where they come from. */
   source: DashboardSource | null
   cards: readonly DashboardPlacement[]
+}
+
+/** One sub-tab of a group: a board the group ships, whether or not the owner's layout has it yet (opening it adds it). */
+export interface DashboardSubTab {
+  id: string
+  label: string
+  present: boolean
+}
+
+/** One tab of the strip: a single board, or a group of boards with its sub-tabs. `id` is the board that opens when the tab is chosen. */
+export interface DashboardTab {
+  id: string
+  label: string
+  group?: DashboardGroup
+  subTabs: DashboardSubTab[]
 }
 
 /** How much room a card has, by its own width: small shows a headline, medium adds a trend or a short list, large shows the detail. */

@@ -9,10 +9,11 @@ import DashboardToolbar from "../components/dashboard/DashboardToolbar.vue"
 import DashboardGrid from "../components/dashboard/DashboardGrid.vue"
 import CardCatalogue from "../components/dashboard/CardCatalogue.vue"
 import DashboardStackChrome from "../components/dashboard/DashboardStackChrome.vue"
+import DashboardStackToolbar from "../components/dashboard/DashboardStackToolbar.vue"
 import { CARD_DEFS, CARD_DEFS_BY_ID, KNOWN_CARD_IDS } from "../components/dashboard/cardRegistry"
 import { useEnabledStacks } from "../composables/stacks/useEnabledStacks"
 import { useDashboard } from "../composables/dashboard/useDashboard"
-import { cardsToOffer, newShippedCards, templateOf } from "../domain/dashboard"
+import { cardsToOffer, groupOf, newShippedCards, templateOf } from "../domain/dashboard"
 import { CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS, RESET_ALL_CONFIRM, NEW_CARDS_ADD, NEW_CARDS_DISMISS, NEW_CARDS_TITLE } from "../constants/dashboard"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { usePersistedState } from "../composables/ui/usePersistedState"
@@ -75,10 +76,7 @@ watch(() => route.query.board, openFromAddress)
 // (the owner asked for it by following the link; the same board is in the Add board menu). A board that is not shipped is not made up.
 function openFromAddress() {
   const id = route.query.board
-  if (typeof id !== "string") return
-  const shipped = d.boards.value.some((b) => b.id === id) ? undefined : d.offeredBoards.value.find((t) => t.id === id)
-  if (shipped) d.addBoardFrom(shipped)
-  else d.open(id)
+  if (typeof id === "string") d.open(id)
 }
 </script>
 
@@ -109,13 +107,16 @@ function openFromAddress() {
         :arrange="d.arrange.value"
         :offered="d.offeredBoards.value"
         :at-limit="d.boards.value.length >= MAX_BOARDS"
+        :stacks-on="stacks.on.value"
         @open="d.open"
         @add="d.addBoardFrom"
         @remove="d.removeBoardById"
         @rename="d.rename"
         @reset-all="resetEverything"
-      />
-      <DashboardStackChrome :board="d.board.value" :defs="CARD_DEFS_BY_ID" />
+      >
+        <template #trailing><DashboardStackToolbar :board="d.board.value" :defs="CARD_DEFS_BY_ID" /></template>
+      </DashboardBoardTabs>
+      <DashboardStackChrome :board="d.board.value" :defs="CARD_DEFS_BY_ID" :toolbar="!groupOf(d.board.value.id)" />
       <DashboardGrid
         :board="d.board.value"
         :defs="CARD_DEFS_BY_ID"
