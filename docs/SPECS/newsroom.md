@@ -1,7 +1,7 @@
 ---
 id: SPEC-013
 title: Newsroom
-version: "1.3"
+version: "1.4"
 status: stable
 last_updated: 2026-11-21
 constitution_references: [I.1, III.6, IV.6, V.2]
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **1.4 (2026-11-21)** — **Source look-up** (ADR-0074): the watch form can look a source up before it is saved. Two admin reads, `GET /admin/api/newsroom/sources/lookup` and `.../sources/suggest`. Telegram is a name check (no keyless channel search exists); Mastodon lists trending or matching tags; a page that is not a feed offers the feeds it advertises. Answers are remembered 10 minutes (64 at most), Telegram is limited to six look-ups a minute, and the look-up never uses the timer's Telegram read slot.
 - **1.3 (2026-11-21)** — **Strict filter:** with `look_for` set an item is shown only when the model says `relevant: true`; an item with no verdict is not shown and is named in the row; an answer with no verdicts, no model or a spent limit is `analysis_failed` (nothing shown or recorded, the next run retries). **Clear:** `POST /admin/api/newsroom/feed/clear` deletes entries for good (`ids`, `scope:"read"` or `scope:"all"`). **Screen:** the feed is a flat list of compact rows per day (newest day open, older days folded, "Show older days"), a select mode with Mark read and Clear, no "New" pill (the unread dot says it), details folded behind a chevron.
 - **1.2 (2026-11-21)** — The relevance judgement is a **verdict on every item** (`verdicts: [{item, why, relevant}]`), not a list of the items to keep. Only `relevant: true` keeps an item; an item with no verdict is kept; the old `matches` list is no longer read. A Telegram entry no longer shows its text again under a headline that is the start of it.
 - **1.1 (2026-11-20)** — "Topic" is now **Watch** everywhere (ADR-0073). A watch says what to look for (`look_for`, keywords, skip words); a keyword stage and a model relevance judgement filter new items; the first check shows up to five findings marked "First check". The page is Feed, Watches and Settings. Persisted names changed (`watches.json`). The unused Search, Paper and Section fields were removed.
@@ -30,11 +31,11 @@ supersedes:
 
 **Feed.** Entries are kept 30 days, 200 per watch. The server groups entries by day then watch (newest entry `current`, the rest `earlier`); the screen reads a day as one list, newest first, and names the watch on a row only when more than one watch has entries. Repeats fold under the entry they repeat ("also seen"). Days are drawn in the zone the screen sends (`?zone=`), else UTC.
 
-**Routes** (admin): `GET|POST /admin/api/newsroom/watches`, `PUT|DELETE .../watches/{id}`, `POST .../watches/{id}/run`, `GET .../feed` (`watch`, `unread`, `zone`), `POST .../feed/read`, `POST .../feed/clear` (`{ids}` | `{scope:"read"|"all"}`; deletes entries from storage for good; the seen ledger is kept, so a cleared item does not return from the same source). **Tools** (attended runs, `general` profile only, hidden and refused while the module is off): `newsroom_follow`, `newsroom_watches`.
+**Routes** (admin): `GET|POST /admin/api/newsroom/watches`, `PUT|DELETE .../watches/{id}`, `POST .../watches/{id}/run`, `GET .../feed` (`watch`, `unread`, `zone`), `POST .../feed/read`, `POST .../feed/clear` (`{ids}` | `{scope:"read"|"all"}`; deletes entries from storage for good; the seen ledger is kept, so a cleared item does not return from the same source), `GET .../sources/lookup` (`kind`, `target`, `instance`: what one source would read, as `{found, target, instance, title, sample[≤3], choices[], problem}`; nothing is saved; the value is checked first and a bad one is a problem with no request; a problem about the moment such as internet off is not remembered) and `GET .../sources/suggest` (`kind`, `instance`, `target`: Mastodon only, trending tags or tags matching what is typed; other kinds answer an empty list). Both follow the module switch and read only through the guarded `Fetch`. **Tools** (attended runs, `general` profile only, hidden and refused while the module is off): `newsroom_follow`, `newsroom_watches`.
 
 **Module.** `newsroom.disabled` is the switch. Starting needs internet access allowed in Guardrails. No timer runs while the module is off.
 
-**Screens** (SPEC-003): the Newsroom page, tabs Feed, Watches and Settings (the module switches), at `/newsroom/:tab?`; the watch form offers suggestions for what to look for and a guide per kind of source; a dashboard card `newsroom-latest` that shows the latest headlines and a failing flag and links only (ADR-0064). All text is escaped; a link opens only if it is http or https.
+**Screens** (SPEC-003): the Newsroom page, tabs Feed, Watches and Settings (the module switches), at `/newsroom/:tab?`; the watch form offers suggestions for what to look for, a guide per kind of source, and under each source a **Look up** that shows what it would read (name, latest items, the cleaned-up value) and offers feeds a page advertises or a Mastodon server's tags (a hint: saving does not need it); a dashboard card `newsroom-latest` that shows the latest headlines and a failing flag and links only (ADR-0064). All text is escaped; a link opens only if it is http or https.
 
 ## Capabilities
 
@@ -45,5 +46,6 @@ supersedes:
 | Model step with code-checked answer and relevance judgement | `watches/analyst.go`, core `stackport/model.go` |
 | Notice through the core | `stackport/notice.go` |
 | Feed journal and day cards | `watches/journal.go`, `feed.go` |
+| Source look-up and suggestions while filling the watch form | `stacks/newsroom/sources/lookup.go`, `sourceroutes.go`, `lookupcache.go`; `frontend/.../NewsroomSourceLookup.vue`, `useSourceLookup.ts` |
 | Chat tools | `internal/app/newsroom_tools.go` |
 | Newsroom page and Home card | `frontend/src/views/NewsroomView.vue`, `components/newsroom/`, `components/dashboard/cards/NewsroomLatestCard.vue` |

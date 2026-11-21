@@ -62,12 +62,14 @@ type Stack struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	lastRun time.Time
+	// lookups remembers recent look-up answers and keeps them polite (sourceroutes.go).
+	lookups *lookupCache
 	// tick is the loop's period; a test shortens it.
 	tick time.Duration
 }
 
 // New returns the stack.
-func New() *Stack { return &Stack{tick: TickEvery} }
+func New() *Stack { return &Stack{tick: TickEvery, lookups: newLookupCache()} }
 
 // Manifest declares the stack as data.
 func (s *Stack) Manifest() stacksdk.Manifest {
@@ -96,6 +98,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: RouteFeed},
 			{Method: http.MethodPost, Path: RouteRead},
 			{Method: http.MethodPost, Path: RouteClear},
+			{Method: http.MethodGet, Path: RouteSourceLookup},
+			{Method: http.MethodGet, Path: RouteSourceSuggest},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{WatchesFile},
@@ -350,6 +354,8 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return markRead(store, req.Body)
 	case "POST " + RouteClear:
 		return clearFeed(store, req.Body)
+	case "GET " + RouteSourceLookup, "GET " + RouteSourceSuggest:
+		return s.handleSources(ctx, req)
 	}
 	return s.handleWatch(ctx, store, runner, req)
 }

@@ -27,6 +27,11 @@ const (
 	SettingsFilename     = "settings.yml"
 	ProcessLogFilename   = "process.log"
 
+	// MasterKeyFilename decrypts secrets.json; the hash file beside it checks the key's integrity. No agent surface may name, read or list either
+	// (core/tools internalBlockedPaths), so the key stays unreachable even when an allowed root is widened to cover the data root.
+	MasterKeyFilename     = "master.key"
+	MasterKeyHashFilename = "master.key.hash"
+
 	// API Parameter Names
 	WorkspaceIDParam = "workspace"
 

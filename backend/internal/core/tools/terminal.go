@@ -259,6 +259,14 @@ func checkBlockedPatterns(command string, patterns []string, cache *sync.Map) er
 // classifies it as a silent policy block (no allow/deny prompt), matching the
 // filesystem tool.
 func checkBlockedPaths(command string, blocked []string, jailPath string) error {
+	// A secret's file name is refused wherever it appears in the command, not only as a path operand: an interpreter's own argument
+	// ("open('master.key')", "require('fs').readFileSync(...)") holds it inside a larger token. Nothing legitimate names these files.
+	lower := strings.ToLower(command)
+	for _, name := range secretFilenames {
+		if strings.Contains(lower, name) {
+			return fmt.Errorf("path access denied: access to sensitive file '%s' is blocked", name)
+		}
+	}
 	// The effective list merges user-configured blocked filenames with the
 	// internal invariant paths (.sandbox) — one gate, one source of truth.
 	blocked = effectiveBlockedFilenames(blocked)
