@@ -1,6 +1,6 @@
-// Package newsroom is the Newsroom stack: it follows topics the owner names, reads their sources on a timer, keeps what is new in a feed and, for a
-// topic with a channel, hands the core a notice to send through the Notice port (the stack never sends; the core words and sends it).
-// The reading, the ledger and the feed are in package topics; this file is the stack's one lifecycle place: the timer loop, the module switch, the
+// Package newsroom is the Newsroom stack: it follows watches the owner names, reads their sources on a timer, keeps what is new in a feed and, for a
+// watch with a channel, hands the core a notice to send through the Notice port (the stack never sends; the core words and sends it).
+// The reading, the ledger and the feed are in package watches; this file is the stack's one lifecycle place: the timer loop, the module switch, the
 // routes and the tools.
 package newsroom
 
@@ -16,31 +16,31 @@ import (
 	"sync"
 	"time"
 
-	"llm-proxy-stacks/newsroom/topics"
+	"llm-proxy-stacks/newsroom/watches"
 	"llm-proxy-stacks/sdk"
 )
 
-// The ids of the stack, its Topics module, its settings document and its one file.
+// The ids of the stack, its Watches module, its settings document and its one file.
 const (
 	ID          = "newsroom"
-	ModuleID    = "topics"
+	ModuleID    = "watches"
 	SettingsKey = "newsroom"
-	TopicsFile  = "topics.json"
+	WatchesFile = "watches.json"
 )
 
 // The routes the Newsroom screen reads, and the tools the assistant calls.
 const (
-	RouteTopics = "/admin/api/newsroom/topics"
-	RouteTopic  = "/admin/api/newsroom/topics/{id}"
-	RouteRun    = "/admin/api/newsroom/topics/{id}/run"
-	RouteFeed   = "/admin/api/newsroom/feed"
-	RouteRead   = "/admin/api/newsroom/feed/read"
+	RouteWatches = "/admin/api/newsroom/watches"
+	RouteWatch   = "/admin/api/newsroom/watches/{id}"
+	RouteRun     = "/admin/api/newsroom/watches/{id}/run"
+	RouteFeed    = "/admin/api/newsroom/feed"
+	RouteRead    = "/admin/api/newsroom/feed/read"
 
 	ToolFollow = "newsroom_follow"
-	ToolList   = "newsroom_topics"
+	ToolList   = "newsroom_watches"
 )
 
-// TickEvery is how often the loop looks for topics that are due; each topic keeps its own interval (at least topics.MinInterval).
+// TickEvery is how often the loop looks for watches that are due; each watch keeps its own interval (at least watches.MinInterval).
 const TickEvery = time.Minute
 
 // feedDays is how many days one feed answer carries.
@@ -56,8 +56,8 @@ type Settings struct {
 type Stack struct {
 	mu      sync.Mutex
 	h       stacksdk.Host
-	store   *topics.Store
-	runner  *topics.Runner
+	store   *watches.Store
+	runner  *watches.Runner
 	cancel  context.CancelFunc
 	done    chan struct{}
 	lastRun time.Time
@@ -71,38 +71,38 @@ func New() *Stack { return &Stack{tick: TickEvery} }
 // Manifest declares the stack as data.
 func (s *Stack) Manifest() stacksdk.Manifest {
 	return stacksdk.Manifest{
-		ID: ID, Title: "Newsroom", Purpose: "Follow topics you care about and see what is new.",
+		ID: ID, Title: "Newsroom", Purpose: "Follow watches you care about and see what is new.",
 		Layers: []stacksdk.Layer{{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"}},
 		Modules: []stacksdk.ModuleSpec{{
-			ID: ModuleID, Title: "Topics", Purpose: "Read the sources of each topic you follow and keep what is new.", Layer: "follow", Sends: stacksdk.SendsInternet,
+			ID: ModuleID, Title: "Watches", Purpose: "Read the sources of each watch you follow and keep what is new.", Layer: "follow", Sends: stacksdk.SendsInternet,
 			About: stacksdk.About{
-				Watches:  "The feeds, pages and channels you add to a topic, on the interval you chose.",
-				Never:    "It does not send a message itself, and it does not announce what was already there when you added a topic.",
-				ShowsUp:  "In the Newsroom feed and, for a topic with a channel, as a message the core words and sends.",
+				Watches:  "The feeds, pages and channels you add to a watch, on the interval you chose.",
+				Never:    "It does not send a message itself, and it does not announce what was already there when you added a watch.",
+				ShowsUp:  "In the Newsroom feed and, for a watch with a channel, as a message the core words and sends.",
 				Settings: true,
 			},
 		}},
 		Tools: []stacksdk.ToolSpec{
-			{Name: ToolFollow, Category: "newsroom", Description: "Follow a new topic: a name and one or more sources.", Schema: json.RawMessage(followSchema)},
-			{Name: ToolList, Category: "newsroom", Description: "List the topics being followed.", Schema: json.RawMessage(`{"type":"object"}`)},
+			{Name: ToolFollow, Category: "newsroom", Description: "Follow a new watch: a name, what to look for and one or more sources.", Schema: json.RawMessage(followSchema)},
+			{Name: ToolList, Category: "newsroom", Description: "List the watches being followed.", Schema: json.RawMessage(`{"type":"object"}`)},
 		},
 		Routes: []stacksdk.RouteSpec{
-			{Method: http.MethodGet, Path: RouteTopics},
-			{Method: http.MethodPost, Path: RouteTopics},
-			{Method: http.MethodPut, Path: RouteTopic},
-			{Method: http.MethodDelete, Path: RouteTopic},
+			{Method: http.MethodGet, Path: RouteWatches},
+			{Method: http.MethodPost, Path: RouteWatches},
+			{Method: http.MethodPut, Path: RouteWatch},
+			{Method: http.MethodDelete, Path: RouteWatch},
 			{Method: http.MethodPost, Path: RouteRun},
 			{Method: http.MethodGet, Path: RouteFeed},
 			{Method: http.MethodPost, Path: RouteRead},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Storage:  []string{TopicsFile},
+		Storage:  []string{WatchesFile},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice},
 	}
 }
 
 // followSchema is the argument schema of ToolFollow.
-const followSchema = `{"type":"object","properties":{"name":{"type":"string"},"interval":{"type":"string","description":"for example 1h"},"sources":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["feed","hackernews","mastodon","page","telegram"]},"target":{"type":"string"},"instance":{"type":"string"},"label":{"type":"string"}},"required":["kind","target"]}}},"required":["name","sources"]}`
+const followSchema = `{"type":"object","properties":{"name":{"type":"string"},"interval":{"type":"string","description":"for example 1h"},"look_for":{"type":"string","description":"what the owner wants to know about, in their words"},"keywords":{"type":"array","items":{"type":"string"}},"skip":{"type":"array","items":{"type":"string"}},"sources":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["feed","hackernews","mastodon","page","telegram"]},"target":{"type":"string"},"instance":{"type":"string"},"label":{"type":"string"}},"required":["kind","target"]}}},"required":["name","sources"]}`
 
 func (s *Stack) settings(ctx context.Context) Settings {
 	var set Settings
@@ -115,22 +115,22 @@ func (s *Stack) settings(ctx context.Context) Settings {
 	return set
 }
 
-// Start opens the topics file and runs the timer loop under ctx until ctx ends or Stop is called.
+// Start opens the watches file and runs the timer loop under ctx until ctx ends or Stop is called.
 func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
 		return errors.New("the newsroom stack is already running")
 	}
-	store, err := topics.NewStore(h.DataDir)
+	store, err := watches.NewStore(h.DataDir)
 	if err != nil {
 		return err
 	}
 	s.h, s.store = h, store
-	// A topic with a channel hands its notice to the core, which words and sends it; the feed records every change either way.
-	s.runner = &topics.Runner{Store: store, Fetch: h.Fetch, Notify: noticeSender(h.Notice)}
+	// A watch with a channel hands its notice to the core, which words and sends it; the feed records every change either way.
+	s.runner = &watches.Runner{Store: store, Fetch: h.Fetch, Notify: noticeSender(h.Notice)}
 	if h.Model != nil {
-		s.runner.Analyzer = topics.Analyst{Model: modelAdapter{h.Model}}
+		s.runner.Analyzer = watches.Analyst{Model: modelAdapter{h.Model}}
 	}
 	run, cancel := context.WithCancel(ctx)
 	s.cancel, s.done = cancel, make(chan struct{})
@@ -140,12 +140,12 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 
 // noticeSender is the runner's delivery hook over the core's Notice port: the notice's facts go over as data and the core words them. A channel the core
 // does not accept (not enabled, or no longer) is "no channel" on the row, not a failed send.
-func noticeSender(p stacksdk.Notice) topics.Notifier {
+func noticeSender(p stacksdk.Notice) watches.Notifier {
 	if p == nil {
-		return nil // no port was given: a topic with a channel shows "no way to send was set up"
+		return nil // no port was given: a watch with a channel shows "no way to send was set up"
 	}
-	return func(ctx context.Context, t topics.Topic, n topics.Notice) error {
-		req := stacksdk.NoticeRequest{Topic: n.Topic}
+	return func(ctx context.Context, t watches.Watch, n watches.Notice) error {
+		req := stacksdk.NoticeRequest{Watch: n.Watch}
 		for _, it := range n.Items {
 			req.Items = append(req.Items, stacksdk.NoticeItem{Title: it.Title, Link: it.Link})
 		}
@@ -154,14 +154,14 @@ func noticeSender(p stacksdk.Notice) topics.Notifier {
 		}
 		err := p.Send(ctx, t.Channel, req)
 		if stacksdk.CodeOf(err) == stacksdk.CodeInvalid {
-			return fmt.Errorf("%w: %s", topics.ErrNoChannel, err.Error())
+			return fmt.Errorf("%w: %s", watches.ErrNoChannel, err.Error())
 		}
 		return err
 	}
 }
 
 // loop calls Runner.Tick on a timer while the module is on. It is the one place the stack runs in the background.
-func (s *Stack) loop(ctx context.Context, r *topics.Runner, done chan struct{}) {
+func (s *Stack) loop(ctx context.Context, r *watches.Runner, done chan struct{}) {
 	defer close(done)
 	t := time.NewTicker(s.tick)
 	defer t.Stop()
@@ -174,7 +174,7 @@ func (s *Stack) loop(ctx context.Context, r *topics.Runner, done chan struct{}) 
 				continue
 			}
 			for _, o := range r.Tick(ctx) {
-				s.logLine(stacksdk.LevelInfo, "topic read", "topic", strconv.FormatInt(o.TopicID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
+				s.logLine(stacksdk.LevelInfo, "watch read", "watch", strconv.FormatInt(o.WatchID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
 			}
 			s.mu.Lock()
 			s.lastRun = time.Now().UTC()
@@ -197,7 +197,7 @@ func (s *Stack) Stop(context.Context) error {
 	return nil
 }
 
-// EraseAll removes every topic and the feed, for a factory reset. It works whether or not the stack is running: a stack that is not running holds
+// EraseAll removes every watch and the feed, for a factory reset. It works whether or not the stack is running: a stack that is not running holds
 // nothing in memory, and its file is removed by the core.
 func (s *Stack) EraseAll() error {
 	s.mu.Lock()
@@ -210,7 +210,7 @@ func (s *Stack) EraseAll() error {
 }
 
 // ErrOff is the refusal of a manual read while the module is switched off: a run reads the internet, so it follows the switch.
-var ErrOff = stacksdk.Errorf(stacksdk.CodeUnavailable, "Topics is switched off: switch it on under Stacks")
+var ErrOff = stacksdk.Errorf(stacksdk.CodeUnavailable, "Watches is switched off: switch it on under Stacks")
 
 // ConfigChanged has nothing to re-read: the loop reads the switch on every pass.
 func (s *Stack) ConfigChanged(context.Context) error { return nil }
@@ -235,7 +235,7 @@ func (s *Stack) logLine(level stacksdk.Level, msg string, fields ...string) {
 	}
 }
 
-func (s *Stack) running() (*topics.Store, *topics.Runner, error) {
+func (s *Stack) running() (*watches.Store, *watches.Runner, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.store == nil {
@@ -252,34 +252,34 @@ func (a modelAdapter) Complete(ctx context.Context, system, user string) (string
 	return resp.Text, err
 }
 
-// topicView is a topic as the screen and the tools read it: the interval is a duration string such as "1h", as everywhere else in the service.
-type topicView struct {
-	topics.Topic
+// watchView is a watch as the screen and the tools read it: the interval is a duration string such as "1h", as everywhere else in the service.
+type watchView struct {
+	watches.Watch
 	Interval string `json:"interval"`
 }
 
-func view(t topics.Topic) topicView { return topicView{Topic: t, Interval: t.Interval.String()} }
+func view(t watches.Watch) watchView { return watchView{Watch: t, Interval: t.Interval.String()} }
 
-func views(list []topics.Topic) []topicView {
-	out := make([]topicView, 0, len(list))
+func views(list []watches.Watch) []watchView {
+	out := make([]watchView, 0, len(list))
 	for _, t := range list {
 		out = append(out, view(t))
 	}
 	return out
 }
 
-// topicIn is what a create or an update carries.
-type topicIn struct {
-	topics.Topic
+// watchIn is what a create or an update carries.
+type watchIn struct {
+	watches.Watch
 	Interval string `json:"interval"`
 }
 
-func (in topicIn) topic() (topics.Topic, error) {
-	t := in.Topic
+func (in watchIn) watch() (watches.Watch, error) {
+	t := in.Watch
 	if in.Interval != "" {
 		d, err := time.ParseDuration(in.Interval)
 		if err != nil {
-			return topics.Topic{}, fmt.Errorf("%w: the interval %q is not a duration such as 1h", topics.ErrInvalid, in.Interval)
+			return watches.Watch{}, fmt.Errorf("%w: the interval %q is not a duration such as 1h", watches.ErrInvalid, in.Interval)
 		}
 		t.Interval = d
 	}
@@ -289,9 +289,9 @@ func (in topicIn) topic() (topics.Topic, error) {
 // fail maps a store refusal to the SDK's error kinds.
 func fail(err error) error {
 	switch {
-	case errors.Is(err, topics.ErrInvalid):
+	case errors.Is(err, watches.ErrInvalid):
 		return stacksdk.Errorf(stacksdk.CodeInvalid, err.Error())
-	case errors.Is(err, topics.ErrNotFound):
+	case errors.Is(err, watches.ErrNotFound):
 		return stacksdk.Errorf(stacksdk.CodeNotFound, err.Error())
 	}
 	return err
@@ -312,15 +312,15 @@ func (s *Stack) CallTool(_ context.Context, name string, args json.RawMessage) (
 	case ToolList:
 		return json.Marshal(views(store.List()))
 	case ToolFollow:
-		var in topicIn
+		var in watchIn
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, stacksdk.Errorf(stacksdk.CodeInvalid, "arguments are not valid JSON")
 		}
-		t, err := in.topic()
+		t, err := in.watch()
 		if err != nil {
 			return nil, fail(err)
 		}
-		// A topic the assistant creates is on and feed-only: it never picks a channel for the owner.
+		// A watch the assistant creates is on and feed-only: it never picks a channel for the owner.
 		t.Enabled, t.Channel = true, ""
 		made, err := store.Create(t, time.Now())
 		if err != nil {
@@ -338,38 +338,38 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return stacksdk.Response{}, err
 	}
 	switch req.Method + " " + req.Path {
-	case "GET " + RouteTopics:
+	case "GET " + RouteWatches:
 		return jsonResponse(http.StatusOK, views(store.List()))
-	case "POST " + RouteTopics:
-		return save(req, func(t topics.Topic) (topics.Topic, error) { return store.Create(t, time.Now()) }, http.StatusCreated)
+	case "POST " + RouteWatches:
+		return save(req, func(t watches.Watch) (watches.Watch, error) { return store.Create(t, time.Now()) }, http.StatusCreated)
 	case "GET " + RouteFeed:
 		return s.feed(ctx, store, req.Query)
 	case "POST " + RouteRead:
 		return markRead(store, req.Body)
 	}
-	return s.handleTopic(ctx, store, runner, req)
+	return s.handleWatch(ctx, store, runner, req)
 }
 
-// handleTopic answers the routes that name one topic.
-func (s *Stack) handleTopic(ctx context.Context, store *topics.Store, runner *topics.Runner, req stacksdk.Request) (stacksdk.Response, error) {
+// handleWatch answers the routes that name one watch.
+func (s *Stack) handleWatch(ctx context.Context, store *watches.Store, runner *watches.Runner, req stacksdk.Request) (stacksdk.Response, error) {
 	id, err := strconv.ParseInt(req.Params["id"], 10, 64)
 	if err != nil {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 	}
-	// The core passes the real path (/topics/1, /topics/1/run), with the id also in Params; name the route by its shape.
+	// The core passes the real path (/watches/1, /watches/1/run), with the id also in Params; name the route by its shape.
 	route := ""
-	if rest, ok := strings.CutPrefix(req.Path, RouteTopics+"/"); ok {
+	if rest, ok := strings.CutPrefix(req.Path, RouteWatches+"/"); ok {
 		switch parts := strings.Split(rest, "/"); {
 		case len(parts) == 1:
-			route = RouteTopic
+			route = RouteWatch
 		case len(parts) == 2 && parts[1] == "run":
 			route = RouteRun
 		}
 	}
 	switch req.Method + " " + route {
-	case "PUT " + RouteTopic:
-		return save(req, func(t topics.Topic) (topics.Topic, error) { return store.Update(id, t) }, http.StatusOK)
-	case "DELETE " + RouteTopic:
+	case "PUT " + RouteWatch:
+		return save(req, func(t watches.Watch) (watches.Watch, error) { return store.Update(id, t) }, http.StatusOK)
+	case "DELETE " + RouteWatch:
 		if err := store.Delete(id); err != nil {
 			return stacksdk.Response{}, fail(err)
 		}
@@ -387,12 +387,12 @@ func (s *Stack) handleTopic(ctx context.Context, store *topics.Store, runner *to
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 }
 
-func save(req stacksdk.Request, write func(topics.Topic) (topics.Topic, error), status int) (stacksdk.Response, error) {
-	var in topicIn
+func save(req stacksdk.Request, write func(watches.Watch) (watches.Watch, error), status int) (stacksdk.Response, error) {
+	var in watchIn
 	if err := json.Unmarshal(req.Body, &in); err != nil {
-		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "the body is not a valid topic")
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "the body is not a valid watch")
 	}
-	t, err := in.topic()
+	t, err := in.watch()
 	if err != nil {
 		return stacksdk.Response{}, fail(err)
 	}
@@ -403,15 +403,15 @@ func save(req stacksdk.Request, write func(topics.Topic) (topics.Topic, error), 
 	return jsonResponse(status, view(saved))
 }
 
-func (s *Stack) feed(ctx context.Context, store *topics.Store, query string) (stacksdk.Response, error) {
+func (s *Stack) feed(ctx context.Context, store *watches.Store, query string) (stacksdk.Response, error) {
 	q, err := url.ParseQuery(query)
 	if err != nil {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "the query is not valid")
 	}
-	f := topics.Filter{Source: q.Get("source"), UnreadOnly: q.Get("unread") == "true"}
-	if v := q.Get("topic"); v != "" {
-		if f.TopicID, err = strconv.ParseInt(v, 10, 64); err != nil {
-			return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "topic must be a topic id")
+	f := watches.Filter{Source: q.Get("source"), UnreadOnly: q.Get("unread") == "true"}
+	if v := q.Get("watch"); v != "" {
+		if f.WatchID, err = strconv.ParseInt(v, 10, 64); err != nil {
+			return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "watch must be a watch id")
 		}
 	}
 	return jsonResponse(http.StatusOK, store.Feed(time.Now(), s.feedZone(ctx, q.Get("zone")), feedDays, f))
@@ -431,7 +431,7 @@ func (s *Stack) feedZone(ctx context.Context, asked string) *time.Location {
 	return time.UTC
 }
 
-func markRead(store *topics.Store, body []byte) (stacksdk.Response, error) {
+func markRead(store *watches.Store, body []byte) (stacksdk.Response, error) {
 	var in struct {
 		IDs  []int64 `json:"ids"`
 		Read bool    `json:"read"`

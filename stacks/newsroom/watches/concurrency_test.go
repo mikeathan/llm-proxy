@@ -1,4 +1,4 @@
-package topics
+package watches
 
 import (
 	"context"
@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// A manual run from the screen can arrive while the timer's pass is reading the same topic. Both would find the same items unseen, so without
+// A manual run from the screen can arrive while the timer's pass is reading the same watch. Both would find the same items unseen, so without
 // the runner's lock the notice would go out twice.
 func TestTwoRunsAtOnceSendOneNotice(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	h.fetch.bodies[feedURL] = rss([2]string{"First", "https://news.example/1"})
 	if o := h.run.Run(context.Background(), mustGet(t, h)); o.Status != StatusBaseline {
 		t.Fatalf("first run = %+v", o)
@@ -32,23 +32,23 @@ func TestTwoRunsAtOnceSendOneNotice(t *testing.T) {
 	}
 }
 
-func TestARunForADeletedTopicDoesNotRecordAnything(t *testing.T) {
-	h := newHarness(t, feedTopic())
-	topic := mustGet(t, h)
+func TestARunForADeletedWatchDoesNotRecordAnything(t *testing.T) {
+	h := newHarness(t, feedWatch())
+	watch := mustGet(t, h)
 	if err := h.store.Delete(h.id); err != nil {
 		t.Fatal(err)
 	}
 	h.fetch.bodies[feedURL] = rss([2]string{"First", "https://news.example/1"})
-	if o := h.run.Run(context.Background(), topic); o.Status != StatusFailing || h.fetch.calls != 0 {
+	if o := h.run.Run(context.Background(), watch); o.Status != StatusFailing || h.fetch.calls != 0 {
 		t.Errorf("run = %+v, fetches = %d", o, h.fetch.calls)
 	}
 }
 
-func mustGet(t *testing.T, h *harness) Topic {
+func mustGet(t *testing.T, h *harness) Watch {
 	t.Helper()
-	topic, err := h.store.Get(h.id)
+	watch, err := h.store.Get(h.id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return topic
+	return watch
 }

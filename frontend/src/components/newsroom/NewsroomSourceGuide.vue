@@ -2,7 +2,7 @@
 import { GUIDE_EXAMPLE_LABEL, GUIDE_STEPS_LABEL, SOURCE_GUIDES } from "../../constants/newsroom"
 import type { SourceKind } from "../../types/newsroom"
 
-// The steps for one kind of source. Shown on the Help tab and under the source in the topic form, so the words are written once.
+// The steps for one kind of source. Shown on the Help tab and under the source in the watch form, so the words are written once.
 defineProps<{ kind: SourceKind }>()
 </script>
 

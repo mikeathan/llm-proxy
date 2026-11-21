@@ -5,6 +5,6 @@ package models
 type NewsroomConfig struct {
 	// Timezone is the IANA name the feed groups its days by; empty means UTC.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
-	// Disabled is the Topics module's switch, stored as an "off" flag so a fresh install is on.
+	// Disabled is the Watches module's switch, stored as an "off" flag so a fresh install is on.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 }

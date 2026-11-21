@@ -3,13 +3,13 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { ROUTE_NAMES } from '../../types/routes'
-import type { NewsroomDay, NewsroomTopic } from '../../types/newsroom'
+import type { NewsroomDay, NewsroomWatch } from '../../types/newsroom'
 
-const { topicsMock, feedMock, createMock, removeMock, markReadMock, runMock, confirmMock } = vi.hoisted(() => ({
-  topicsMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
+const { watchesMock, feedMock, createMock, removeMock, markReadMock, runMock, confirmMock } = vi.hoisted(() => ({
+  watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
-  NewsroomService: { topics: topicsMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, run: runMock },
+  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, run: runMock },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../composables/models/useModels', () => ({
@@ -18,19 +18,19 @@ vi.mock('../../composables/models/useModels', () => ({
 
 import NewsroomView from '../../views/NewsroomView.vue'
 
-const topic = (over: Partial<NewsroomTopic> = {}): NewsroomTopic => ({
+const watch = (over: Partial<NewsroomWatch> = {}): NewsroomWatch => ({
   id: 1, name: 'Go releases', interval: '1h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://go.dev/blog/feed.atom' }], last_status: 'in_feed', ...over,
 })
-const entry = (id: number, title: string, read = false) => ({ id, topic_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title, link: 'https://go.dev/x', read })
+const entry = (id: number, title: string, read = false) => ({ id, watch_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title, link: 'https://go.dev/x', read })
 const day = (): NewsroomDay => ({
   day: '2026-11-20', label: 'Today', updates: 2, unread: 2,
-  topics: [{ topic_id: 1, topic: 'Go releases', updates: 2, unread: 2, last_at: '2026-11-20T10:00:00Z', current: entry(2, 'Go 1.26 released'), earlier: [entry(1, 'Go 1.26 RC2')] }],
+  watches: [{ watch_id: 1, watch: 'Go releases', updates: 2, unread: 2, last_at: '2026-11-20T10:00:00Z', current: entry(2, 'Go 1.26 released'), earlier: [entry(1, 'Go 1.26 RC2')] }],
 })
 
-async function mountView(path = '/newsroom', topics: NewsroomTopic[] = [topic()], feed: NewsroomDay[] = [day()]) {
-  topicsMock.mockResolvedValue(topics)
+async function mountView(path = '/newsroom', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()]) {
+  watchesMock.mockResolvedValue(watches)
   feedMock.mockResolvedValue(feed)
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(topics|sources|settings|help)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(watches|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
   await router.push(path)
   const w = mount(NewsroomView, { global: { plugins: [router], stubs: { Icon: true, BrandMark: true, StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' } } } })
   await flushPromises()
@@ -42,14 +42,14 @@ enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
   confirmMock.mockResolvedValue(true)
-  createMock.mockResolvedValue(topic())
+  createMock.mockResolvedValue(watch())
   markReadMock.mockResolvedValue(undefined)
 })
 
 describe('NewsroomView', () => {
-  it('is a stack page: Feed, Topics, Sources and a Settings tab that shows the stack switchboard', async () => {
+  it('is a stack page: Feed, Watches and a Settings tab that shows the stack switchboard', async () => {
     const { w } = await mountView()
-    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Topics', 'Sources', 'Settings', 'Help'])
+    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Watches', 'Settings'])
     const m = await mountView('/newsroom/settings')
     expect(m.w.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('newsroom')
   })
@@ -63,7 +63,7 @@ describe('NewsroomView', () => {
     expect(w.text()).toContain('Go 1.26 RC2')
   })
 
-  it('marks every unread finding of a topic card read', async () => {
+  it('marks every unread finding of a watch card read', async () => {
     const { w } = await mountView()
     const button = w.findAll('section[aria-label="Go releases"] button').find((b) => /Mark read/.test(b.text()))!
     await button.trigger('click')
@@ -71,14 +71,14 @@ describe('NewsroomView', () => {
     expect(markReadMock).toHaveBeenCalledWith([2, 1], true)
   })
 
-  it('asks to add a first topic when none is followed', async () => {
+  it('asks to add a first watch when none is followed', async () => {
     const { w } = await mountView('/newsroom', [], [])
     expect(w.text()).toContain('You follow nothing yet')
   })
 
-  it('adds a feed-only topic from the form', async () => {
-    const { w } = await mountView('/newsroom/topics')
-    await buttonByName(w, /New topic/)!.trigger('click')
+  it('adds a feed-only watch from the form', async () => {
+    const { w } = await mountView('/newsroom/watches')
+    await buttonByName(w, /New watch/)!.trigger('click')
     await flushPromises()
     await w.get('form input[type="text"]').setValue('LLM news')
     const inputs = w.findAll('form input[type="text"]')
@@ -86,22 +86,48 @@ describe('NewsroomView', () => {
     await w.get('form').trigger('submit')
     await flushPromises()
     expect(createMock).toHaveBeenCalledWith({
-      name: 'LLM news', interval: '1h', channel: '', enabled: true, sources: [{ kind: 'feed', target: 'https://example.com/feed.xml' }],
+      name: 'LLM news', interval: '1h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed', target: 'https://example.com/feed.xml' }],
     })
   })
 
-  it('does not send a topic with no name or no source', async () => {
-    const { w } = await mountView('/newsroom/topics')
-    await buttonByName(w, /New topic/)!.trigger('click')
+  it('starts from a suggestion for what to look for and sends the keywords as lists', async () => {
+    const { w } = await mountView('/newsroom/watches')
+    await buttonByName(w, /New watch/)!.trigger('click')
+    await flushPromises()
+    await buttonByName(w, /Security problems/)!.trigger('click')
+    const inputs = w.findAll('form input[type="text"]')
+    expect((inputs[0]!.element as HTMLInputElement).value).toBe('Security')
+    await inputs[1]!.setValue('https://example.com/feed.xml')
+    await inputs[2]!.setValue('CVE, patch ,')
+    await inputs[3]!.setValue('sponsored')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    const sent = createMock.mock.calls[0]![0]
+    expect(sent.look_for).toContain('Security vulnerabilities')
+    expect(sent.keywords).toEqual(['CVE', 'patch'])
+    expect(sent.skip).toEqual(['sponsored'])
+  })
+
+  it('shows what a watch looks for, and the reason and first-check mark on a finding', async () => {
+    const found = { ...entry(1, 'Qwen4 released'), why: 'a new model release', first: true }
+    const { w } = await mountView('/newsroom', [watch({ look_for: 'new models' })], [{ ...day(), watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 1, last_at: '2026-11-20T10:00:00Z', current: found }] }])
+    expect(w.text()).toContain('Why: a new model release')
+    expect(w.text()).toContain('First check')
+    await mountView('/newsroom/watches', [watch({ look_for: 'new models' })]).then(({ w: p }) => expect(p.text()).toContain('Looking for: new models'))
+  })
+
+  it('does not send a watch with no name or no source', async () => {
+    const { w } = await mountView('/newsroom/watches')
+    await buttonByName(w, /New watch/)!.trigger('click')
     await flushPromises()
     await w.get('form').trigger('submit')
     await flushPromises()
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('lists the topics with their last result and checks one now', async () => {
-    runMock.mockResolvedValue({ topic_id: 1, status: 'nothing_new', detail: '', new: 0 })
-    const { w } = await mountView('/newsroom/topics', [topic({ last_detail: 'source failing: timeout' })])
+  it('lists the watches with their last result and checks one now', async () => {
+    runMock.mockResolvedValue({ watch_id: 1, status: 'nothing_new', detail: '', new: 0 })
+    const { w } = await mountView('/newsroom/watches', [watch({ last_detail: 'source failing: timeout' })])
     expect(w.text()).toContain('Go releases')
     expect(w.text()).toContain('Every hour')
     expect(w.text()).toContain('Feed only')
@@ -111,37 +137,13 @@ describe('NewsroomView', () => {
     expect(runMock).toHaveBeenCalledWith(1)
   })
 
-  it('asks before it deletes a topic, and does nothing when declined', async () => {
+  it('asks before it deletes a watch, and does nothing when declined', async () => {
     confirmMock.mockResolvedValue(false)
-    const { w } = await mountView('/newsroom/topics')
+    const { w } = await mountView('/newsroom/watches')
     await buttonByName(w, /Delete/)!.trigger('click')
     await flushPromises()
     expect(confirmMock).toHaveBeenCalled()
     expect(removeMock).not.toHaveBeenCalled()
-  })
-
-  it('lists each source once with whether it works, and checks the topic that reads it', async () => {
-    runMock.mockResolvedValue({ topic_id: 1, status: 'nothing_new', detail: '', new: 0 })
-    const { w } = await mountView('/newsroom/sources', [topic({ last_status: 'failing', last_detail: 'timed out' })])
-    expect(w.findAll('[data-test="newsroom-source"]')).toHaveLength(1)
-    expect(w.text()).toContain('Failing')
-    expect(w.text()).toContain('timed out')
-    expect(w.text()).toContain('Go releases')
-    await buttonByName(w, /Check now/)!.trigger('click')
-    await flushPromises()
-    expect(runMock).toHaveBeenCalledWith(1)
-  })
-
-  it('asks for a first topic on the Sources tab when none is followed', async () => {
-    const { w } = await mountView('/newsroom/sources', [], [])
-    expect(w.text()).toContain('No sources yet')
-  })
-
-  it('shows the Help tab with one card per source, its steps opening on a click', async () => {
-    const { w } = await mountView('/newsroom/help', [], [])
-    for (const k of ['feed', 'hackernews', 'mastodon', 'page', 'telegram']) expect(w.find('[data-test="source-card-' + k + '"]').exists()).toBe(true)
-    await w.get('[data-test="source-card-telegram"] button').trigger('click')
-    expect(w.get('[data-test="guide-telegram"]').text()).toContain('t.me/s/NAME')
   })
 
 })

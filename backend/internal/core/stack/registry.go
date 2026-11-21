@@ -21,7 +21,7 @@ const (
 	Radio   StackID = "radio"
 	// Reminders is the Reminders stack (ADR-0068).
 	Reminders StackID = "reminders"
-	// Newsroom is the Newsroom stack: the topics the owner follows.
+	// Newsroom is the Newsroom stack: the watches the owner follows.
 	Newsroom StackID = "newsroom"
 )
 

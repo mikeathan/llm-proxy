@@ -16,11 +16,11 @@ const (
 	noticeMaxShown = 10
 	noticeTitle    = 160
 	noticeFact     = 120
-	noticeTopic    = 80
+	noticeWatch    = 80
 )
 
 const msgNoticeTooMany = "a notice carries too many items"
-const msgNoticeEmpty = "a notice needs a topic and at least one item"
+const msgNoticeEmpty = "a notice needs a watch and at least one item"
 
 // Notice is the SDK's Notice port over the core's notify path: the stack offers structured facts and the core words the message from fixed wording,
 // strips what could pass as markup or a hidden line, keeps only http and https links, and sends it as plain text to one enabled connector type
@@ -41,11 +41,11 @@ func (n Notice) Send(ctx context.Context, channel string, req stacksdk.NoticeReq
 	return n.Notify.Send(ctx, channel, text)
 }
 
-// NoticeText is the message for a notice: fixed wording, then each item's title and link, then the changed facts. It is empty when there is no topic
+// NoticeText is the message for a notice: fixed wording, then each item's title and link, then the changed facts. It is empty when there is no watch
 // or no item.
 func NoticeText(req stacksdk.NoticeRequest) string {
-	topic := oneLine(req.Topic, noticeTopic)
-	if topic == "" || len(req.Items) == 0 {
+	watch := oneLine(req.Watch, noticeWatch)
+	if watch == "" || len(req.Items) == 0 {
 		return ""
 	}
 	changes := make([]stacksdk.NoticeChange, 0, len(req.Changes))
@@ -56,7 +56,7 @@ func NoticeText(req stacksdk.NoticeRequest) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %d new", topic, len(req.Items))
+	fmt.Fprintf(&b, "%s: %d new", watch, len(req.Items))
 	if len(changes) > 0 {
 		fmt.Fprintf(&b, ", %d changed", len(changes))
 	}

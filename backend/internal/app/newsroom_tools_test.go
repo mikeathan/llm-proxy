@@ -72,18 +72,18 @@ func TestNewsroomTools_TheCoreNamesAreTheNamesTheStackDeclares(t *testing.T) {
 		declared = append(declared, tool.Name)
 	}
 	slices.Sort(declared)
-	want := []string{models.ToolNewsroomFollow, models.ToolNewsroomTopics}
+	want := []string{models.ToolNewsroomFollow, models.ToolNewsroomWatches}
 	slices.Sort(want)
 	if !slices.Equal(declared, want) {
 		t.Errorf("the stack declares %v, the core names %v", declared, want)
 	}
 }
 
-func TestNewsroomTools_ChatFollowsATopicFeedOnlyAndListsIt(t *testing.T) {
+func TestNewsroomTools_ChatFollowsAWatchFeedOnlyAndListsIt(t *testing.T) {
 	r, _ := newNewsroomToolsRig(t)
 	ctx := context.Background()
 	names := listedNames(t, r, ctx)
-	for _, want := range []string{models.ToolNewsroomFollow, models.ToolNewsroomTopics} {
+	for _, want := range []string{models.ToolNewsroomFollow, models.ToolNewsroomWatches} {
 		if !slices.Contains(names, want) {
 			t.Fatalf("%s is not offered to an attended chat: %v", want, names)
 		}
@@ -93,26 +93,26 @@ func TestNewsroomTools_ChatFollowsATopicFeedOnlyAndListsIt(t *testing.T) {
 		t.Fatalf("follow = %v, %v", out, err)
 	}
 	if strings.Contains(out.(string), `"channel":"`) && !strings.Contains(out.(string), `"channel":""`) {
-		t.Errorf("a topic made in chat must have no channel: %v", out)
+		t.Errorf("a watch made in chat must have no channel: %v", out)
 	}
-	list, err := r.ExecuteTool(ctx, call(models.ToolNewsroomTopics, ``))
+	list, err := r.ExecuteTool(ctx, call(models.ToolNewsroomWatches, ``))
 	if err != nil || !strings.Contains(list.(string), "Go releases") {
-		t.Errorf("topics = %v, %v", list, err)
+		t.Errorf("watches = %v, %v", list, err)
 	}
 	if _, err := r.ExecuteTool(ctx, call(models.ToolNewsroomFollow, `{"name":"","sources":[]}`)); err == nil {
-		t.Error("a topic with no name and no source must be refused in the stack's words")
+		t.Error("a watch with no name and no source must be refused in the stack's words")
 	}
 }
 
-// An unattended run may be steered by what it read, and a topic makes the service read from then on, so the tools are hidden and refused there.
+// An unattended run may be steered by what it read, and a watch makes the service read from then on, so the tools are hidden and refused there.
 func TestNewsroomTools_AnUnattendedRunNeitherSeesNorCallsThem(t *testing.T) {
 	r, _ := newNewsroomToolsRig(t)
 	unattended := models.WithUnattendedRun(context.Background())
-	if names := listedNames(t, r, unattended); slices.Contains(names, models.ToolNewsroomFollow) || slices.Contains(names, models.ToolNewsroomTopics) {
+	if names := listedNames(t, r, unattended); slices.Contains(names, models.ToolNewsroomFollow) || slices.Contains(names, models.ToolNewsroomWatches) {
 		t.Errorf("offered to an unattended run: %v", names)
 	}
 	if _, err := r.ExecuteTool(unattended, call(models.ToolNewsroomFollow, `{"name":"x","sources":[{"kind":"page","target":"https://example.com"}]}`)); err == nil {
-		t.Error("an unattended run created a topic")
+		t.Error("an unattended run created a watch")
 	}
 }
 
@@ -123,7 +123,7 @@ func TestNewsroomTools_AreHiddenAndRefusedWhileTheModuleIsOff(t *testing.T) {
 	if slices.Contains(listedNames(t, r, ctx), models.ToolNewsroomFollow) {
 		t.Error("offered while the module is off")
 	}
-	if _, err := r.ExecuteTool(ctx, call(models.ToolNewsroomTopics, ``)); err == nil {
+	if _, err := r.ExecuteTool(ctx, call(models.ToolNewsroomWatches, ``)); err == nil {
 		t.Error("answered while the module is off")
 	}
 }

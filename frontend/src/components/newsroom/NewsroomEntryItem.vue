@@ -3,7 +3,7 @@ import { computed } from "vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
-import { ALSO_SEEN_LABEL, CHIP_CHANGED, CHIP_NEW, UNREAD_LABEL } from "../../constants/newsroom"
+import { ALSO_SEEN_LABEL, CHIP_CHANGED, CHIP_NEW, FIRST_CHECK_LABEL, UNREAD_LABEL, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
 // One finding: where it came from, when, its headline and one line of text, and chips for what kind of finding it is. Every piece of text is from the
@@ -20,12 +20,14 @@ const changed = computed(() => Boolean(props.entry.was && props.entry.now))
       <span v-if="!entry.read" aria-hidden="true" class="h-1.5 w-1.5 flex-none bg-accent-brand"></span>
       <span class="truncate">{{ entry.source }}</span>
       <time :datetime="entry.at">{{ formatRelativeTime(entry.at) }}</time>
-      <StatusTag v-if="changed" state="warning" :label="CHIP_CHANGED" />
+      <StatusTag v-if="entry.first" state="neutral" :label="FIRST_CHECK_LABEL" />
+      <StatusTag v-else-if="changed" state="warning" :label="CHIP_CHANGED" />
       <StatusTag v-else state="info" :label="CHIP_NEW" />
     </div>
     <a v-if="link" :href="link" target="_blank" rel="noopener noreferrer" class="min-w-0 break-words font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2">{{ entry.title }}</a>
     <p v-else class="m-0 min-w-0 break-words font-medium text-primary">{{ entry.title }}</p>
     <p v-if="changed" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ entry.was }} → {{ entry.now }}</p>
+    <p v-if="entry.why" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ whyWords(entry.why) }}</p>
     <p v-if="entry.text" class="m-0 break-words text-[length:var(--text-small)] text-muted">{{ entry.text }}</p>
     <p v-if="entry.also_seen?.length" class="m-0 break-words text-[length:var(--text-small)] text-faint">
       {{ ALSO_SEEN_LABEL }}:

@@ -1,4 +1,4 @@
-package topics
+package watches
 
 import (
 	"encoding/json"
@@ -13,12 +13,12 @@ import (
 	"llm-proxy-stacks/newsroom/sources"
 )
 
-// FileName is the one file the Topics module keeps in the stack's data folder (the manifest's Storage entry).
-const FileName = "topics.json"
+// FileName is the one file the Watches module keeps in the stack's data folder (the manifest's Storage entry).
+const FileName = "watches.json"
 
 const fileVersion = 1
 
-// SeenEntry is one reported item in a topic's ledger.
+// SeenEntry is one reported item in a watch's ledger.
 type SeenEntry struct {
 	Title string    `json:"title,omitempty"`
 	At    time.Time `json:"at"`
@@ -30,11 +30,11 @@ type document struct {
 	// Entries is the feed's journal (journal.go); NextEntry numbers the next one.
 	Entries   []Entry                        `json:"entries,omitempty"`
 	NextEntry int64                          `json:"next_entry,omitempty"`
-	Topics    []Topic                        `json:"topics"`
+	Watches   []Watch                        `json:"watches"`
 	Seen      map[int64]map[string]SeenEntry `json:"seen,omitempty"`
 }
 
-// Store keeps topics and each topic's seen ledger in one file, written atomically through the stack's DataDir. Every method is safe for concurrent
+// Store keeps watches and each watch's seen ledger in one file, written atomically through the stack's DataDir. Every method is safe for concurrent
 // use; each change is saved before it returns, so a crash loses nothing the caller was told succeeded.
 type Store struct {
 	mu  sync.Mutex
@@ -74,7 +74,7 @@ func NewStore(dir stacksdk.DataDir) (*Store, error) {
 	return s, nil
 }
 
-// Erase forgets every topic, ledger entry and feed entry and saves the empty document, for a factory reset: the file alone cannot be removed from
+// Erase forgets every watch, ledger entry and feed entry and saves the empty document, for a factory reset: the file alone cannot be removed from
 // under a store that holds the document in memory, because the next change would write it back.
 func (s *Store) Erase() error {
 	s.mu.Lock()
@@ -83,64 +83,64 @@ func (s *Store) Erase() error {
 	return s.saveLocked()
 }
 
-// List returns the topics in id order.
-func (s *Store) List() []Topic {
+// List returns the watches in id order.
+func (s *Store) List() []Watch {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := append([]Topic(nil), s.doc.Topics...)
+	out := append([]Watch(nil), s.doc.Watches...)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
-// Get returns one topic.
-func (s *Store) Get(id int64) (Topic, error) {
+// Get returns one watch.
+func (s *Store) Get(id int64) (Watch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i := s.index(id); i >= 0 {
-		return s.doc.Topics[i], nil
+		return s.doc.Watches[i], nil
 	}
-	return Topic{}, ErrNotFound
+	return Watch{}, ErrNotFound
 }
 
-// Create validates and stores a new topic and returns it with its id.
-func (s *Store) Create(t Topic, now time.Time) (Topic, error) {
+// Create validates and stores a new watch and returns it with its id.
+func (s *Store) Create(t Watch, now time.Time) (Watch, error) {
 	t, err := Normalize(t)
 	if err != nil {
-		return Topic{}, err
+		return Watch{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.doc.Topics) >= MaxTopics {
-		return Topic{}, fmt.Errorf("%w: at most %d topics", ErrInvalid, MaxTopics)
+	if len(s.doc.Watches) >= MaxWatches {
+		return Watch{}, fmt.Errorf("%w: at most %d watches", ErrInvalid, MaxWatches)
 	}
 	t.ID, t.CreatedAt = s.doc.NextID, now.UTC()
 	t.Baselined, t.LastRun, t.LastStatus, t.LastDetail, t.LastNew, t.State = false, time.Time{}, "", "", 0, ""
 	s.doc.NextID++
-	s.doc.Topics = append(s.doc.Topics, t)
+	s.doc.Watches = append(s.doc.Watches, t)
 	return t, s.saveLocked()
 }
 
-// Update replaces what the owner may edit (name, sources, interval, enabled, search, paper) and keeps the run record and the ledger. A change of
+// Update replaces what the owner may edit (name, sources, what to look for, interval, enabled) and keeps the run record and the ledger. A change of
 // sources keeps the ledger: items already reported stay reported.
-func (s *Store) Update(id int64, edit Topic) (Topic, error) {
+func (s *Store) Update(id int64, edit Watch) (Watch, error) {
 	edit, err := Normalize(edit)
 	if err != nil {
-		return Topic{}, err
+		return Watch{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	i := s.index(id)
 	if i < 0 {
-		return Topic{}, ErrNotFound
+		return Watch{}, ErrNotFound
 	}
-	cur := s.doc.Topics[i]
+	cur := s.doc.Watches[i]
 	edit.ID, edit.CreatedAt = cur.ID, cur.CreatedAt
 	edit.Baselined, edit.LastRun, edit.LastStatus, edit.LastDetail, edit.LastNew, edit.State = cur.Baselined, cur.LastRun, cur.LastStatus, cur.LastDetail, cur.LastNew, cur.State
-	s.doc.Topics[i] = edit
+	s.doc.Watches[i] = edit
 	return edit, s.saveLocked()
 }
 
-// Delete removes a topic and its ledger.
+// Delete removes a watch and its ledger.
 func (s *Store) Delete(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -148,11 +148,11 @@ func (s *Store) Delete(id int64) error {
 	if i < 0 {
 		return ErrNotFound
 	}
-	s.doc.Topics = append(s.doc.Topics[:i], s.doc.Topics[i+1:]...)
+	s.doc.Watches = append(s.doc.Watches[:i], s.doc.Watches[i+1:]...)
 	delete(s.doc.Seen, id)
 	kept := s.doc.Entries[:0]
 	for _, e := range s.doc.Entries {
-		if e.TopicID != id {
+		if e.WatchID != id {
 			kept = append(kept, e)
 		}
 	}
@@ -160,7 +160,7 @@ func (s *Store) Delete(id int64) error {
 	return s.saveLocked()
 }
 
-// Unseen returns the items whose identity is not in the topic's ledger (inside the retention window), once each, in the order given. Items already
+// Unseen returns the items whose identity is not in the watch's ledger (inside the retention window), once each, in the order given. Items already
 // seen are dropped in code: the model never sees them.
 func (s *Store) Unseen(id int64, items []sources.Item, now time.Time) []sources.Item {
 	s.mu.Lock()
@@ -179,7 +179,7 @@ func (s *Store) Unseen(id int64, items []sources.Item, now time.Time) []sources.
 	return out
 }
 
-// Record adds items to the topic's ledger at now, drops entries past the retention window and keeps the newest MaxSeen. Call it only after the items
+// Record adds items to the watch's ledger at now, drops entries past the retention window and keeps the newest MaxSeen. Call it only after the items
 // were delivered (or deliberately baselined): an item recorded but never sent is an item the owner never hears about.
 func (s *Store) Record(id int64, items []sources.Item, now time.Time) error {
 	s.mu.Lock()
@@ -204,7 +204,7 @@ func (s *Store) Record(id int64, items []sources.Item, now time.Time) error {
 	return s.saveLocked()
 }
 
-// SetRun writes a run's outcome onto the topic.
+// SetRun writes a run's outcome onto the watch.
 func (s *Store) SetRun(id int64, at time.Time, status Status, detail string, newItems int, baselined bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,7 +212,7 @@ func (s *Store) SetRun(id int64, at time.Time, status Status, detail string, new
 	if i < 0 {
 		return ErrNotFound
 	}
-	t := &s.doc.Topics[i]
+	t := &s.doc.Watches[i]
 	t.LastRun, t.LastStatus, t.LastDetail, t.LastNew = at.UTC(), status, sources.Line(detail, 300), newItems
 	t.Baselined = t.Baselined || baselined
 	return s.saveLocked()
@@ -246,7 +246,7 @@ func (s *Store) Recent(id int64, n int) []string {
 	return out
 }
 
-// SetState writes a topic's last-known-state note. It is cleaned and bounded here, whoever calls: the note is model output that is fed back into
+// SetState writes a watch's last-known-state note. It is cleaned and bounded here, whoever calls: the note is model output that is fed back into
 // every later prompt, so it is never stored raw.
 func (s *Store) SetState(id int64, state string) error {
 	s.mu.Lock()
@@ -255,11 +255,11 @@ func (s *Store) SetState(id int64, state string) error {
 	if i < 0 {
 		return ErrNotFound
 	}
-	s.doc.Topics[i].State = sources.Plain(state, MaxStateRunes)
+	s.doc.Watches[i].State = sources.Plain(state, MaxStateRunes)
 	return s.saveLocked()
 }
 
-// SeenCount is the size of a topic's ledger.
+// SeenCount is the size of a watch's ledger.
 func (s *Store) SeenCount(id int64) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -267,8 +267,8 @@ func (s *Store) SeenCount(id int64) int {
 }
 
 func (s *Store) index(id int64) int {
-	for i := range s.doc.Topics {
-		if s.doc.Topics[i].ID == id {
+	for i := range s.doc.Watches {
+		if s.doc.Watches[i].ID == id {
 			return i
 		}
 	}

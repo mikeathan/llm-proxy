@@ -11,13 +11,13 @@ import (
 )
 
 func TestNoticeText_IsFixedWording(t *testing.T) {
-	req := stacksdk.NoticeRequest{Topic: "LLMs", Items: []stacksdk.NoticeItem{{Title: "Qwen4 out", Link: "https://q.example/4"}, {Title: "Llama 5", Link: "https://m.example/5"}},
+	req := stacksdk.NoticeRequest{Watch: "LLMs", Items: []stacksdk.NoticeItem{{Title: "Qwen4 out", Link: "https://q.example/4"}, {Title: "Llama 5", Link: "https://m.example/5"}},
 		Changes: []stacksdk.NoticeChange{{Item: 2, Was: "beta", Now: "stable"}}}
 	want := "LLMs: 2 new, 1 changed\n\n• Qwen4 out\n  https://q.example/4\n\n• Llama 5\n  https://m.example/5\n\nChanged: Llama 5\n  was: beta\n  now: stable"
 	if got := NoticeText(req); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
-	many := stacksdk.NoticeRequest{Topic: "T"}
+	many := stacksdk.NoticeRequest{Watch: "T"}
 	for range noticeMaxShown + 4 {
 		many.Items = append(many.Items, stacksdk.NoticeItem{Title: "i"})
 	}
@@ -28,7 +28,7 @@ func TestNoticeText_IsFixedWording(t *testing.T) {
 
 // What a source or a model wrote may not add a line, a control character or a link that is not a web link to the owner's phone.
 func TestNoticeText_NoFieldAddsALineOrAScheme(t *testing.T) {
-	req := stacksdk.NoticeRequest{Topic: "T\nFAKE: pay now", Items: []stacksdk.NoticeItem{{Title: "a\n\nb\x07c", Link: "javascript:alert(1)"}, {Title: "ok", Link: "https://x.example/a b"}},
+	req := stacksdk.NoticeRequest{Watch: "T\nFAKE: pay now", Items: []stacksdk.NoticeItem{{Title: "a\n\nb\x07c", Link: "javascript:alert(1)"}, {Title: "ok", Link: "https://x.example/a b"}},
 		Changes: []stacksdk.NoticeChange{{Item: 1, Was: "x\ny", Now: "z"}, {Item: 9, Was: "out", Now: "of range"}}}
 	got := NoticeText(req)
 	for _, bad := range []string{"javascript:", "https://x.example/a b", "out", "\x07", "T\nFAKE"} {
@@ -43,7 +43,7 @@ func TestNoticeText_NoFieldAddsALineOrAScheme(t *testing.T) {
 
 // The worst notice a source can make must still fit what a connector accepts, or the send would be refused and retried for ever.
 func TestNoticeText_TheWorstNoticeFitsTheLimitOfAMessage(t *testing.T) {
-	req := stacksdk.NoticeRequest{Topic: strings.Repeat("題", 200)}
+	req := stacksdk.NoticeRequest{Watch: strings.Repeat("題", 200)}
 	link := "https://x.example/" + strings.Repeat("a", 480)
 	for i := range stacksdk.MaxNoticeItems {
 		req.Items = append(req.Items, stacksdk.NoticeItem{Title: strings.Repeat("題", 400), Link: link})
@@ -64,14 +64,14 @@ func TestNotice_SendsOnlyToAnEnabledChannelAndRefusesAnEmptyOne(t *testing.T) {
 	var sent []string
 	n := Notice{Notify: Notify{Types: func() []string { return []string{"telegram"} },
 		Deliver: func(_ context.Context, ch, text string) error { sent = append(sent, ch+"|"+text); return nil }}}
-	req := stacksdk.NoticeRequest{Topic: "T", Items: []stacksdk.NoticeItem{{Title: "one"}}}
+	req := stacksdk.NoticeRequest{Watch: "T", Items: []stacksdk.NoticeItem{{Title: "one"}}}
 	if err := n.Send(context.Background(), "email", req); stacksdk.CodeOf(err) != stacksdk.CodeInvalid || len(sent) != 0 {
 		t.Errorf("a channel that is not enabled is refused, got %v, sent %v", err, sent)
 	}
-	if err := n.Send(context.Background(), "telegram", stacksdk.NoticeRequest{Topic: "T"}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+	if err := n.Send(context.Background(), "telegram", stacksdk.NoticeRequest{Watch: "T"}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
 		t.Errorf("a notice with no item is refused, got %v", err)
 	}
-	if err := n.Send(context.Background(), "telegram", stacksdk.NoticeRequest{Topic: "T", Items: make([]stacksdk.NoticeItem, stacksdk.MaxNoticeItems+1)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+	if err := n.Send(context.Background(), "telegram", stacksdk.NoticeRequest{Watch: "T", Items: make([]stacksdk.NoticeItem, stacksdk.MaxNoticeItems+1)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
 		t.Errorf("too many items are refused, got %v", err)
 	}
 	if err := n.Send(context.Background(), "telegram", req); err != nil || len(sent) != 1 || sent[0] != "telegram|T: 1 new\n\n• one" {

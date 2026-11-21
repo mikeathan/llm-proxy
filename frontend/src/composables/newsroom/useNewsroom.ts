@@ -4,18 +4,18 @@ import { usePolling } from '../ui/usePolling'
 import { POLL_INTERVAL_MS } from '../../constants/api'
 import { NEWSROOM_ACTION_FAILED, NEWSROOM_LOAD_FAILED } from '../../constants/newsroom'
 import { browserTimeZone } from '../../utils/format/timezone'
-import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomTopic, NewsroomTopicEdit } from '../../types/newsroom'
+import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomWatch, NewsroomWatchEdit } from '../../types/newsroom'
 
 const reasonOf = (e: unknown, fallback: string): string => (e instanceof Error && e.message ? e.message : fallback)
 
 /**
- * The Newsroom page's data: the topics and the feed under the current filter, refreshed on a timer while the page is on screen. A refresh that was
+ * The Newsroom page's data: the watches and the feed under the current filter, refreshed on a timer while the page is on screen. A refresh that was
  * overtaken by a newer one (a filter changed while it was in flight) is dropped, so the feed never shows the answer to an old filter.
  */
 export function useNewsroom() {
-  const topics = ref<NewsroomTopic[]>([])
+  const watches = ref<NewsroomWatch[]>([])
   const feed = ref<NewsroomDay[]>([])
-  const filter = ref<NewsroomFeedFilter>({ topic: null, unreadOnly: false })
+  const filter = ref<NewsroomFeedFilter>({ watch: null, unreadOnly: false })
   const loading = ref(true)
   const error = ref<string | null>(null)
   // The server's reason for the last refused or failed change; empty when none.
@@ -26,9 +26,9 @@ export function useNewsroom() {
   async function load() {
     const mine = ++latest
     try {
-      const [t, f] = await Promise.all([NewsroomService.topics(), NewsroomService.feed(filter.value, browserTimeZone())])
+      const [t, f] = await Promise.all([NewsroomService.watches(), NewsroomService.feed(filter.value, browserTimeZone())])
       if (mine !== latest) return
-      topics.value = t
+      watches.value = t
       feed.value = f
       error.value = null
     } catch (e) {
@@ -53,8 +53,8 @@ export function useNewsroom() {
     }
   }
 
-  const create = async (edit: NewsroomTopicEdit): Promise<boolean> => (await change(() => NewsroomService.create(edit))).ok
-  const save = async (id: number, edit: NewsroomTopicEdit): Promise<boolean> => (await change(() => NewsroomService.save(id, edit))).ok
+  const create = async (edit: NewsroomWatchEdit): Promise<boolean> => (await change(() => NewsroomService.create(edit))).ok
+  const save = async (id: number, edit: NewsroomWatchEdit): Promise<boolean> => (await change(() => NewsroomService.save(id, edit))).ok
   const remove = async (id: number): Promise<boolean> => (await change(() => NewsroomService.remove(id))).ok
   const markRead = async (ids: number[], read: boolean): Promise<boolean> => (await change(() => NewsroomService.markRead(ids, read))).ok
   async function run(id: number): Promise<NewsroomRunOutcome | null> {
@@ -66,5 +66,5 @@ export function useNewsroom() {
   onMounted(load)
   usePolling(load, POLL_INTERVAL_MS)
 
-  return { topics, feed, filter, loading, error, actionError, saving, load, create, save, remove, markRead, run }
+  return { watches, feed, filter, loading, error, actionError, saving, load, create, save, remove, markRead, run }
 }

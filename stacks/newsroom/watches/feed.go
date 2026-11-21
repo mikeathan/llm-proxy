@@ -1,4 +1,4 @@
-package topics
+package watches
 
 import (
 	"sort"
@@ -7,16 +7,16 @@ import (
 
 // Filter narrows the feed. The zero value shows everything.
 type Filter struct {
-	TopicID    int64
+	WatchID    int64
 	Source     string
 	UnreadOnly bool
 }
 
-// TopicDay is one topic's findings on one day. The newest finding is Current and is shown first; every earlier finding of the day stays visible
-// beneath it, newest first, so a topic that found something five times today reads as one card with five entries, not as five cards.
-type TopicDay struct {
-	TopicID int64   `json:"topic_id"`
-	Topic   string  `json:"topic"`
+// WatchDay is one watch's findings on one day. The newest finding is Current and is shown first; every earlier finding of the day stays visible
+// beneath it, newest first, so a watch that found something five times today reads as one card with five entries, not as five cards.
+type WatchDay struct {
+	WatchID int64   `json:"watch_id"`
+	Watch   string  `json:"watch"`
 	Updates int     `json:"updates"`
 	Unread  int     `json:"unread"`
 	Current Entry   `json:"current"`
@@ -25,18 +25,18 @@ type TopicDay struct {
 	LastAt time.Time `json:"last_at"`
 }
 
-// DayCard is one day of the feed: its topics, the busiest recent first.
+// DayCard is one day of the feed: its watches, the busiest recent first.
 type DayCard struct {
 	Day     string     `json:"day"` // 2006-01-02 in the owner's time zone
 	Label   string     `json:"label"`
 	Updates int        `json:"updates"`
 	Unread  int        `json:"unread"`
-	Topics  []TopicDay `json:"topics"`
+	Watches []WatchDay `json:"watches"`
 }
 
-// Feed groups the journal by day (in loc, the owner's time zone), then by topic, newest day first and, inside a day, the topic that found something
+// Feed groups the journal by day (in loc, the owner's time zone), then by watch, newest day first and, inside a day, the watch that found something
 // most recently first. At most maxDays days are returned (zero means all). A day with no matching entry is not shown: a run that found nothing
-// leaves no trace here, only the topic's last-checked time.
+// leaves no trace here, only the watch's last-checked time.
 func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) []DayCard {
 	if loc == nil {
 		loc = time.UTC
@@ -47,13 +47,13 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 	}
 	type key struct {
 		day   string
-		topic int64
+		watch int64
 	}
 	groups := map[key][]Entry{}
 	var days []string
 	seen := map[string]bool{}
 	for _, e := range s.entriesFor(f) { // newest first
-		if _, ok := names[e.TopicID]; !ok {
+		if _, ok := names[e.WatchID]; !ok {
 			continue
 		}
 		d := e.At.In(loc).Format("2006-01-02")
@@ -61,7 +61,7 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 			seen[d] = true
 			days = append(days, d)
 		}
-		k := key{d, e.TopicID}
+		k := key{d, e.WatchID}
 		groups[k] = append(groups[k], e)
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(days)))
@@ -77,20 +77,20 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 			if k.day != d {
 				continue
 			}
-			td := topicDay(k.topic, names[k.topic], es)
+			td := watchDay(k.watch, names[k.watch], es)
 			card.Updates += td.Updates
 			card.Unread += td.Unread
-			card.Topics = append(card.Topics, td)
+			card.Watches = append(card.Watches, td)
 		}
-		sort.Slice(card.Topics, func(i, j int) bool { return card.Topics[i].LastAt.After(card.Topics[j].LastAt) })
+		sort.Slice(card.Watches, func(i, j int) bool { return card.Watches[i].LastAt.After(card.Watches[j].LastAt) })
 		out = append(out, card)
 	}
 	return out
 }
 
-// topicDay is one topic's entries of one day, newest first: the newest is Current, the rest Earlier.
-func topicDay(id int64, name string, es []Entry) TopicDay {
-	td := TopicDay{TopicID: id, Topic: name, Updates: len(es), Current: es[0], Earlier: es[1:], LastAt: es[0].At}
+// watchDay is one watch's entries of one day, newest first: the newest is Current, the rest Earlier.
+func watchDay(id int64, name string, es []Entry) WatchDay {
+	td := WatchDay{WatchID: id, Watch: name, Updates: len(es), Current: es[0], Earlier: es[1:], LastAt: es[0].At}
 	for _, e := range es {
 		if !e.Read {
 			td.Unread++

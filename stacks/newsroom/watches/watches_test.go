@@ -1,4 +1,4 @@
-package topics
+package watches
 
 import (
 	"context"
@@ -69,11 +69,11 @@ var t0 = time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
 
 const feedURL = "https://news.example/feed"
 
-func feedTopic() Topic {
-	return Topic{Name: "LLMs", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindFeed, Label: "Example", Target: feedURL}}}
+func feedWatch() Watch {
+	return Watch{Name: "LLMs", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindFeed, Label: "Example", Target: feedURL}}}
 }
 
-// harness builds a store with one topic, a runner over a controllable clock and fetcher, and a notifier that records what it was given.
+// harness builds a store with one watch, a runner over a controllable clock and fetcher, and a notifier that records what it was given.
 type harness struct {
 	store *Store
 	run   *Runner
@@ -84,19 +84,19 @@ type harness struct {
 	id    int64
 }
 
-func newHarness(t *testing.T, topic Topic) *harness {
+func newHarness(t *testing.T, watch Watch) *harness {
 	t.Helper()
 	store, err := NewStore(newMemDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	h := &harness{store: store, fetch: &feedFetch{bodies: map[string]string{}}, now: t0}
-	made, err := store.Create(topic, t0)
+	made, err := store.Create(watch, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.id = made.ID
-	h.run = &Runner{Store: store, Fetch: h.fetch, Now: func() time.Time { return h.now }, Notify: func(_ context.Context, _ Topic, n Notice) error {
+	h.run = &Runner{Store: store, Fetch: h.fetch, Now: func() time.Time { return h.now }, Notify: func(_ context.Context, _ Watch, n Notice) error {
 		if h.fail != nil {
 			return h.fail
 		}
@@ -106,6 +106,19 @@ func newHarness(t *testing.T, topic Topic) *harness {
 	return h
 }
 
+// forgetFirstFindings removes the feed entries a first check adds, for tests about what later runs add to the feed.
+func (h *harness) forgetFirstFindings() {
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	kept := h.store.doc.Entries[:0]
+	for _, e := range h.store.doc.Entries {
+		if !e.First {
+			kept = append(kept, e)
+		}
+	}
+	h.store.doc.Entries = kept
+}
+
 func (h *harness) tick(t *testing.T, after time.Duration) []Outcome {
 	t.Helper()
 	h.now = h.now.Add(after)
@@ -113,43 +126,44 @@ func (h *harness) tick(t *testing.T, after time.Duration) []Outcome {
 }
 
 func TestNormalize(t *testing.T) {
-	good, err := Normalize(feedTopic())
-	if err != nil || good.Interval != time.Hour || good.Search != SearchConfirm {
-		t.Fatalf("defaults: %+v, %v (want 1h interval and confirm search)", good, err)
+	good, err := Normalize(feedWatch())
+	if err != nil || good.Interval != time.Hour {
+		t.Fatalf("defaults: %+v, %v (want a 1h interval)", good, err)
 	}
-	bad := map[string]func(*Topic){
-		"no name":          func(x *Topic) { x.Name = "  " },
-		"no sources":       func(x *Topic) { x.Sources = nil },
-		"too many sources": func(x *Topic) { x.Sources = make([]SourceSpec, MaxSources+1) },
-		"http feed":        func(x *Topic) { x.Sources[0].Target = "http://news.example/feed" },
-		"unknown kind":     func(x *Topic) { x.Sources[0].Kind = "rumour" },
-		"mastodon no host": func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindMastodon, Target: "llm"} },
-		"bad channel":      func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindTelegram, Target: "ab"} },
-		"tag with space": func(x *Topic) {
+	bad := map[string]func(*Watch){
+		"no name":          func(x *Watch) { x.Name = "  " },
+		"no sources":       func(x *Watch) { x.Sources = nil },
+		"too many sources": func(x *Watch) { x.Sources = make([]SourceSpec, MaxSources+1) },
+		"http feed":        func(x *Watch) { x.Sources[0].Target = "http://news.example/feed" },
+		"unknown kind":     func(x *Watch) { x.Sources[0].Kind = "rumour" },
+		"mastodon no host": func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindMastodon, Target: "llm"} },
+		"bad channel":      func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindTelegram, Target: "ab"} },
+		"tag with space": func(x *Watch) {
 			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social", Target: "go lang"}
 		},
-		"bad instance": func(x *Topic) {
+		"bad instance": func(x *Watch) {
 			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social:8080/x", Target: "go"}
 		},
-		"empty search":     func(x *Topic) { x.Sources[0] = SourceSpec{Kind: KindHN, Target: "  "} },
-		"feed no host":     func(x *Topic) { x.Sources[0].Target = "https:///feed" },
-		"under the floor":  func(x *Topic) { x.Interval = time.Minute },
-		"limited no count": func(x *Topic) { x.Search = SearchLimited },
-		"unknown search":   func(x *Topic) { x.Search = "always" },
+		"empty search":      func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindHN, Target: "  "} },
+		"feed no host":      func(x *Watch) { x.Sources[0].Target = "https:///feed" },
+		"under the floor":   func(x *Watch) { x.Interval = time.Minute },
+		"look for too long": func(x *Watch) { x.LookFor = strings.Repeat("a", MaxLookForRunes+1) },
+		"too many keywords": func(x *Watch) { x.Keywords = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} },
+		"long skip word":    func(x *Watch) { x.Skip = []string{strings.Repeat("a", MaxWordRunes+1)} },
 	}
 	for name, mutate := range bad {
-		x := feedTopic()
+		x := feedWatch()
 		mutate(&x)
 		if _, err := Normalize(x); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
 		}
 	}
-	x := feedTopic()
+	x := feedWatch()
 	x.Interval = MinInterval
 	if _, err := Normalize(x); err != nil {
 		t.Errorf("the floor itself must be allowed: %v", err)
 	}
-	y := feedTopic()
+	y := feedWatch()
 	y.Sources = []SourceSpec{{Kind: KindTelegram, Target: "https://t.me/s/aipost"}, {Kind: KindMastodon, Instance: "https://Mastodon.social/", Target: "#golang"}}
 	got, err := Normalize(y)
 	if err != nil || got.Sources[0].Target != "aipost" || got.Sources[1].Target != "golang" || got.Sources[1].Instance != "mastodon.social" {
@@ -158,9 +172,9 @@ func TestNormalize(t *testing.T) {
 }
 
 func TestDue(t *testing.T) {
-	tp := Topic{Enabled: true, Interval: time.Hour}
+	tp := Watch{Enabled: true, Interval: time.Hour}
 	if !tp.Due(t0) {
-		t.Error("a topic never read is due")
+		t.Error("a watch never read is due")
 	}
 	tp.LastRun = t0
 	if tp.Due(t0.Add(59 * time.Minute)) {
@@ -171,13 +185,13 @@ func TestDue(t *testing.T) {
 	}
 	tp.Enabled = false
 	if tp.Due(t0.Add(48 * time.Hour)) {
-		t.Error("a disabled topic is never due")
+		t.Error("a disabled watch is never due")
 	}
 }
 
 // The Phase 2 acceptance: three ticks yield one notice and then nothing.
 func TestReplayOfThreeTicksGivesOneNoticeThenNothing(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	a, b, c := [2]string{"Qwen4 released", "https://q.example/qwen4"}, [2]string{"Llama 5", "https://m.example/llama5"}, [2]string{"Gemma 4", "https://g.example/gemma4"}
 
 	h.fetch.bodies[feedURL] = rss(a, b)
@@ -185,7 +199,7 @@ func TestReplayOfThreeTicksGivesOneNoticeThenNothing(t *testing.T) {
 		t.Fatalf("tick 1 must baseline silently: %+v, sent %d", o, len(h.sent))
 	}
 	if o := h.tick(t, 10*time.Minute); len(o) != 0 {
-		t.Fatalf("a tick inside the interval must not run the topic: %+v", o)
+		t.Fatalf("a tick inside the interval must not run the watch: %+v", o)
 	}
 	if o := h.tick(t, time.Hour); len(o) != 1 || o[0].Status != StatusNothingNew || len(h.sent) != 0 {
 		t.Fatalf("tick 2 saw the same items: %+v, sent %d", o, len(h.sent))
@@ -203,7 +217,7 @@ func TestReplayOfThreeTicksGivesOneNoticeThenNothing(t *testing.T) {
 }
 
 func TestFailedSendRecordsNothingAndRetries(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.tick(t, 0) // baseline
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"}, [2]string{"Two", "https://e.example/2"})
@@ -220,11 +234,11 @@ func TestFailedSendRecordsNothingAndRetries(t *testing.T) {
 }
 
 func TestNoChannelIsVisibleAndRecordsNothing(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.tick(t, 0)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"}, [2]string{"Two", "https://e.example/2"})
-	h.run.Notify = func(context.Context, Topic, Notice) error { return ErrNoChannel }
+	h.run.Notify = func(context.Context, Watch, Notice) error { return ErrNoChannel }
 	o := h.tick(t, time.Hour)
 	got, _ := h.store.Get(h.id)
 	if o[0].Status != StatusNoChannel || got.LastStatus != StatusNoChannel || h.store.SeenCount(h.id) != 1 {
@@ -237,7 +251,7 @@ func TestNoChannelIsVisibleAndRecordsNothing(t *testing.T) {
 }
 
 func TestUnreadableSourceIsFailingNotNothingNew(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	// No body for the feed URL: the fetch fails.
 	if o := h.tick(t, 0); o[0].Status != StatusFailing || !strings.Contains(o[0].Detail, "Example") {
 		t.Fatalf("an unreadable source must be failing and name the source: %+v", o)
@@ -249,9 +263,9 @@ func TestUnreadableSourceIsFailingNotNothingNew(t *testing.T) {
 }
 
 func TestOneFailingSourceDoesNotHideTheOther(t *testing.T) {
-	topic := feedTopic()
-	topic.Sources = append(topic.Sources, SourceSpec{Kind: KindFeed, Label: "Broken", Target: "https://broken.example/feed"})
-	h := newHarness(t, topic)
+	watch := feedWatch()
+	watch.Sources = append(watch.Sources, SourceSpec{Kind: KindFeed, Label: "Broken", Target: "https://broken.example/feed"})
+	h := newHarness(t, watch)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.tick(t, 0)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"}, [2]string{"Two", "https://e.example/2"})
@@ -263,7 +277,7 @@ func TestOneFailingSourceDoesNotHideTheOther(t *testing.T) {
 
 // Known limit, pinned like the Phase 0 test: the same event under a new source URL is a new identity.
 func TestSameEventUnderNewURLIsSentAgain(t *testing.T) {
-	h := newHarness(t, feedTopic())
+	h := newHarness(t, feedWatch())
 	h.fetch.bodies[feedURL] = rss([2]string{"GPT-5.5 retirement set", "https://orcarouter.example/gpt55"})
 	h.tick(t, 0)
 	h.fetch.bodies[feedURL] = rss([2]string{"GPT-5.5 retirement set", "https://trustloud.example/gpt55"})
@@ -273,8 +287,8 @@ func TestSameEventUnderNewURLIsSentAgain(t *testing.T) {
 }
 
 func TestWatchedPageChangeIsNew(t *testing.T) {
-	topic := Topic{Name: "Status", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindPage, Label: "Status page", Target: "https://status.example/"}}}
-	h := newHarness(t, topic)
+	watch := Watch{Name: "Status", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindPage, Label: "Status page", Target: "https://status.example/"}}}
+	h := newHarness(t, watch)
 	h.fetch.bodies["https://status.example/"] = "<html><body><h1>All good</h1><script>x=1</script></body></html>"
 	h.tick(t, 0)
 	h.fetch.bodies["https://status.example/"] = "<html><body class=\"b\"><h1>All good</h1><script>x=2</script></body></html>"
@@ -288,11 +302,11 @@ func TestWatchedPageChangeIsNew(t *testing.T) {
 }
 
 func TestTelegramFloorIsNotAFailure(t *testing.T) {
-	topic := Topic{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []SourceSpec{{Kind: KindTelegram, Target: "telegram"}, {Kind: KindFeed, Target: feedURL}}}
-	h := newHarness(t, topic)
+	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []SourceSpec{{Kind: KindTelegram, Target: "telegram"}, {Kind: KindFeed, Target: feedURL}}}
+	h := newHarness(t, watch)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.fetch.bodies["https://t.me/s/telegram"] = "<html></html>"
-	h.run.source(topic.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
+	h.run.source(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
 	h.tick(t, 0) // telegram page has no messages: failing source, feed answers
 	o := h.tick(t, MinInterval)
 	if o[0].Status == StatusFailing || strings.Contains(o[0].Detail, "too recently") {
@@ -303,7 +317,7 @@ func TestTelegramFloorIsNotAFailure(t *testing.T) {
 func TestStorePersistsAndRecovers(t *testing.T) {
 	dir := newMemDir()
 	s, _ := NewStore(dir)
-	made, err := s.Create(feedTopic(), t0)
+	made, err := s.Create(feedWatch(), t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,10 +344,10 @@ func TestStorePersistsAndRecovers(t *testing.T) {
 
 func TestStoreUpdateKeepsLedgerAndRunRecord(t *testing.T) {
 	s, _ := NewStore(newMemDir())
-	made, _ := s.Create(feedTopic(), t0)
+	made, _ := s.Create(feedWatch(), t0)
 	_ = s.Record(made.ID, []sources.Item{{Link: "https://e.example/1"}}, t0)
 	_ = s.SetRun(made.ID, t0, StatusSent, "ok", 1, true)
-	edit := feedTopic()
+	edit := feedWatch()
 	edit.Name = "Renamed"
 	edit.Interval = 2 * time.Hour
 	got, err := s.Update(made.ID, edit)
@@ -344,13 +358,13 @@ func TestStoreUpdateKeepsLedgerAndRunRecord(t *testing.T) {
 		t.Errorf("delete must drop the ledger: %v", err)
 	}
 	if _, err := s.Get(made.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("a deleted topic is gone: %v", err)
+		t.Errorf("a deleted watch is gone: %v", err)
 	}
 }
 
 func TestLedgerIsBounded(t *testing.T) {
 	s, _ := NewStore(newMemDir())
-	made, _ := s.Create(feedTopic(), t0)
+	made, _ := s.Create(feedWatch(), t0)
 	var items []sources.Item
 	for i := range MaxSeen + 50 {
 		items = append(items, sources.Item{Link: fmt.Sprintf("https://e.example/%d", i)})
@@ -363,14 +377,14 @@ func TestLedgerIsBounded(t *testing.T) {
 	}
 }
 
-func TestMaxTopics(t *testing.T) {
+func TestMaxWatches(t *testing.T) {
 	s, _ := NewStore(newMemDir())
-	for range MaxTopics {
-		if _, err := s.Create(feedTopic(), t0); err != nil {
+	for range MaxWatches {
+		if _, err := s.Create(feedWatch(), t0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Create(feedTopic(), t0); !errors.Is(err, ErrInvalid) {
-		t.Errorf("the %dth topic must be refused: %v", MaxTopics+1, err)
+	if _, err := s.Create(feedWatch(), t0); !errors.Is(err, ErrInvalid) {
+		t.Errorf("the %dth watch must be refused: %v", MaxWatches+1, err)
 	}
 }

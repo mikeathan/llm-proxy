@@ -95,7 +95,7 @@ export const REMINDERS_TABS = ['modules'] as const
 export type RemindersTab = (typeof REMINDERS_TABS)[number]
 
 // The tabs of the Newsroom page, addressable at /newsroom/:tab. The feed is the page without a tab.
-export const NEWSROOM_TABS = ['topics', 'sources', 'settings', 'help'] as const
+export const NEWSROOM_TABS = ['watches', 'settings'] as const
 export type NewsroomTab = (typeof NEWSROOM_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the

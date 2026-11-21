@@ -138,7 +138,7 @@ type netauditServices struct {
 	// RemindersLegacy stages the rows the service kept in its main database before the stack existed, just before the stack starts.
 	Reminders       *stackHost
 	RemindersLegacy func(ctx context.Context)
-	// Newsroom is the Newsroom stack as it runs in the service: the topics the owner follows and the feed of what is new.
+	// Newsroom is the Newsroom stack as it runs in the service: the watches the owner follows and the feed of what is new.
 	Newsroom *stackHost
 	// Join is where the network inventory meets what Radio heard over the air (ADR-0061): the Network page's air facts, the new-device alert's
 	// note and the mapping of Radio's findings by tag. It reads on demand and runs nothing of its own.
@@ -854,7 +854,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		s.netaudit.RemindersLegacy = func(ctx context.Context) { s.stageLegacyReminders(ctx, remindersHost) }
 	}
 
-	// The topics the owner follows live in their own stack. A host that could not be built leaves Newsroom unavailable and everything else as it was.
+	// The watches the owner follows live in their own stack. A host that could not be built leaves Newsroom unavailable and everything else as it was.
 	newsroomPolicy := dataMgr.Newsroom()
 	newsroomHost, err := s.newNewsroomHost(newsroomPolicy, stackport.Fetch{Opener: netTools})
 	if err != nil {
