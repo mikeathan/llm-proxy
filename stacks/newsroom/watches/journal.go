@@ -30,6 +30,10 @@ type Entry struct {
 	Now string `json:"now,omitempty"`
 	// Why is the model's short reason the entry matches what the watch looks for.
 	Why string `json:"why,omitempty"`
+	// Headline and Summary are the model's own short headline and one-or-two-sentence summary. The row shows the headline in place of the original
+	// Title, which is kept (with Link and Text) and shown when the entry is opened.
+	Headline string `json:"headline,omitempty"`
+	Summary  string `json:"summary,omitempty"`
 	// First marks an entry shown from the watch's first check: it was already there, so it was not announced.
 	First bool `json:"first,omitempty"`
 	// AlsoSeen lists later reports of the same event under another source or link, folded here instead of shown as new entries.
@@ -65,15 +69,18 @@ func (s *Store) AddEntries(watchID int64, items []sources.Item, marks Marks, now
 		}
 	}
 	for i, it := range items {
-		c := marks.Changes[i]
+		c, d := marks.Changes[i], marks.Digests[i]
 		if at, ok := have[it.Identity()]; ok {
 			s.doc.Entries[at].Was, s.doc.Entries[at].Now = c.Was, c.Now
+			if d.Headline != "" || d.Summary != "" {
+				s.doc.Entries[at].Headline, s.doc.Entries[at].Summary = d.Headline, d.Summary
+			}
 			continue
 		}
 		s.doc.Entries = append(s.doc.Entries, Entry{
 			ID: s.doc.NextEntry, WatchID: watchID, At: now.UTC(), Ident: it.Identity(), Source: it.Source,
 			Title: sources.Line(it.Title, MaxTitleRunes), Link: it.Link, Text: sources.Plain(it.Text, entryTextRunes), Was: c.Was, Now: c.Now,
-			Why: marks.Whys[i], First: marks.First,
+			Why: marks.Whys[i], Headline: d.Headline, Summary: d.Summary, First: marks.First,
 		})
 		s.doc.NextEntry++
 	}
@@ -86,6 +93,7 @@ func (s *Store) AddEntries(watchID int64, items []sources.Item, marks Marks, now
 type Marks struct {
 	Changes map[int]Change
 	Whys    map[int]string
+	Digests map[int]Digest
 	First   bool
 }
 

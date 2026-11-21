@@ -9,21 +9,21 @@ describe('NewsroomService.feed', () => {
   it("asks for the reader's own days and sends only the filters that are set", async () => {
     const fetchMock = ok([])
     vi.stubGlobal('fetch', fetchMock)
-    await NewsroomService.feed({ watch: null, unreadOnly: false }, 'Europe/London')
+    await NewsroomService.feed({ watch: null, unreadOnly: false, days: null }, 'Europe/London')
     expect(fetchMock.mock.calls[0]![0]).toBe('/admin/api/newsroom/feed?zone=Europe%2FLondon')
-    await NewsroomService.feed({ watch: 3, unreadOnly: true }, 'UTC')
-    expect(fetchMock.mock.calls[1]![0]).toBe('/admin/api/newsroom/feed?zone=UTC&watch=3&unread=true')
+    await NewsroomService.feed({ watch: 3, unreadOnly: true, days: 7 }, 'UTC')
+    expect(fetchMock.mock.calls[1]![0]).toBe('/admin/api/newsroom/feed?zone=UTC&watch=3&unread=true&days=7')
   })
 
   it('reads a null answer as an empty list, not as null', async () => {
     vi.stubGlobal('fetch', ok(null))
-    expect(await NewsroomService.feed({ watch: null, unreadOnly: false }, 'UTC')).toEqual([])
+    expect(await NewsroomService.feed({ watch: null, unreadOnly: false, days: null }, 'UTC')).toEqual([])
     expect(await NewsroomService.watches()).toEqual([])
   })
 
   it('reports the reason the server gives', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => '{"error":"watch must be a watch id"}' }))
-    await expect(NewsroomService.feed({ watch: null, unreadOnly: false }, 'UTC')).rejects.toThrow('watch must be a watch id')
+    await expect(NewsroomService.feed({ watch: null, unreadOnly: false, days: null }, 'UTC')).rejects.toThrow('watch must be a watch id')
   })
 })
 

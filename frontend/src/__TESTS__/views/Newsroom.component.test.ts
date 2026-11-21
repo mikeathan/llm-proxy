@@ -113,6 +113,43 @@ describe('NewsroomView', () => {
     expect(clearMock).toHaveBeenCalledWith({ scope: 'all' })
   })
 
+  const pickPeriod = async (w: ReturnType<typeof mount>, value: string) => {
+    const labels: Record<string, string> = { '': 'All', '1': 'Today', '7': '7 days', '14': '14 days' }
+    await w.findAll('[role="radio"]').find((b) => b.text() === labels[value])!.trigger('click')
+    await flushPromises()
+  }
+
+  it('asks the server for the chosen period', async () => {
+    const { w } = await mountView()
+    await pickPeriod(w, '7')
+    expect(feedMock.mock.calls[feedMock.mock.calls.length - 1]![0]).toMatchObject({ days: 7 })
+    await pickPeriod(w, '')
+    expect(feedMock.mock.calls[feedMock.mock.calls.length - 1]![0]).toMatchObject({ days: null })
+  })
+
+  it('chooses a watch with a chip, and asks the server for that watch only', async () => {
+    const { w } = await mountView('/newsroom', [watch(), watch({ id: 2, name: 'Security' })])
+    await w.findAll('[data-test="watch-chips"] button').find((b) => b.text() === 'Security')!.trigger('click')
+    await flushPromises()
+    expect(feedMock.mock.calls[feedMock.mock.calls.length - 1]![0]).toMatchObject({ watch: 2 })
+  })
+
+  it('says so when a filter leaves nothing to show', async () => {
+    const { w } = await mountView('/newsroom', [watch(), watch({ id: 2, name: 'Security' })])
+    feedMock.mockResolvedValue([])
+    await pickPeriod(w, '1')
+    expect(w.get('[data-test="feed-filter-empty"]').text()).toContain('Nothing here')
+  })
+
+  it('with a period chosen, Clear all deletes only the entries on screen, never the whole feed', async () => {
+    clearMock.mockResolvedValue(2)
+    const { w } = await mountView()
+    await pickPeriod(w, '1')
+    await w.findAll('button').find((b) => b.text() === 'Clear all')!.trigger('click')
+    await flushPromises()
+    expect(clearMock).toHaveBeenCalledWith({ ids: [2, 1] })
+  })
+
   it('asks to add a first watch when none is followed', async () => {
     const { w } = await mountView('/newsroom', [], [])
     expect(w.text()).toContain('You follow nothing yet')
@@ -190,6 +227,20 @@ describe('NewsroomView', () => {
     await buttonByName(w, /Check now/)!.trigger('click')
     await flushPromises()
     expect(runMock).toHaveBeenCalledWith(1)
+  })
+
+  it('says the check is running on that watch while it works, then goes back', async () => {
+    let finish: (v: unknown) => void = () => {}
+    runMock.mockReturnValue(new Promise((r) => { finish = r }))
+    const { w } = await mountView('/newsroom/watches', [watch()])
+    await buttonByName(w, /Check now/)!.trigger('click')
+    await flushPromises()
+    expect(buttonByName(w, /Checking/)).toBeTruthy()
+    expect(w.text()).toContain('Reading the sources')
+    finish({ watch_id: 1, status: 'nothing_new', detail: '', new: 0 })
+    await flushPromises()
+    expect(buttonByName(w, /Check now/)).toBeTruthy()
+    expect(w.text()).not.toContain('Reading the sources')
   })
 
   it('asks before it deletes a watch, and does nothing when declined', async () => {

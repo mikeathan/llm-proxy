@@ -244,12 +244,15 @@ func (r *Runner) foldRepeats(watchID int64, at time.Time, in Input, a Analysis, 
 
 // noticeMarks maps an item's index in the notice to what the journal keeps about it: its changed fact and why it matched.
 func noticeMarks(n Notice, first bool) Marks {
-	m := Marks{Changes: map[int]Change{}, Whys: map[int]string{}, First: first}
+	m := Marks{Changes: map[int]Change{}, Whys: map[int]string{}, Digests: map[int]Digest{}, First: first}
 	for _, c := range n.Changes {
 		m.Changes[c.Item-1] = c
 	}
 	for i, why := range n.Whys {
 		m.Whys[i-1] = why
+	}
+	for i, d := range n.Digests {
+		m.Digests[i-1] = d
 	}
 	return m
 }
@@ -280,7 +283,7 @@ func (r *Runner) settle(t Watch, at time.Time, batch []sources.Item, a Analysis,
 // relevant, then renumbers the changed facts and reasons onto what is left. A change on a dropped item is dropped with it. It also returns the dropped
 // repeats; the items that did not match are named by unmatchedDetail.
 func buildNotice(name string, in Input, a Analysis) (Notice, []int, []int) {
-	n := Notice{Watch: name, Whys: map[int]string{}}
+	n := Notice{Watch: name, Whys: map[int]string{}, Digests: map[int]Digest{}}
 	newIndex := map[int]int{}
 	var repeated, unmatched []int
 	for i, it := range in.Items {
@@ -298,6 +301,9 @@ func buildNotice(name string, in Input, a Analysis) (Notice, []int, []int) {
 		newIndex[i+1] = len(n.Items)
 		if why != "" {
 			n.Whys[len(n.Items)] = why
+		}
+		if d, ok := a.Digests[i+1]; ok {
+			n.Digests[len(n.Items)] = d
 		}
 	}
 	for _, c := range a.Changes {

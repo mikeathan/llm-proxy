@@ -69,6 +69,9 @@ export interface NewsroomEntry {
   text?: string
   /** The model's short reason the item matches what the watch looks for. */
   why?: string
+  /** The model's own short headline (shown in place of the title) and one-or-two-sentence summary (shown when opened). The original title, link and text are kept. */
+  headline?: string
+  summary?: string
   /** True for an item shown from the watch's first check: it was already there, so nothing was announced. */
   first?: boolean
   /** A changed fact, when the model step found one. */
@@ -102,6 +105,8 @@ export interface NewsroomDay {
 export interface NewsroomFeedFilter {
   watch: number | null
   unreadOnly: boolean
+  /** Only the last N calendar days (1 is today); null shows everything the feed keeps (30 days). */
+  days: number | null
 }
 
 export interface NewsroomRunOutcome {

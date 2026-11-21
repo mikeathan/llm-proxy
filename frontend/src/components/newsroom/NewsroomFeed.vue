@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch as onChange } from "vue"
 import BaseToggle from "../common/buttons/BaseToggle.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import SelectInput from "../common/forms/SelectInput.vue"
+import SegmentedControl from "../common/forms/SegmentedControl.vue"
+import NewsroomWatchChips from "./NewsroomWatchChips.vue"
 import Icon from "../icons/Icon.vue"
 import NewsroomEntryItem from "./NewsroomEntryItem.vue"
 import { dayEntries, unreadIds } from "../../utils/newsroom/dayEntries"
 import {
-  CLEAR_ALL_LABEL, CLEAR_LABEL, CLEAR_READ_LABEL, DONE_LABEL, FILTER_ALL_WATCHES, FILTER_UNREAD_LABEL, FILTER_WATCH_LABEL, MARK_ALL_READ_LABEL, MARK_READ_LABEL,
+  CLEAR_ALL_LABEL, CLEAR_LABEL, FILTER_PERIOD_LABEL, PERIOD_OPTIONS, CLEAR_READ_LABEL, DONE_LABEL, FEED_FILTER_EMPTY, FILTER_UNREAD_LABEL, MARK_ALL_READ_LABEL, MIN_WATCHES_FOR_CHIPS, MARK_READ_LABEL,
   SELECT_ALL_LABEL, SELECT_LABEL, SHOW_OLDER_LABEL, selectedWords, unreadWords, updatesWords,
 } from "../../constants/newsroom"
-import type { ChoiceOption } from "../../types/ui"
 import type { NewsroomDay, NewsroomEntry, NewsroomFeedFilter, NewsroomWatch } from "../../types/newsroom"
 
 // The feed: a toolbar (filters, mark all read, select, clear), then one section per day, newest first. The newest day is open and older days are folded
@@ -25,7 +25,10 @@ const emit = defineEmits<{
 }>()
 
 const ALL = ""
-const watchOptions = computed<ChoiceOption[]>(() => [{ value: ALL, label: FILTER_ALL_WATCHES }, ...props.watches.map((t) => ({ value: String(t.id), label: t.name }))])
+// A watch that was deleted while it was chosen would leave an empty feed with no chip lit, so the choice goes back to all watches.
+onChange(() => props.watches, (list) => {
+  if (props.filter.watch !== null && !list.some((t) => t.id === props.filter.watch)) emit("update:filter", { ...props.filter, watch: null })
+})
 
 const shown = ref(DAYS_AT_FIRST)
 const visibleDays = computed(() => props.days.slice(0, shown.value))
@@ -65,12 +68,14 @@ function clearSelected() {
 
 <template>
   <div class="flex flex-col gap-4">
+    <NewsroomWatchChips v-if="watches.length >= MIN_WATCHES_FOR_CHIPS" :watches="watches" :model-value="filter.watch" @update:model-value="emit('update:filter', { ...filter, watch: $event })" />
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <SelectInput
-        :model-value="filter.watch === null ? ALL : String(filter.watch)"
-        :options="watchOptions"
-        :label="FILTER_WATCH_LABEL"
-        @update:model-value="emit('update:filter', { ...filter, watch: $event === ALL ? null : Number($event) })"
+      <SegmentedControl
+        :model-value="filter.days === null ? ALL : String(filter.days)"
+        :options="PERIOD_OPTIONS"
+        :label="FILTER_PERIOD_LABEL"
+        variant="compact"
+        @update:model-value="emit('update:filter', { ...filter, days: $event === ALL ? null : Number($event) })"
       />
       <BaseToggle :model-value="filter.unreadOnly" :label="FILTER_UNREAD_LABEL" @update:model-value="emit('update:filter', { ...filter, unreadOnly: $event })" />
       <div v-if="!selecting" class="ml-auto flex flex-wrap items-center gap-1.5">
@@ -100,6 +105,8 @@ function clearSelected() {
         <BaseButton variant="ghost" size="sm" @click="finishSelecting">{{ DONE_LABEL }}</BaseButton>
       </div>
     </div>
+
+    <p v-if="!visibleDays.length" class="m-0 text-muted" data-test="feed-filter-empty">{{ FEED_FILTER_EMPTY }}</p>
 
     <section v-for="day in visibleDays" :key="day.day" class="flex flex-col" :aria-label="day.label">
       <header class="flex items-center gap-2 border-b border-hairline pb-2">

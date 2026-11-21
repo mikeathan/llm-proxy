@@ -5,7 +5,8 @@ import StatusTag from "../common/display/StatusTag.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
 import { textBeyondTitle } from "../../utils/newsroom/entryText"
-import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, whyWords } from "../../constants/newsroom"
+import { entryHeadline } from "../../utils/newsroom/entryHeadline"
+import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, originalWords, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
 // One finding as a compact row: a dot while unread, where it came from and when, the headline (two lines at most), and a chevron that opens the reason,
@@ -15,8 +16,11 @@ const props = defineProps<{ entry: NewsroomEntry; watchName?: string; selectable
 const emit = defineEmits<{ (e: "toggle-select"): void; (e: "open"): void }>()
 const link = computed(() => safeWebLink(props.entry.link))
 const changed = computed(() => Boolean(props.entry.was && props.entry.now))
+// The model's headline stands in for the original title in the row; the original is kept and shown when the entry is opened.
+const headline = computed(() => entryHeadline(props.entry))
+const hasHeadline = computed(() => Boolean(props.entry.headline) && props.entry.headline !== props.entry.title)
 const extraText = computed(() => textBeyondTitle(props.entry.title, props.entry.text))
-const hasDetails = computed(() => Boolean(changed.value || props.entry.why || extraText.value || props.entry.also_seen?.length))
+const hasDetails = computed(() => Boolean(changed.value || props.entry.summary || hasHeadline.value || props.entry.why || extraText.value || props.entry.also_seen?.length))
 const open = ref(false)
 </script>
 
@@ -26,7 +30,7 @@ const open = ref(false)
       v-if="selectable"
       type="checkbox"
       :checked="selected"
-      :aria-label="`Select ${entry.title}`"
+      :aria-label="`Select ${headline}`"
       class="mt-0.5 h-4 w-4 flex-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 sm:h-3.5 sm:w-3.5"
       @change="emit('toggle-select')"
     />
@@ -49,11 +53,13 @@ const open = ref(false)
         :class="entry.read ? 'font-normal text-secondary' : ''"
         @click="emit('open')"
         @auxclick="emit('open')"
-      >{{ entry.title }}</a>
-      <p v-else class="m-0 line-clamp-2 min-w-0 break-words font-medium text-primary" :class="entry.read ? 'font-normal text-secondary' : ''">{{ entry.title }}</p>
+      >{{ headline }}</a>
+      <p v-else class="m-0 line-clamp-2 min-w-0 break-words font-medium text-primary" :class="entry.read ? 'font-normal text-secondary' : ''">{{ headline }}</p>
       <div v-if="open" class="flex flex-col gap-1 border-l border-hairline pl-3">
         <p v-if="changed" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ entry.was }} → {{ entry.now }}</p>
+        <p v-if="entry.summary" class="m-0 break-words text-[length:var(--text-small)] text-primary">{{ entry.summary }}</p>
         <p v-if="entry.why" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ whyWords(entry.why) }}</p>
+        <p v-if="hasHeadline" class="m-0 break-words text-[length:var(--text-small)] text-faint">{{ originalWords(entry.title) }}</p>
         <p v-if="extraText" class="m-0 whitespace-pre-line break-words text-[length:var(--text-small)] text-muted">{{ extraText }}</p>
         <p v-if="entry.also_seen?.length" class="m-0 break-words text-[length:var(--text-small)] text-faint">
           {{ ALSO_SEEN_LABEL }}:

@@ -424,6 +424,11 @@ func (s *Stack) feed(ctx context.Context, store *watches.Store, query string) (s
 			return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "watch must be a watch id")
 		}
 	}
+	if v := q.Get("days"); v != "" {
+		if f.Days, err = strconv.Atoi(v); err != nil || f.Days < 1 || f.Days > feedDays {
+			return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "days must be a number from 1 to 30")
+		}
+	}
 	return jsonResponse(http.StatusOK, store.Feed(time.Now(), s.feedZone(ctx, q.Get("zone")), feedDays, f))
 }
 

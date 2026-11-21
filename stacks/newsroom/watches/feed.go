@@ -10,6 +10,8 @@ type Filter struct {
 	WatchID    int64
 	Source     string
 	UnreadOnly bool
+	// Days keeps only the last N calendar days in the owner's zone (1 is today); zero means no limit.
+	Days int
 }
 
 // WatchDay is one watch's findings on one day. The newest finding is Current and is shown first; every earlier finding of the day stays visible
@@ -52,11 +54,15 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 	groups := map[key][]Entry{}
 	var days []string
 	seen := map[string]bool{}
+	oldest := oldestDay(now, loc, f.Days)
 	for _, e := range s.entriesFor(f) { // newest first
 		if _, ok := names[e.WatchID]; !ok {
 			continue
 		}
 		d := e.At.In(loc).Format("2006-01-02")
+		if d < oldest {
+			continue
+		}
 		if !seen[d] {
 			seen[d] = true
 			days = append(days, d)
@@ -86,6 +92,14 @@ func (s *Store) Feed(now time.Time, loc *time.Location, maxDays int, f Filter) [
 		out = append(out, card)
 	}
 	return out
+}
+
+// oldestDay is the first day (in loc) a Days filter keeps, as a date string; "" (every day sorts after it) when there is no limit.
+func oldestDay(now time.Time, loc *time.Location, days int) string {
+	if days < 1 {
+		return ""
+	}
+	return now.In(loc).AddDate(0, 0, 1-days).Format("2006-01-02")
 }
 
 // watchDay is one watch's entries of one day, newest first: the newest is Current, the rest Earlier.
