@@ -1,9 +1,11 @@
-import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomWatch, NewsroomWatchEdit } from '../../types/newsroom'
+import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomSource, NewsroomWatch, NewsroomWatchEdit, SourcePreview, SourceSuggestion } from '../../types/newsroom'
 import { apiFetch } from '../httpClient'
 import { failureReason } from '../failureReason'
 
 const BASE = '/admin/api/newsroom'
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+const sourceQuery = (s: NewsroomSource): string => new URLSearchParams({ kind: s.kind, target: s.target, instance: s.instance ?? '' }).toString()
 
 export class NewsroomService {
   static async watches(): Promise<NewsroomWatch[]> {
@@ -42,6 +44,20 @@ export class NewsroomService {
   static async run(id: number): Promise<NewsroomRunOutcome> {
     const res = await apiFetch(`${BASE}/watches/${id}/run`, { method: 'POST' })
     if (!res.ok) throw await failureReason(res, 'check the watch')
+    return res.json()
+  }
+
+  /** Reads one source once, without saving anything, and says what it found. */
+  static async lookup(source: NewsroomSource, signal?: AbortSignal): Promise<SourcePreview> {
+    const res = await apiFetch(`${BASE}/sources/lookup?${sourceQuery(source)}`, { signal })
+    if (!res.ok) throw await failureReason(res, 'look the source up')
+    return res.json()
+  }
+
+  /** What the owner can pick while typing (a Mastodon server's trending or matching tags). */
+  static async suggest(source: NewsroomSource, signal?: AbortSignal): Promise<SourceSuggestion> {
+    const res = await apiFetch(`${BASE}/sources/suggest?${sourceQuery(source)}`, { signal })
+    if (!res.ok) throw await failureReason(res, 'list suggestions')
     return res.json()
   }
 

@@ -41,8 +41,8 @@ const (
 	rootDirPerm    = 0o700
 	secretFilePerm = 0o600
 
-	masterKeyFilename     = "master.key"
-	masterKeyHashFilename = "master.key.hash"
+	masterKeyFilename     = models.MasterKeyFilename
+	masterKeyHashFilename = models.MasterKeyHashFilename
 	databaseFilename      = "orchestrator.db"
 )
 

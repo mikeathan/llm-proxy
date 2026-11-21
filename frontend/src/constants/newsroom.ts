@@ -190,3 +190,20 @@ export const SOURCE_GUIDES: Record<SourceKind, SourceGuide> = {
   },
 }
 
+/** The look-up under each source of the watch form: see what a source would read before saving it. */
+export const LOOKUP_LABEL = 'Look up'
+export const LOOKUP_BUSY = 'Looking…'
+export const LOOKUP_LATEST_LABEL = 'Latest'
+export const LOOKUP_FAILED = 'The look-up could not be made. Try again in a moment.'
+export const LOOKUP_PICK_LABEL = 'Pick one'
+export const LOOKUP_NOTHING_YET = 'Nothing posted yet.'
+export const lookupSavedAs = (value: string): string => `Will be saved as ${value}`
+export const LOOKUP_HINTS: Record<SourceKind, string> = {
+  feed: 'Paste a site address and the look-up finds its feed.',
+  hackernews: 'Shows the stories this search finds right now.',
+  mastodon: 'Shows the latest posts of this tag on this server.',
+  page: 'Shows the title and the text that will be compared.',
+  telegram: 'Checks that the channel has a public preview and shows its latest posts. A few look-ups a minute are allowed.',
+}
+export const trendingLabel = (host: string): string => `Trending on ${host}`
+export const matchingLabel = (typed: string): string => `Tags matching "${typed}"`

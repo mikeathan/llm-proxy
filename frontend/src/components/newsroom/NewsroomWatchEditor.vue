@@ -6,6 +6,7 @@ import Icon from "../icons/Icon.vue"
 import FormField from "../common/forms/FormField.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import NewsroomSourceGuide from "./NewsroomSourceGuide.vue"
+import NewsroomSourceLookup from "./NewsroomSourceLookup.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
 import { sourceProblem } from "../../utils/newsroom/sourceCheck"
 import {
@@ -55,6 +56,12 @@ const channelOptions = computed<ChoiceOption[]>(() =>
 const filled = computed(() => sources.value.filter((s) => s.target.trim() !== ""))
 const problems = computed(() => sources.value.map(sourceProblem))
 const canSave = computed(() => !props.saving && name.value.trim() !== "" && filled.value.length > 0 && problems.value.every((p) => p === ""))
+
+// A look-up picked or cleaned up a value: it fills the source the owner is editing.
+function applyPick(source: NewsroomSource, picked: { target: string; instance?: string }) {
+  source.target = picked.target
+  if (picked.instance) source.instance = picked.instance
+}
 
 function setKind(source: NewsroomSource, kind: string) {
   source.kind = kind as SourceKind
@@ -124,6 +131,7 @@ function submit() {
             <input :id="id" v-model="source.instance" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" class="form-control" />
           </template>
         </FormField>
+        <NewsroomSourceLookup :source="source" @pick="applyPick(source, $event)" />
         </div>
       </div>
       <BaseButton v-if="sources.length < MAX_SOURCES" variant="secondary" size="sm" icon="plus" class-name="self-start" @click="addSource">{{ ADD_SOURCE_LABEL }}</BaseButton>

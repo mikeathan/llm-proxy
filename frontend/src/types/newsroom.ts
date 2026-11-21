@@ -118,6 +118,38 @@ export interface Headline {
   entry: NewsroomEntry
 }
 
+/** One item of a source preview. */
+export interface SourceSample {
+  title: string
+  link?: string
+  text?: string
+  at?: string
+}
+
+/** Something the owner can pick to fill a source: a feed a page advertises, or a tag a server lists. */
+export interface SourceChoice {
+  value: string
+  label: string
+  note?: string
+}
+
+/** What a look-up found (stacks/newsroom/sources/lookup.go). target and instance are the cleaned-up values a save would keep. */
+export interface SourcePreview {
+  found: boolean
+  target?: string
+  instance?: string
+  title?: string
+  sample: SourceSample[]
+  choices: SourceChoice[]
+  problem?: string
+}
+
+/** The tags a Mastodon server offers while the owner types. */
+export interface SourceSuggestion {
+  choices: SourceChoice[]
+  problem?: string
+}
+
 /** How to use one kind of source: what it is for, the steps to fill it in, and an example of what to type. */
 export interface SourceGuide {
   name: string

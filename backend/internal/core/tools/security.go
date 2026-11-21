@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"llm-proxy/models"
 )
 
 // SecretPatterns are regexes for common API-key shapes. They are the single
@@ -122,13 +124,18 @@ func blockedPathEntry(path string, blocked []string) string {
 }
 
 // internalBlockedPaths are internal invariant paths agents must never access —
-// currently the sandbox runtime directory (.sandbox).  SINGLE SOURCE OF TRUTH:
+// the sandbox runtime directory (.sandbox) and the master key that decrypts the secrets store (master.key; the prefix match also covers
+// master.key.hash).  SINGLE SOURCE OF TRUTH:
 // every guardrail surface (filesystem validation, directory listings, terminal
 // input, terminal output) enforces this list — merged with the user-configured
 // blocked filenames via effectiveBlockedFilenames and matched through the same
 // blockedFilename / blockedPathEntry helpers.  Adding an internal path here
 // covers all tools at once; no per-tool code is ever added for a new invariant.
-var internalBlockedPaths = []string{".sandbox"}
+var internalBlockedPaths = []string{".sandbox", models.MasterKeyFilename}
+
+// secretFilenames are file names refused anywhere in a terminal command, as a substring and not only as a path operand (see checkBlockedPaths).
+// They stay in internalBlockedPaths too, so the file tools, listings and output scrubbing refuse them by the same name.
+var secretFilenames = []string{models.MasterKeyFilename}
 
 // effectiveBlockedFilenames returns the user-configured blocked filenames plus
 // the internal invariant paths — the single merged list every guardrail

@@ -27,7 +27,7 @@ evidence: Branch newsroom-watches, cut from newsroom-source-help-and-checks (fd4
 ## Left, in order
 1. **Owner:** commit and merge; deploy; **re-create "Ai post news" on vertex** (the file and key names changed, there is no shim). Use What to look for, then press Check now.
 2. **Check the model's judgement live** on vertex with a real local model: does it return the `matches` list as JSON, or does it fall back to "not compared"? A model that answers in prose keeps every item (fail open), so a weak model means no filtering, not hidden items.
-3. **Hot-topic suggestions** (the owner asked): a keyless route in the stack that reads Mastodon trending tags (`/api/v1/trends/tags`) and the Hacker News front page through the guarded `Fetch`, and offers them as chips that fill the form (a Mastodon tag source, or a Hacker News search). Not built; needs a GET-only fetch of a JSON list, so the existing adapters' pattern fits.
+3. **Hot-topic suggestions: built in v0.118.0 as the source look-up** (ADR-0074, `stacks/newsroom/sources/lookup.go`); Mastodon trending tags are offered, the Hacker News front page is not (it does not help choose a search). Original plan: a keyless route in the stack that reads Mastodon trending tags (`/api/v1/trends/tags`) and the Hacker News front page through the guarded `Fetch`, and offers them as chips that fill the form (a Mastodon tag source, or a Hacker News search). Not built; needs a GET-only fetch of a JSON list, so the existing adapters' pattern fits.
 4. Visual baseline for the new page.
 
 ## Traps
