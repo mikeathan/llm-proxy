@@ -106,7 +106,8 @@ export interface NewsroomFeedFilter {
 
 export interface NewsroomRunOutcome {
   watch_id: number
-  status: WatchStatus
+  /** "waiting" answers a manual check made inside a source's minimum gap between reads; it is never stored on a watch. */
+  status: WatchStatus | 'waiting'
   detail: string
   new: number
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +312,30 @@ func TestTelegramFloorIsNotAFailure(t *testing.T) {
 	o := h.tick(t, MinInterval)
 	if o[0].Status == StatusFailing || strings.Contains(o[0].Detail, "too recently") {
 		t.Fatalf("a source waiting out its floor must not show as failing: %+v", o)
+	}
+}
+
+// A manual "Check now" soon after another read of a Telegram-only watch finds the source waiting out its floor. That is not a failed check: the
+// watch's last result must stay what it was, and the answer says when to ask again.
+func TestWaitingOutTheFloorIsNeitherFailingNorRecorded(t *testing.T) {
+	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []SourceSpec{{Kind: KindTelegram, Target: "telegram"}}}
+	h := newHarness(t, watch)
+	body, err := os.ReadFile("../sources/testdata/telegram-channel.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.fetch.bodies["https://t.me/s/telegram"] = string(body)
+	h.run.source(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
+	first := h.run.Run(context.Background(), h.store.List()[0])
+	if first.Status == StatusFailing {
+		t.Fatalf("the first read must answer: %+v", first)
+	}
+	again := h.run.Run(context.Background(), h.store.List()[0])
+	if again.Status != StatusWaiting || again.Detail == "" {
+		t.Fatalf("a read inside the floor is waiting, not failing: %+v", again)
+	}
+	if got := h.store.List()[0]; got.LastStatus != first.Status {
+		t.Fatalf("a waiting read must not overwrite the last result: %q, want %q", got.LastStatus, first.Status)
 	}
 }
 

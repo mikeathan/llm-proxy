@@ -114,6 +114,9 @@ const (
 	// StatusAnalysisFailed: new items were found and the model step failed or answered something unusable; nothing was recorded, so the next run
 	// tries again.
 	StatusAnalysisFailed Status = "analysis_failed"
+	// StatusWaiting: every source was inside its minimum gap between reads, so nothing was read. It is an answer to a manual check only and is never
+	// stored as a watch's last result.
+	StatusWaiting Status = "waiting"
 	// StatusFailing: no source could be read. The row must say so; it is never "nothing new".
 	StatusFailing Status = "failing"
 )
