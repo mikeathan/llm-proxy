@@ -3,7 +3,7 @@ import { failingWatches, latestHeadlines } from '../../../utils/newsroom/latest'
 import type { NewsroomDay, NewsroomEntry, NewsroomWatch } from '../../../types/newsroom'
 
 const entry = (id: number, at: string): NewsroomEntry => ({ id, watch_id: 1, at, source: 's', title: `t${id}` })
-const watch = (over: Partial<NewsroomWatch>): NewsroomWatch => ({ id: 1, name: 'A', interval: '1h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://x.test/f' }], ...over })
+const watch = (over: Partial<NewsroomWatch>): NewsroomWatch => ({ id: 1, name: 'A', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://x.test/f' }], ...over })
 
 describe('latestHeadlines', () => {
   it('mixes watches and days, newest first, with the earlier findings of a day, cut to the limit', () => {

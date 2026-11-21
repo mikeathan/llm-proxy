@@ -65,3 +65,41 @@ func TestTheFeedEntryKeepsTheHeadlineSummaryAndTheOriginalTitleAndLink(t *testin
 		t.Errorf("the original title, link and reason must be kept: %+v", cur)
 	}
 }
+
+// The model chosen for the assistant (Qwen3.6, thinking off) answered with verdicts and digests that carry no "item" numbers, so every headline was
+// dropped (2026-11-21). An answer where no entry of a list names its item is read by position: verdicts one per item in order, digests one per item
+// in order, or one per relevant item in order when a judgement was asked for.
+func TestAnswersWithoutItemNumbersAreReadByPosition(t *testing.T) {
+	raw := `{"verdicts":[{"why":"a model release","relevant":true},{"why":"just a link","relevant":false},{"why":"a model release","relevant":true}],
+"digests":[{"headline":"First headline","summary":"First summary."},{"headline":"Third headline","summary":"Third summary."}]}`
+	a, err := parseAnalysis(raw, 3, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Matches) != 2 || a.Matches[1] == "" || a.Matches[3] == "" {
+		t.Fatalf("verdicts by position: %v", a.Matches)
+	}
+	if a.Digests[1].Headline != "First headline" || a.Digests[3].Headline != "Third headline" || len(a.Digests) != 2 {
+		t.Errorf("digests by position: %+v", a.Digests)
+	}
+	every, err := parseAnalysis(`{"digests":[{"headline":"One","summary":"s"},{"headline":"Two","summary":"s"}]}`, 2, 0, false)
+	if err != nil || every.Digests[1].Headline != "One" || every.Digests[2].Headline != "Two" {
+		t.Errorf("unasked digests by position: %+v, %v", every.Digests, err)
+	}
+}
+
+// Position is only a fallback for an answer that numbers nothing, and only when the count fits: a mixed or short answer is not guessed at.
+func TestPositionIsNotGuessedWhenTheAnswerIsMixedOrShort(t *testing.T) {
+	mixed, _ := parseAnalysis(`{"digests":[{"item":2,"headline":"Two","summary":"s"},{"headline":"Nameless","summary":"s"}]}`, 2, 0, false)
+	if len(mixed.Digests) != 1 || mixed.Digests[2].Headline != "Two" {
+		t.Errorf("mixed: %+v", mixed.Digests)
+	}
+	short, _ := parseAnalysis(`{"digests":[{"headline":"Only","summary":"s"}]}`, 3, 0, false)
+	if len(short.Digests) != 0 {
+		t.Errorf("one nameless digest for three items must not be placed: %+v", short.Digests)
+	}
+	none, _ := parseAnalysis(`{"verdicts":[{"why":"x","relevant":true}]}`, 3, 0, true)
+	if len(none.Matches) != 0 {
+		t.Errorf("one nameless verdict for three items must not be placed: %+v", none.Matches)
+	}
+}

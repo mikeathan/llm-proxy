@@ -19,7 +19,7 @@ vi.mock('../../composables/models/useModels', () => ({
 import NewsroomView from '../../views/NewsroomView.vue'
 
 const watch = (over: Partial<NewsroomWatch> = {}): NewsroomWatch => ({
-  id: 1, name: 'Go releases', interval: '1h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://go.dev/blog/feed.atom' }], last_status: 'in_feed', ...over,
+  id: 1, name: 'Go releases', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://go.dev/blog/feed.atom' }], last_status: 'in_feed', ...over,
 })
 const entry = (id: number, title: string, read = false) => ({ id, watch_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title, link: 'https://go.dev/x', read })
 const day = (): NewsroomDay => ({
@@ -165,7 +165,7 @@ describe('NewsroomView', () => {
     await w.get('form').trigger('submit')
     await flushPromises()
     expect(createMock).toHaveBeenCalledWith({
-      name: 'LLM news', interval: '1h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed', target: 'https://example.com/feed.xml' }],
+      name: 'LLM news', interval: '1h', max_age: '72h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed', target: 'https://example.com/feed.xml' }],
     })
   })
 

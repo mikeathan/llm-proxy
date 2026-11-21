@@ -6,7 +6,7 @@ import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
 import { textBeyondTitle } from "../../utils/newsroom/entryText"
 import { entryHeadline } from "../../utils/newsroom/entryHeadline"
-import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, originalWords, whyWords } from "../../constants/newsroom"
+import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, originalWords, postedWords, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
 // One finding as a compact row: a dot while unread, where it came from and when, the headline (two lines at most), and a chevron that opens the reason,
@@ -18,7 +18,7 @@ const link = computed(() => safeWebLink(props.entry.link))
 const changed = computed(() => Boolean(props.entry.was && props.entry.now))
 // The model's headline stands in for the original title in the row; the original is kept and shown when the entry is opened.
 const headline = computed(() => entryHeadline(props.entry))
-const hasHeadline = computed(() => Boolean(props.entry.headline) && props.entry.headline !== props.entry.title)
+const hasHeadline = computed(() => headline.value !== props.entry.title)
 const extraText = computed(() => textBeyondTitle(props.entry.title, props.entry.text))
 const hasDetails = computed(() => Boolean(changed.value || props.entry.summary || hasHeadline.value || props.entry.why || extraText.value || props.entry.also_seen?.length))
 const open = ref(false)
@@ -40,7 +40,7 @@ const open = ref(false)
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--text-small)] text-faint">
         <span class="truncate">{{ entry.source }}</span>
         <span v-if="watchName" class="truncate">· {{ watchName }}</span>
-        <time :datetime="entry.at">{{ formatRelativeTime(entry.at) }}</time>
+        <time :datetime="entry.posted ?? entry.at">{{ entry.posted ? postedWords(formatRelativeTime(entry.posted)) : formatRelativeTime(entry.at) }}</time>
         <StatusTag v-if="entry.first" state="neutral" :label="FIRST_CHECK_LABEL" />
         <StatusTag v-else-if="changed" state="warning" :label="CHIP_CHANGED" />
       </div>

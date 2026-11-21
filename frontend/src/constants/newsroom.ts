@@ -120,6 +120,17 @@ export const INTERVAL_OPTIONS: ChoiceOption[] = [
   { value: '24h', label: 'Every day' },
 ]
 export const DEFAULT_INTERVAL = '1h'
+export const WATCH_MAX_AGE_LABEL = 'Only news from the last'
+export const WATCH_MAX_AGE_HINT = 'Older posts are skipped, not announced; a post with no date counts as new. Widen it to look back further.'
+export const MAX_AGE_OPTIONS: ChoiceOption[] = [
+  { value: '24h', label: 'Day' },
+  { value: '72h', label: '3 days' },
+  { value: '168h', label: '7 days' },
+  { value: '336h', label: '14 days' },
+  { value: '720h', label: '30 days' },
+]
+export const DEFAULT_MAX_AGE = '72h'
+export const postedWords = (when: string): string => `posted ${when}`
 
 export const SOURCE_KIND_INFO: Record<SourceKind, SourceKindInfo> = {
   feed: { label: 'News feed or site (RSS, Atom, GitHub releases)', targetLabel: 'Address', hint: 'For example https://go.dev/blog/feed.atom' },

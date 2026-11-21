@@ -10,7 +10,7 @@ import NewsroomSourceLookup from "./NewsroomSourceLookup.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
 import { sourceProblem } from "../../utils/newsroom/sourceCheck"
 import {
-  ADD_SOURCE_LABEL, NEW_SOURCE_WORDS, DEFAULT_INTERVAL, WATCH_KEYWORDS_HINT, WATCH_KEYWORDS_LABEL, WATCH_LOOK_FOR_HINT, WATCH_LOOK_FOR_LABEL, WATCH_LOOK_FOR_MAX, WATCH_SKIP_HINT, WATCH_SKIP_LABEL, WATCH_SUGGESTIONS_LABEL, WATCH_TEMPLATES, GUIDE_SHOW_LABEL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
+  ADD_SOURCE_LABEL, NEW_SOURCE_WORDS, DEFAULT_INTERVAL, DEFAULT_MAX_AGE, MAX_AGE_OPTIONS, WATCH_MAX_AGE_HINT, WATCH_MAX_AGE_LABEL, WATCH_KEYWORDS_HINT, WATCH_KEYWORDS_LABEL, WATCH_LOOK_FOR_HINT, WATCH_LOOK_FOR_LABEL, WATCH_LOOK_FOR_MAX, WATCH_SKIP_HINT, WATCH_SKIP_LABEL, WATCH_SUGGESTIONS_LABEL, WATCH_TEMPLATES, GUIDE_SHOW_LABEL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
   SOURCE_KIND_LABEL, SOURCE_KIND_OPTIONS, SOURCE_TARGET_MAX, WATCH_CHANNEL_HINT, WATCH_CHANNEL_LABEL, WATCH_INTERVAL_LABEL, WATCH_NAME_LABEL, WATCH_NAME_HINT, WATCH_FORM_INTRO, WATCH_NAME_MAX,
   WATCH_ON_LABEL, WATCH_SOURCES_LABEL,
 } from "../../constants/newsroom"
@@ -25,6 +25,7 @@ const emit = defineEmits<{ (e: "save", edit: NewsroomWatchEdit): void; (e: "canc
 const blankSource = (): NewsroomSource => ({ kind: "feed", target: "" })
 const name = ref(props.watch?.name ?? "")
 const interval = ref(props.watch ? compactInterval(props.watch.interval) : DEFAULT_INTERVAL)
+const maxAge = ref(props.watch ? compactInterval(props.watch.max_age) : DEFAULT_MAX_AGE)
 const channel = ref(props.watch?.channel ?? "")
 const enabled = ref(props.watch?.enabled ?? true)
 const lookFor = ref(props.watch?.look_for ?? "")
@@ -45,6 +46,10 @@ function removeSource(i: number) {
 const sourceTitle = (s: NewsroomSource): string => `${SOURCE_KIND_INFO[s.kind].label.split(" (")[0]}: ${s.target.trim() || NEW_SOURCE_WORDS}`
 
 // A stored interval the picker does not list (the assistant or an older version made it) stays selectable instead of being replaced.
+// The same for a news window the picker does not list.
+const maxAgeOptions = computed<ChoiceOption[]>(() =>
+  MAX_AGE_OPTIONS.some((o) => o.value === maxAge.value) ? MAX_AGE_OPTIONS : [...MAX_AGE_OPTIONS, { value: maxAge.value, label: maxAge.value }],
+)
 const intervalOptions = computed<ChoiceOption[]>(() =>
   INTERVAL_OPTIONS.some((o) => o.value === interval.value) ? INTERVAL_OPTIONS : [...INTERVAL_OPTIONS, { value: interval.value, label: `Every ${interval.value}` }],
 )
@@ -81,6 +86,7 @@ function submit() {
   emit("save", {
     name: name.value.trim(),
     interval: interval.value,
+    max_age: maxAge.value,
     channel: channel.value,
     enabled: enabled.value,
     look_for: lookFor.value.trim(),
@@ -166,6 +172,13 @@ function submit() {
         <template #default="{ id }">
           <select :id="id" v-model="interval" class="form-control w-fit">
             <option v-for="o in intervalOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </template>
+      </FormField>
+      <FormField :label="WATCH_MAX_AGE_LABEL" :hint="WATCH_MAX_AGE_HINT">
+        <template #default="{ id, describedBy }">
+          <select :id="id" v-model="maxAge" :aria-describedby="describedBy" class="form-control w-fit">
+            <option v-for="o in maxAgeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </template>
       </FormField>

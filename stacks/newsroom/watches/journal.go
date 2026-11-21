@@ -20,11 +20,13 @@ type Entry struct {
 	ID      int64     `json:"id"`
 	WatchID int64     `json:"watch_id"`
 	At      time.Time `json:"at"`
-	Ident   string    `json:"ident"`
-	Source  string    `json:"source"`
-	Title   string    `json:"title"`
-	Link    string    `json:"link,omitempty"`
-	Text    string    `json:"text,omitempty"`
+	// Posted is when the source says the post was published; zero when it gave no date. At is when the watch found it.
+	Posted time.Time `json:"posted,omitzero"`
+	Ident  string    `json:"ident"`
+	Source string    `json:"source"`
+	Title  string    `json:"title"`
+	Link   string    `json:"link,omitempty"`
+	Text   string    `json:"text,omitempty"`
 	// Was and Now are the changed fact, when the model step found one.
 	Was string `json:"was,omitempty"`
 	Now string `json:"now,omitempty"`
@@ -78,7 +80,7 @@ func (s *Store) AddEntries(watchID int64, items []sources.Item, marks Marks, now
 			continue
 		}
 		s.doc.Entries = append(s.doc.Entries, Entry{
-			ID: s.doc.NextEntry, WatchID: watchID, At: now.UTC(), Ident: it.Identity(), Source: it.Source,
+			ID: s.doc.NextEntry, WatchID: watchID, At: now.UTC(), Posted: it.At.UTC(), Ident: it.Identity(), Source: it.Source,
 			Title: sources.Line(it.Title, MaxTitleRunes), Link: it.Link, Text: sources.Plain(it.Text, entryTextRunes), Was: c.Was, Now: c.Now,
 			Why: marks.Whys[i], Headline: d.Headline, Summary: d.Summary, First: marks.First,
 		})
