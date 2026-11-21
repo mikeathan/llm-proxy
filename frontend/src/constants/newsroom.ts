@@ -64,6 +64,7 @@ export const whyWords = (why: string): string => `Why: ${why}`
 export const lookingForWords = (what: string): string => `Looking for: ${what}`
 export const MAX_SOURCES = 10
 export const ADD_SOURCE_LABEL = 'Add a source'
+export const NEW_SOURCE_WORDS = 'not filled in yet'
 export const REMOVE_SOURCE_LABEL = 'Remove source'
 export const SOURCE_KIND_LABEL = 'Kind'
 export const SOURCE_INSTANCE_LABEL = 'Server'

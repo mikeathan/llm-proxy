@@ -74,8 +74,10 @@ async function askDelete(t: NewsroomWatch) {
 
 async function check(t: NewsroomWatch) {
   const outcome = await run(t.id)
-  if (outcome) toast.success(runDoneWords(outcome.new))
-  else toast.error(actionError.value)
+  if (!outcome) toast.error(actionError.value)
+  else if (outcome.status === 'waiting') toast.info(outcome.detail)
+  else if (outcome.status === 'failing') toast.error(outcome.detail)
+  else toast.success(runDoneWords(outcome.new))
 }
 </script>
 

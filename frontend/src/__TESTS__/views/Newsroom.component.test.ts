@@ -116,6 +116,18 @@ describe('NewsroomView', () => {
     await mountView('/newsroom/watches', [watch({ look_for: 'new models' })]).then(({ w: p }) => expect(p.text()).toContain('Looking for: new models'))
   })
 
+  it('folds the existing sources of a watch that has several, and opens one on a click', async () => {
+    const many = watch({ sources: [{ kind: 'feed', target: 'https://a.example/feed' }, { kind: 'telegram', target: 'aipost' }, { kind: 'hackernews', target: 'rust' }] })
+    const { w } = await mountView('/newsroom/watches', [many])
+    await buttonByName(w, /Edit/)!.trigger('click')
+    await flushPromises()
+    const folded = () => w.findAll('form fieldset > div').map((d) => d.find('div.flex-col').attributes('style') ?? '')
+    expect(folded().every((s) => s.includes('display: none'))).toBe(true)
+    expect(w.text()).toContain('Telegram public channel: aipost')
+    await w.findAll('[data-test="source-toggle"]')[1]!.trigger('click')
+    expect(folded().map((s) => s.includes('display: none'))).toEqual([true, false, true])
+  })
+
   it('does not send a watch with no name or no source', async () => {
     const { w } = await mountView('/newsroom/watches')
     await buttonByName(w, /New watch/)!.trigger('click')

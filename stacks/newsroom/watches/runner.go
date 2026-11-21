@@ -82,8 +82,12 @@ func (r *Runner) Run(ctx context.Context, t Watch) Outcome {
 		t = cur
 	}
 	at := r.now()
-	items, failures, answered := r.read(ctx, t)
+	items, failures, answered, waiting := r.read(ctx, t)
 	detail := strings.Join(failures, "; ")
+	if answered == 0 && len(failures) == 0 && waiting > 0 {
+		// Every source is only waiting out its politeness floor: nothing was read, so nothing is recorded and the last result stands.
+		return Outcome{WatchID: t.ID, Status: StatusWaiting, Detail: "this was read a moment ago; try again in a few minutes"}
+	}
 	if answered == 0 {
 		return r.finish(t, at, StatusFailing, firstNonEmpty(detail, "no source could be read"), 0, false)
 	}
@@ -336,12 +340,13 @@ func joinDetail(a, b string) string {
 }
 
 // read fetches every source of a watch and returns the merged items, one line per failing source and how many sources answered. A source that is
-// only waiting out its politeness floor is neither failing nor answered.
-func (r *Runner) read(ctx context.Context, t Watch) (items []sources.Item, failures []string, answered int) {
+// only waiting out its politeness floor is neither failing nor answered; it is counted in waiting.
+func (r *Runner) read(ctx context.Context, t Watch) (items []sources.Item, failures []string, answered, waiting int) {
 	for _, spec := range t.Sources {
 		got, err := r.source(spec).Fetch(ctx)
 		switch {
 		case errors.Is(err, sources.ErrTooSoon):
+			waiting++
 		case err != nil:
 			failures = append(failures, spec.Name()+": "+err.Error())
 		default:
@@ -349,7 +354,7 @@ func (r *Runner) read(ctx context.Context, t Watch) (items []sources.Item, failu
 			items = append(items, got...)
 		}
 	}
-	return items, failures, answered
+	return items, failures, answered, waiting
 }
 
 func (r *Runner) finish(t Watch, at time.Time, status Status, detail string, n int, baselined bool) Outcome {
