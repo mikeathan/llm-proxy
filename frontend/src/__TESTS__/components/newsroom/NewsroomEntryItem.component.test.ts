@@ -6,48 +6,78 @@ import type { NewsroomEntry } from '../../../types/newsroom'
 const entry = (over: Partial<NewsroomEntry> = {}): NewsroomEntry => ({
   id: 1, watch_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title: 'Go 1.26 released', link: 'https://go.dev/blog/go1.26', ...over,
 })
-const show = (e: NewsroomEntry) => mount(NewsroomEntryItem, { props: { entry: e }, global: { stubs: { Icon: true } } })
+const show = (e: NewsroomEntry, props: Record<string, unknown> = {}) => mount(NewsroomEntryItem, { props: { entry: e, ...props }, global: { stubs: { Icon: true } } })
+const openDetails = async (w: ReturnType<typeof show>) => {
+  await w.get('button[aria-expanded]').trigger('click')
+  return w
+}
+
+// The real Telegram entry that defeated the first version of the duplicate-text fix (2026-11-21): the title has its line breaks collapsed and the text keeps them.
+const NEURALINK_TEXT = "😎 A Neuralink patient is already playing GTA VI, using only his brain implant\n\nNeuralink posted the two-minute clip on Friday, a day after the game came out."
+const NEURALINK_TITLE = '😎 A Neuralink patient is already playing GTA VI, using only his brain implant Neuralink posted the two-minute clip on Friday, a day after the game came out.'
 
 describe('NewsroomEntryItem', () => {
-  it('opens the source in a new tab without handing it the page', () => {
-    const a = show(entry()).get('a')
+  it('opens the source in a new tab without handing it the page, and counts that as reading it', async () => {
+    const w = show(entry())
+    const a = w.get('a')
     expect(a.attributes('href')).toBe('https://go.dev/blog/go1.26')
     expect(a.attributes('target')).toBe('_blank')
     expect(a.attributes('rel')).toBe('noopener noreferrer')
+    await a.trigger('click')
+    expect(w.emitted('open')).toHaveLength(1)
   })
 
-  it('never makes a link of an address that is not http or https', () => {
-    const w = show(entry({ link: 'javascript:alert(1)', also_seen: [{ source: 'evil', link: 'data:text/html,x', at: '2026-11-20T11:00:00Z' }] }))
+  it('never makes a link of an address that is not http or https', async () => {
+    const w = await openDetails(show(entry({ link: 'javascript:alert(1)', also_seen: [{ source: 'evil', link: 'data:text/html,x', at: '2026-11-20T11:00:00Z' }] })))
     expect(w.find('a').exists()).toBe(false)
     expect(w.text()).toContain('Go 1.26 released')
     expect(w.text()).toContain('evil')
   })
 
-  it('does not say a post twice when its headline is the start of its text', () => {
-    const post = 'Datalab just released OmniParseBench, an open OCR benchmark that turns document parsing into yes/no questions. It covers 2,937 pages.'
-    const same = show(entry({ title: post, text: post, link: undefined }))
-    expect(same.text().split('Datalab just released').length - 1).toBe(1)
-    const clipped = show(entry({ title: post.slice(0, 60) + '…', text: post, link: undefined }))
-    expect(clipped.text()).toContain('It covers 2,937 pages.')
-    expect(clipped.text()).not.toContain(post.slice(0, 60) + ' ')
-    const other = show(entry({ text: 'A different summary line' }))
-    expect(other.text()).toContain('A different summary line')
-  })
-
-  it('shows text from the internet as text, never as markup', () => {
-    const w = show(entry({ title: '<img src=x onerror=alert(1)>', text: '<script>alert(1)</script>', link: undefined }))
+  it('shows text from the internet as text, never as markup', async () => {
+    const w = await openDetails(show(entry({ title: '<img src=x onerror=alert(1)>', text: '<script>alert(1)</script>', link: undefined })))
     expect(w.find('img').exists()).toBe(false)
     expect(w.find('script').exists()).toBe(false)
     expect(w.text()).toContain('<img src=x onerror=alert(1)>')
   })
 
-  it('says a finding is new, or what changed, and that it is unread', () => {
+  it('does not say a post twice, even when the text has line breaks the title lost', async () => {
+    const real = show(entry({ title: NEURALINK_TITLE, text: NEURALINK_TEXT, link: undefined }))
+    expect(real.text().split('A Neuralink patient').length - 1).toBe(1)
+    expect(real.find('button[aria-expanded]').exists()).toBe(false) // the text adds nothing, so there is nothing to open
+    const clipped = await openDetails(show(entry({ title: NEURALINK_TITLE.slice(0, 60) + '…', text: NEURALINK_TEXT, link: undefined })))
+    expect(clipped.text()).toContain('Neuralink posted the two-minute clip')
+    const other = await openDetails(show(entry({ text: 'A different summary line' })))
+    expect(other.text()).toContain('A different summary line')
+  })
+
+  it('has no details button when there is nothing more to show, and folds the details until asked', async () => {
+    expect(show(entry()).find('button[aria-expanded]').exists()).toBe(false)
+    const w = show(entry({ why: 'a new model release' }))
+    expect(w.text()).not.toContain('Why: a new model release')
+    await openDetails(w)
+    expect(w.text()).toContain('Why: a new model release')
+  })
+
+  it('marks an unread finding with a dot and no "New" pill, says what changed, and shows nothing unread once read', async () => {
     const fresh = show(entry())
-    expect(fresh.text()).toContain('New')
     expect(fresh.text()).toContain('Unread')
-    const changed = show(entry({ was: 'beta', now: 'stable', read: true }))
+    expect(fresh.text()).not.toContain('New')
+    const changed = await openDetails(show(entry({ was: 'beta', now: 'stable', read: true })))
     expect(changed.text()).toContain('Changed')
     expect(changed.text()).toContain('beta → stable')
     expect(changed.text()).not.toContain('Unread')
+    expect(changed.text()).not.toContain('New')
+  })
+
+  it('names the watch when asked, and shows a checkbox only while selecting', async () => {
+    const w = show(entry(), { watchName: 'AI news' })
+    expect(w.text()).toContain('AI news')
+    expect(w.find('input[type=checkbox]').exists()).toBe(false)
+    const s = show(entry(), { selectable: true, selected: true })
+    const box = s.get('input[type=checkbox]')
+    expect((box.element as HTMLInputElement).checked).toBe(true)
+    await box.trigger('change')
+    expect(s.emitted('toggle-select')).toHaveLength(1)
   })
 })

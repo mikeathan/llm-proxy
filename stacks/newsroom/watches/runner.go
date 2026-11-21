@@ -176,6 +176,9 @@ func (r *Runner) deliver(ctx context.Context, t Watch, at time.Time, fresh []sou
 	if err != nil {
 		return r.finish(t, at, StatusAnalysisFailed, err.Error(), len(fresh), false)
 	}
+	if t.LookFor != "" && !a.Judged {
+		return r.finish(t, at, StatusAnalysisFailed, unjudged(note), len(fresh), false)
+	}
 	detail = joinDetail(detail, note)
 	notice, repeated, unmatched := buildNotice(t.Name, in, a)
 	detail = joinDetail(joinDetail(detail, repeatDetail(in, a, repeated)), unmatchedDetail(in, unmatched))
@@ -198,6 +201,12 @@ func (r *Runner) deliver(ctx context.Context, t Watch, at time.Time, fresh []sou
 	}
 	_ = r.Store.MarkSent(t.ID, identities(notice.Items))
 	return r.settle(t, at, fresh, a, StatusSent, detail, len(notice.Items))
+}
+
+// unjudged is the row's words when a watch with what-to-look-for text could not have its items judged (no model, a refused call): nothing is shown or
+// recorded, and the next run tries again, because showing every item would put posts in the feed that the owner did not ask for.
+func unjudged(note string) string {
+	return joinDetail("could not check the new items against what you look for", firstNonEmpty(note, "no model is set up for the Newsroom"))
 }
 
 // notCompared is the row's words when the model refuses with CodeDenied: the core's own sentence (the daily limit is spent, or no model is chosen).

@@ -35,6 +35,7 @@ const (
 	RouteRun     = "/admin/api/newsroom/watches/{id}/run"
 	RouteFeed    = "/admin/api/newsroom/feed"
 	RouteRead    = "/admin/api/newsroom/feed/read"
+	RouteClear   = "/admin/api/newsroom/feed/clear"
 
 	ToolFollow = "newsroom_follow"
 	ToolList   = "newsroom_watches"
@@ -94,6 +95,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: RouteRun},
 			{Method: http.MethodGet, Path: RouteFeed},
 			{Method: http.MethodPost, Path: RouteRead},
+			{Method: http.MethodPost, Path: RouteClear},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{WatchesFile},
@@ -346,6 +348,8 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return s.feed(ctx, store, req.Query)
 	case "POST " + RouteRead:
 		return markRead(store, req.Body)
+	case "POST " + RouteClear:
+		return clearFeed(store, req.Body)
 	}
 	return s.handleWatch(ctx, store, runner, req)
 }
@@ -429,6 +433,33 @@ func (s *Stack) feedZone(ctx context.Context, asked string) *time.Location {
 		}
 	}
 	return time.UTC
+}
+
+// clearFeed deletes feed entries for good: the listed ids, or every read entry (scope "read"), or every entry (scope "all").
+func clearFeed(store *watches.Store, body []byte) (stacksdk.Response, error) {
+	var in struct {
+		IDs   []int64 `json:"ids"`
+		Scope string  `json:"scope"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "the body is not valid")
+	}
+	var gone int
+	var err error
+	switch {
+	case len(in.IDs) > 0 && in.Scope == "":
+		gone, err = store.DeleteEntries(in.IDs)
+	case in.Scope == "read" && len(in.IDs) == 0:
+		gone, err = store.ClearEntries(true)
+	case in.Scope == "all" && len(in.IDs) == 0:
+		gone, err = store.ClearEntries(false)
+	default:
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "give ids, or scope read, or scope all")
+	}
+	if err != nil {
+		return stacksdk.Response{}, err
+	}
+	return jsonResponse(http.StatusOK, map[string]int{"cleared": gone})
 }
 
 func markRead(store *watches.Store, body []byte) (stacksdk.Response, error) {

@@ -17,10 +17,11 @@ import { useNewsroomChannels } from "../composables/newsroom/useNewsroomChannels
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import {
-  deleteWatchMessage, deleteWatchTitle, FEED_EMPTY_BODY, FEED_EMPTY_TITLE, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
+  clearedWords, clearMessage, clearTitle, deleteWatchMessage, deleteWatchTitle, FEED_EMPTY_BODY, FEED_EMPTY_TITLE, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
   NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords,
 } from "../constants/newsroom"
 import { toNewsroom } from "../router/routes"
+import { dayEntries } from "../utils/newsroom/dayEntries"
 import type { StackTabItem } from "../types/stacks"
 import type { NewsroomWatch, NewsroomWatchEdit } from "../types/newsroom"
 
@@ -39,7 +40,7 @@ const tabs: readonly StackTabItem[] = [
 ]
 
 const NEW = "new" as const
-const { watches, feed, filter, loading, error, actionError, saving, create, save, remove, markRead, run } = useNewsroom()
+const { watches, feed, filter, loading, error, actionError, saving, create, save, remove, markRead, clear, run } = useNewsroom()
 const channels = useNewsroomChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
@@ -72,6 +73,19 @@ async function askDelete(t: NewsroomWatch) {
   else toast.error(actionError.value)
 }
 
+// Clearing deletes entries from storage for good, so it asks first and says how many.
+async function askClear(what: { ids: number[] } | { scope: "read" | "all" }) {
+  const entries = feed.value.flatMap(dayEntries)
+  const count = "ids" in what ? what.ids.length : what.scope === "read" ? entries.filter((e) => e.read).length : entries.length
+  if (!count) return
+  const kind = "ids" in what ? "selected" : what.scope
+  const sure = await confirm({ title: clearTitle, message: clearMessage(kind, count), type: "warning", confirmText: "Delete" })
+  if (!sure) return
+  const gone = await clear(what)
+  if (gone === null) toast.error(actionError.value)
+  else toast.success(clearedWords(gone))
+}
+
 async function check(t: NewsroomWatch) {
   const outcome = await run(t.id)
   if (!outcome) toast.error(actionError.value)
@@ -102,7 +116,7 @@ async function check(t: NewsroomWatch) {
           </template>
         </EmptyState>
         <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
-        <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" />
+        <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
         <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       </template>
 

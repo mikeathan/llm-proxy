@@ -55,4 +55,15 @@ describe('NewsroomService writes', () => {
     expect(url).toBe('/admin/api/newsroom/feed/read')
     expect(JSON.parse(init.body)).toEqual({ ids: [4, 5], read: true })
   })
+
+  it('clears entries by id or by scope and returns how many went', async () => {
+    const fetchMock = ok({ cleared: 2 })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await NewsroomService.clear({ ids: [4, 5] })).toBe(2)
+    await NewsroomService.clear({ scope: 'read' })
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/admin/api/newsroom/feed/clear')
+    expect(JSON.parse(init.body)).toEqual({ ids: [4, 5] })
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({ scope: 'read' })
+  })
 })

@@ -45,6 +45,13 @@ export class NewsroomService {
     return res.json()
   }
 
+  /** Deletes feed entries for good: the listed ids, or every read entry, or every entry. */
+  static async clear(what: { ids: number[] } | { scope: 'read' | 'all' }): Promise<number> {
+    const res = await apiFetch(`${BASE}/feed/clear`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(what) })
+    if (!res.ok) throw await failureReason(res, 'clear the feed')
+    return ((await res.json()) as { cleared: number }).cleared
+  }
+
   static async markRead(ids: number[], read: boolean): Promise<void> {
     const res = await apiFetch(`${BASE}/feed/read`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ ids, read }) })
     if (!res.ok) throw await failureReason(res, 'mark entries read')

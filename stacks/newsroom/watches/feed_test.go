@@ -228,3 +228,24 @@ func TestAnEmptyFeedIsAnEmptyListNotNull(t *testing.T) {
 		t.Fatalf("empty feed = %s (%v), want []", got, err)
 	}
 }
+
+func TestClearedEntriesAreDeletedAndOnlyTheOnesAskedFor(t *testing.T) {
+	s, _ := NewStore(newMemDir())
+	a, _ := s.Create(feedWatch(), t0)
+	for i, title := range []string{"one", "two", "three"} {
+		_ = s.AddEntries(a.ID, []sources.Item{{Source: "x", Title: title, Link: "https://e.example/" + title}}, Marks{}, t0.Add(time.Duration(i)*time.Minute))
+	}
+	_ = s.MarkRead([]int64{1}, true)
+	if n, _ := s.ClearEntries(true); n != 1 {
+		t.Errorf("clearing what is read removes only the read entry, removed %d", n)
+	}
+	if n, _ := s.DeleteEntries([]int64{2, 99}); n != 1 {
+		t.Errorf("an unknown id is ignored, removed %d", n)
+	}
+	if cs := s.Feed(t0.Add(time.Hour), time.UTC, 0, Filter{}); len(cs) != 1 || cs[0].Updates != 1 || cs[0].Watches[0].Current.Title != "three" {
+		t.Errorf("one entry is left: %+v", cs)
+	}
+	if n, _ := s.ClearEntries(false); n != 1 || len(s.Feed(t0.Add(time.Hour), time.UTC, 0, Filter{})) != 0 {
+		t.Errorf("clear all empties the feed, removed %d", n)
+	}
+}
