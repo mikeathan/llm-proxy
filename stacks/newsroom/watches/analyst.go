@@ -55,11 +55,11 @@ type Analysis struct {
 	Changes []Change
 	// Repeats maps a 1-based item index to the 1-based number of the recent title it repeats. Only citations the framework could check are here.
 	Repeats map[int]int
-	// Judged is true when the model was asked what is relevant and answered with verdicts. Only then is an item missing from Matches dropped; with no
-	// usable judgement every item stays (a wrong answer must not be able to hide what the owner wanted).
+	// Judged is true when the model was asked what is relevant and answered with verdicts. An item missing from Matches is then not shown; with a
+	// look-for text and no usable judgement the runner shows nothing and retries.
 	Judged bool
-	// Matches maps a 1-based item index to the model's short reason that the item is relevant. An item the model called relevant is here with its
-	// reason; an item it gave no verdict is here with no reason (kept); an item it called not relevant is absent.
+	// Matches maps a 1-based item index to the model's short reason that the item is relevant. An item it called relevant is here with its
+	// reason; an item it called not relevant, or gave no verdict, is absent.
 	Matches map[int]string
 	// State is the new last-known-state note, already cleaned and bounded.
 	State string
@@ -153,7 +153,10 @@ func parseAnalysis(raw string, items, recent int, asked bool) (Analysis, error) 
 		return Analysis{}, ErrUnusableAnswer
 	}
 	out := Analysis{Repeats: map[int]int{}, Matches: map[int]string{}, State: sources.Plain(r.State, MaxStateRunes)}
-	if asked && r.Verdicts != nil {
+	if asked {
+		if r.Verdicts == nil {
+			return Analysis{}, ErrUnusableAnswer // a look-for text was shown and no verdicts came back: nothing can be judged
+		}
 		out.Judged, out.Matches = true, keptByVerdicts(*r.Verdicts, items)
 	}
 	out.Changes = r.checkedChanges(items)
@@ -184,24 +187,14 @@ type verdict struct {
 	Relevant *bool  `json:"relevant"`
 }
 
-// keptByVerdicts returns the items to keep, by 1-based index, with the model's reason. The model must say relevant true or false for an item: only
-// "true" keeps it with its reason and only an explicit "false" drops it (a reason is never read, so "not a release" cannot keep an item). An item with
-// no verdict, or a verdict that does not say, is kept with no reason, so a gap in the answer cannot hide what the owner wanted.
+// keptByVerdicts returns the items to keep, by 1-based index, with the model's reason. Only an explicit "relevant": true keeps an item; the reason is
+// never read, so "not a release" cannot keep one. An item with no verdict, or a verdict that does not say true, is not kept: the run names what it did
+// not keep in the watch's row, so nothing disappears unseen, and a gap in the answer cannot put random posts in the feed.
 func keptByVerdicts(in []verdict, items int) map[int]string {
-	dropped := map[int]bool{}
 	out := map[int]string{}
 	for _, v := range in {
-		switch {
-		case !inRange(v.Item, items) || v.Relevant == nil:
-		case *v.Relevant:
+		if inRange(v.Item, items) && v.Relevant != nil && *v.Relevant {
 			out[v.Item] = sources.Line(v.Why, maxWhyRune)
-		default:
-			dropped[v.Item] = true
-		}
-	}
-	for i := 1; i <= items; i++ {
-		if _, ok := out[i]; !ok && !dropped[i] {
-			out[i] = ""
 		}
 	}
 	return out

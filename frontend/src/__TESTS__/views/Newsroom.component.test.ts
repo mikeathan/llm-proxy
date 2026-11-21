@@ -5,11 +5,11 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { ROUTE_NAMES } from '../../types/routes'
 import type { NewsroomDay, NewsroomWatch } from '../../types/newsroom'
 
-const { watchesMock, feedMock, createMock, removeMock, markReadMock, runMock, confirmMock } = vi.hoisted(() => ({
-  watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
+const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock } = vi.hoisted(() => ({
+  watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
-  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, run: runMock },
+  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../composables/models/useModels', () => ({
@@ -54,21 +54,63 @@ describe('NewsroomView', () => {
     expect(m.w.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('newsroom')
   })
 
-  it("asks for the feed in the reader's zone, and shows the newest finding with the earlier ones of the day still visible", async () => {
+  it("asks for the feed in the reader's zone, and shows the day's findings as one list, newest first", async () => {
     const { w } = await mountView()
     expect(feedMock.mock.calls[0]![1]).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
     expect(w.text()).toContain('Today')
     expect(w.text()).toContain('2 updates')
     expect(w.text()).toContain('Go 1.26 released')
     expect(w.text()).toContain('Go 1.26 RC2')
+    expect(w.text()).not.toContain('Earlier today')
   })
 
-  it('marks every unread finding of a watch card read', async () => {
+  it('marks every unread finding of a day read, and one finding when its link is opened', async () => {
     const { w } = await mountView()
-    const button = w.findAll('section[aria-label="Go releases"] button').find((b) => /Mark read/.test(b.text()))!
+    const button = w.findAll('section[aria-label="Today"] header button').find((b) => /Mark read/.test(b.text()))!
     await button.trigger('click')
     await flushPromises()
     expect(markReadMock).toHaveBeenCalledWith([2, 1], true)
+    markReadMock.mockClear()
+    await w.get('section[aria-label="Today"] ul a').trigger('click')
+    await flushPromises()
+    expect(markReadMock).toHaveBeenCalledWith([2], true)
+  })
+
+  it('folds older days to a header and opens one on a click', async () => {
+    const older: NewsroomDay = { day: '2026-11-19', label: 'Yesterday', updates: 1, unread: 0, watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 0, last_at: '2026-11-19T10:00:00Z', current: { ...entry(9, 'Go 1.25.5 released', true), at: '2026-11-19T10:00:00Z' } }] }
+    const { w } = await mountView('/newsroom', [watch()], [day(), older])
+    expect(w.text()).toContain('Yesterday')
+    expect(w.text()).not.toContain('Go 1.25.5 released')
+    await w.get('section[aria-label="Yesterday"] header button').trigger('click')
+    expect(w.text()).toContain('Go 1.25.5 released')
+  })
+
+  it('selects entries, asks before deleting them for good, then clears only those', async () => {
+    clearMock.mockResolvedValue(1)
+    confirmMock.mockResolvedValue(true)
+    const { w } = await mountView()
+    await w.findAll('button').find((b) => b.text() === 'Select')!.trigger('click')
+    await w.findAll('section[aria-label="Today"] input[type=checkbox]')[0]!.setValue(true)
+    expect(w.text()).toContain('1 selected')
+    await w.findAll('button').find((b) => b.text() === 'Clear')!.trigger('click')
+    await flushPromises()
+    expect(confirmMock).toHaveBeenCalledOnce()
+    expect(confirmMock.mock.calls[0]![0].message).toMatch(/1 entry .*deleted for good/)
+    expect(clearMock).toHaveBeenCalledWith({ ids: [2] })
+  })
+
+  it('clears nothing when the owner says no, and clears everything after a yes', async () => {
+    clearMock.mockResolvedValue(2)
+    const { w } = await mountView()
+    const clearAll = () => w.findAll('button').find((b) => b.text() === 'Clear all')!
+    confirmMock.mockResolvedValue(false)
+    await clearAll().trigger('click')
+    await flushPromises()
+    expect(clearMock).not.toHaveBeenCalled()
+    confirmMock.mockResolvedValue(true)
+    await clearAll().trigger('click')
+    await flushPromises()
+    expect(clearMock).toHaveBeenCalledWith({ scope: 'all' })
   })
 
   it('asks to add a first watch when none is followed', async () => {
@@ -111,6 +153,7 @@ describe('NewsroomView', () => {
   it('shows what a watch looks for, and the reason and first-check mark on a finding', async () => {
     const found = { ...entry(1, 'Qwen4 released'), why: 'a new model release', first: true }
     const { w } = await mountView('/newsroom', [watch({ look_for: 'new models' })], [{ ...day(), watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 1, last_at: '2026-11-20T10:00:00Z', current: found }] }])
+    await w.get('article button[aria-expanded]').trigger('click')
     expect(w.text()).toContain('Why: a new model release')
     expect(w.text()).toContain('First check')
     await mountView('/newsroom/watches', [watch({ look_for: 'new models' })]).then(({ w: p }) => expect(p.text()).toContain('Looking for: new models'))

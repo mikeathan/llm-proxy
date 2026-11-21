@@ -292,3 +292,40 @@ func TestEraseAllEmptiesTheWatchesAndIsHarmlessWhenNotRunning(t *testing.T) {
 
 // watchPath is the path the core really passes: the route with the id filled in, not the {id} pattern.
 func watchPath(id, suffix string) string { return RouteWatches + "/" + id + suffix }
+
+// Clearing the feed deletes entries for good: by id, all that are read, or all. The seen ledger is separate, so a cleared item does not come back.
+func TestClearingTheFeedDeletesEntries(t *testing.T) {
+	s := startEvery(t, "", &rssFetch{}, time.Hour)
+	ctx := context.Background()
+	post := func(path, body string) error {
+		_, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: path, Body: []byte(body)})
+		return err
+	}
+	count := func() int {
+		out, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteFeed})
+		return strings.Count(string(out.Body), "\"ident\"")
+	}
+	post(RouteWatches, feedWatch)
+	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: watchPath("1", "/run"), Params: map[string]string{"id": "1"}})
+	if count() != 1 {
+		t.Fatalf("the first check should show one entry, got %d", count())
+	}
+	for _, body := range []string{`{}`, `{"scope":"nope"}`, `{"ids":[1],"scope":"all"}`} {
+		if err := post(RouteClear, body); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+			t.Errorf("%s must be refused, got %v", body, err)
+		}
+	}
+	post(RouteClear, `{"scope":"read"}`)
+	if count() != 1 {
+		t.Error("an unread entry is not cleared by clearing what is read")
+	}
+	post(RouteRead, `{"ids":[1],"read":true}`)
+	post(RouteClear, `{"scope":"read"}`)
+	if count() != 0 {
+		t.Error("a read entry is cleared")
+	}
+	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: watchPath("1", "/run"), Params: map[string]string{"id": "1"}})
+	if count() != 0 {
+		t.Error("a cleared item is not found again from the same source")
+	}
+}

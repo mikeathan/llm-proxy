@@ -90,15 +90,31 @@ func TestTheModelKeepsOnlyRelevantItemsAndSaysWhy(t *testing.T) {
 	}
 }
 
-func TestAnAnswerWithoutAJudgementKeepsEveryItem(t *testing.T) {
-	m := &scriptedModel{answers: []string{`{}`, `{"state":"nothing"}`}}
+// With what-to-look-for text, an answer that holds no verdicts cannot say what matches, so nothing is shown and nothing is recorded: the next run asks
+// again. Showing every item instead put random posts in the feed (2026-11-21).
+func TestAnAnswerWithoutAJudgementShowsNothingAndRetries(t *testing.T) {
+	m := &scriptedModel{answers: []string{`{}`, `{"state":"nothing"}`, `{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":2,"why":"y","relevant":false}]}`}}
 	h := relevanceHarness(t, "new AI model releases", m)
 	h.fetch.bodies[feedURL] = itemsRSS("seed")
 	h.tick(t, 0)
 	h.forgetFirstFindings()
 	h.fetch.bodies[feedURL] = itemsRSS("seed", "One", "Two")
-	if o := h.tick(t, time.Hour); o[0].New != 2 {
-		t.Errorf("no judgement means nothing is hidden: %+v", o[0])
+	if o := h.tick(t, time.Hour); o[0].Status != StatusAnalysisFailed || len(h.store.Feed(h.now, time.UTC, 0, Filter{})) != 0 {
+		t.Fatalf("no judgement shows nothing: %+v", o[0])
+	}
+	if o := h.tick(t, 2*time.Hour); o[0].New != 1 {
+		t.Errorf("the items were not recorded, so the next run judges them: %+v", o[0])
+	}
+}
+
+func TestAWatchThatLooksForSomethingNeedsAModelToShowAnything(t *testing.T) {
+	h := newHarness(t, lookForWatch("new AI model releases", nil, nil))
+	h.fetch.bodies[feedURL] = itemsRSS("seed")
+	h.tick(t, 0)
+	h.forgetFirstFindings()
+	h.fetch.bodies[feedURL] = itemsRSS("seed", "One")
+	if o := h.tick(t, time.Hour); o[0].Status != StatusAnalysisFailed || len(h.store.Feed(h.now, time.UTC, 0, Filter{})) != 0 {
+		t.Errorf("with no model nothing can be judged, so nothing is shown: %+v", o[0])
 	}
 }
 
@@ -112,8 +128,15 @@ func TestVerdictsAreIgnoredWhenNothingWasAskedFor(t *testing.T) {
 		t.Errorf("a verdict must name a shown item and only relevant ones are kept: %+v", a)
 	}
 	a, _ = parseAnalysis(`{"verdicts":[]}`, 2, 0, true)
-	if !a.Judged || len(a.Matches) != 2 {
-		t.Errorf("an item with no verdict is kept (a gap must not hide what the owner wanted): %+v", a)
+	if !a.Judged || len(a.Matches) != 0 {
+		t.Errorf("an item with no verdict is not shown, and the row names it: %+v", a)
+	}
+	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x"}]}`, 1, 0, true)
+	if len(a.Matches) != 0 {
+		t.Errorf("a verdict that does not say relevant true is not a match: %+v", a)
+	}
+	if _, err := parseAnalysis(`{"state":"s"}`, 2, 0, true); err == nil {
+		t.Error("no verdicts when a judgement was asked for is an unusable answer")
 	}
 }
 

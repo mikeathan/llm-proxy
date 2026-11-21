@@ -19,8 +19,22 @@ export const FILTER_ALL_WATCHES = 'All watches'
 export const FILTER_WATCH_LABEL = 'Show one watch'
 export const FILTER_UNREAD_LABEL = 'Unread only'
 export const MARK_READ_LABEL = 'Mark read'
-export const EARLIER_LABEL = 'Earlier today'
-export const CHIP_NEW = 'New'
+export const MARK_ALL_READ_LABEL = 'Mark all read'
+export const SELECT_LABEL = 'Select'
+export const DONE_LABEL = 'Done'
+export const SELECT_ALL_LABEL = 'Select all'
+export const CLEAR_LABEL = 'Clear'
+export const CLEAR_READ_LABEL = 'Clear read'
+export const CLEAR_ALL_LABEL = 'Clear all'
+export const SHOW_OLDER_LABEL = 'Show older days'
+export const SHOW_DETAILS_LABEL = 'Show details'
+export const HIDE_DETAILS_LABEL = 'Hide details'
+export const selectedWords = (n: number): string => `${n} selected`
+export const unreadWords = (n: number): string => `${n} unread`
+export const clearTitle = 'Delete from the feed?'
+export const clearMessage = (what: 'selected' | 'read' | 'all', n: number): string =>
+  `${n === 1 ? '1 entry' : `${n} entries`}${what === 'selected' ? '' : what === 'read' ? ' you have read' : ''} will be deleted for good. They will not come back from the same source.`
+export const clearedWords = (n: number): string => `Cleared ${n === 1 ? '1 entry' : `${n} entries`}`
 export const CHIP_CHANGED = 'Changed'
 export const ALSO_SEEN_LABEL = 'Also seen'
 export const UNREAD_LABEL = 'Unread'
@@ -76,7 +90,6 @@ export const sendsToWords = (channel: string): string => `Sends to ${channel}`
 export const NEVER_CHECKED = 'Not checked yet'
 export const lastCheckedWords = (relative: string): string => `Checked ${relative}`
 export const updatesWords = (n: number): string => `${n} ${n === 1 ? 'update' : 'updates'}`
-export const dayHeadline = (updates: number, last: string): string => `${updatesWords(updates)}, last ${last}`
 export const runDoneWords = (found: number): string => (found === 0 ? 'Checked: nothing new' : `Checked: ${found} new`)
 
 export const deleteWatchTitle = 'Stop following this watch?'

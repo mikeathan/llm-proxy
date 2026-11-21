@@ -182,6 +182,43 @@ func (s *Store) MarkRead(ids []int64, read bool) error {
 	return s.saveLocked()
 }
 
+// DeleteEntries removes the given entries from the journal for good and reports how many went. The seen ledger is separate, so an item cleared here is
+// not found again from the same source.
+func (s *Store) DeleteEntries(ids []int64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := map[int64]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	return s.dropLocked(func(e Entry) bool { return want[e.ID] })
+}
+
+// ClearEntries removes every entry (readOnly false) or every read entry (readOnly true) for good, and reports how many went.
+func (s *Store) ClearEntries(readOnly bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dropLocked(func(e Entry) bool { return !readOnly || e.Read })
+}
+
+// dropLocked removes the entries drop says yes to and saves when any went. The caller holds s.mu.
+func (s *Store) dropLocked(drop func(Entry) bool) (int, error) {
+	kept := s.doc.Entries[:0]
+	gone := 0
+	for _, e := range s.doc.Entries {
+		if drop(e) {
+			gone++
+			continue
+		}
+		kept = append(kept, e)
+	}
+	s.doc.Entries = kept
+	if gone == 0 {
+		return 0, nil
+	}
+	return gone, s.saveLocked()
+}
+
 // entriesFor returns a copy of the journal entries that match f, newest first.
 func (s *Store) entriesFor(f Filter) []Entry {
 	s.mu.Lock()
