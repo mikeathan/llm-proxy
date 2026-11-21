@@ -33,6 +33,10 @@ evidence: Branch newsroom-watches, cut from newsroom-source-help-and-checks (fd4
 ## Added 2026-11-21 (uncommitted, on the merged `newsroom-source-finder` branch; a new branch is the owner's call)
 - Headline + summary per item (`digests`), "Checking…" on a running watch, a period filter (Everything / Today / 7 / 14 days) and Clear that follows the filter. Checks run: stack `-race`, backend build/test, complexity, frontend test + build, harness. **Not run:** `npm run test:visual`; vertex (does the real model return `digests` without breaking the JSON? the model port's output cap was not found in the code); a look on a phone. Commit `frontend_dist/index.html`. Notices sent to a channel still carry the original titles (`Digests` stays inside the stack).
 
+## Added 2026-11-21 evening (uncommitted, on the merged `newsroom-headlines-and-filters` branch; a new branch is the owner's call)
+- News window `max_age` (default 72 h, form picker), `Entry.Posted` and "posted …" on rows, the period control on the dashboard card, a fallback headline when the model wrote none. Checks run: stack `go test . ./sources ./watches`, backend `go build` and `internal/app` tests, complexity, frontend test + build, harness. **Not run:** `npm run test:visual`; vertex. Missing headlines were the primary model (Qwen3.6) leaving `item` off its digests; fixed by a firmer prompt and a by-position fallback (see the learnings line of 2026-11-21).
+- Left: on vertex, run Check now and confirm new findings carry a headline and only recent posts appear.
+
 ## Traps
 - The first-check feed entries break any test that expected an empty feed after a baseline; `harness.forgetFirstFindings` removes them for tests about later runs.
 - `stacks/sdk` `NoticeRequest` is shared with the core, so the rename reached `stackport/notice.go`.

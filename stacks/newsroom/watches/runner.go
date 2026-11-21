@@ -91,7 +91,9 @@ func (r *Runner) Run(ctx context.Context, t Watch) Outcome {
 	if answered == 0 {
 		return r.finish(t, at, StatusFailing, firstNonEmpty(detail, "no source could be read"), 0, false)
 	}
-	fresh, skipped := t.Gate(r.Store.Unseen(t.ID, items, at))
+	recent, stale := t.Fresh(r.Store.Unseen(t.ID, items, at), at)
+	fresh, skipped := t.Gate(recent)
+	skipped = append(skipped, stale...)
 	// What the keywords and skip words drop is recorded as seen, so it is not looked at again on every run.
 	if err := r.Store.Record(t.ID, skipped, at); err != nil {
 		return r.finish(t, at, StatusFailing, "could not save what was skipped: "+err.Error(), 0, false)

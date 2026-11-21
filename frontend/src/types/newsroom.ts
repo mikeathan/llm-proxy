@@ -27,6 +27,8 @@ export interface NewsroomWatch {
   sources: NewsroomSource[]
   /** A duration such as "1h0m0s". */
   interval: string
+  /** How old a post may be and still be news, a duration such as "72h0m0s". */
+  max_age: string
   enabled: boolean
   /** What the owner wants to know about, in their words; absent means every new item counts. */
   look_for?: string
@@ -46,6 +48,7 @@ export interface NewsroomWatchEdit {
   name: string
   sources: NewsroomSource[]
   interval: string
+  max_age: string
   enabled: boolean
   channel: string
   look_for: string
@@ -67,6 +70,8 @@ export interface NewsroomEntry {
   title: string
   link?: string
   text?: string
+  /** When the source says the post was published; absent when it gave no date. `at` is when the watch found it. */
+  posted?: string
   /** The model's short reason the item matches what the watch looks for. */
   why?: string
   /** The model's own short headline (shown in place of the title) and one-or-two-sentence summary (shown when opened). The original title, link and text are kept. */

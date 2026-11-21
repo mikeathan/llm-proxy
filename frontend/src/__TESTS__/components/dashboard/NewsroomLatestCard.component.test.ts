@@ -8,7 +8,7 @@ import NewsroomLatestCard from '../../../components/dashboard/cards/NewsroomLate
 
 const entry = (id: number, title: string, link: string) => ({ id, watch_id: 1, at: new Date().toISOString(), source: 's', title, link })
 const day = (current: ReturnType<typeof entry>) => ({ day: 'd', label: 'Today', updates: 1, unread: 1, watches: [{ watch_id: 1, watch: 'Go', updates: 1, unread: 1, last_at: '', current }] })
-const watch = (over = {}) => ({ id: 1, name: 'Go', interval: '1h0m0s', enabled: true, sources: [], ...over })
+const watch = (over = {}) => ({ id: 1, name: 'Go', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, sources: [], ...over })
 const mountCard = async () => { const w = mount(NewsroomLatestCard); await flushPromises(); return w }
 
 beforeEach(() => { vi.clearAllMocks() })
@@ -47,7 +47,8 @@ describe('NewsroomLatestCard', () => {
     service.feed.mockResolvedValue([day(entry(1, 'Go 1.26 released', 'https://go.dev/x'))])
     const w = await mountCard()
     expect(w.get('[data-test="newsroom-headline"] a').attributes('href')).toBe('https://go.dev/x')
-    expect(w.find('button').exists()).toBe(false)
+    // Only the period control is pressable: there is nothing that acts on an entry.
+    expect(w.findAll('button').map((b) => b.text())).toEqual(['All', 'Today', '7 days', '14 days'])
     expect(w.find('[data-test="newsroom-failing"]').exists()).toBe(false)
   })
 
@@ -66,5 +67,25 @@ describe('NewsroomLatestCard', () => {
     expect(w.get('[data-test="newsroom-failing"]').text()).toContain('Go cannot read a source')
     service.watches.mockResolvedValue([])
     expect((await mountCard()).find('[data-test="newsroom-empty"]').text()).toContain('You follow nothing yet')
+  })
+})
+
+describe('NewsroomLatestCard period', () => {
+  it('offers a period and asks the feed for the chosen number of days', async () => {
+    service.watches.mockResolvedValue([watch()])
+    service.feed.mockResolvedValue([])
+    const w = await mountCard()
+    expect(service.feed.mock.calls[0]![0]).toMatchObject({ days: null })
+    const seven = w.findAll('button').find((b) => b.text() === '7 days')!
+    await seven.trigger('click')
+    await flushPromises()
+    expect(service.feed.mock.calls[service.feed.mock.calls.length - 1]![0]).toMatchObject({ days: 7 })
+  })
+
+  it('says when the period matches nothing, and shows when a post was published', async () => {
+    service.watches.mockResolvedValue([watch()])
+    service.feed.mockResolvedValue([day({ ...entry(1, 'Go 1.26 released', 'https://go.dev/x'), posted: new Date(Date.now() - 3 * 3600_000).toISOString() } as ReturnType<typeof entry>)])
+    const w = await mountCard()
+    expect(w.get('[data-test="newsroom-headline"]').text()).toContain('posted')
   })
 })

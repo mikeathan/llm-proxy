@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import NewsroomWatchChips from '../../../components/newsroom/NewsroomWatchChips.vue'
 import type { NewsroomWatch } from '../../../types/newsroom'
 
-const watch = (id: number, name: string): NewsroomWatch => ({ id, name, interval: '1h0m0s', enabled: true, sources: [] })
+const watch = (id: number, name: string): NewsroomWatch => ({ id, name, interval: '1h0m0s', max_age: '72h0m0s', enabled: true, sources: [] })
 const watches = [watch(1, 'AI news'), watch(2, 'Security')]
 
 describe('NewsroomWatchChips', () => {

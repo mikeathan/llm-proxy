@@ -138,6 +138,20 @@ func TestCreateListUpdateDeleteThroughRoutes(t *testing.T) {
 	}
 }
 
+// The news window travels as a duration string, like the interval; a watch made without one reads as the 72 hour default.
+func TestNewsWindowIsADurationStringWithADefault(t *testing.T) {
+	s := start(t, "", &rssFetch{})
+	ctx := context.Background()
+	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
+	if err != nil || !strings.Contains(string(got.Body), `"max_age":"72h0m0s"`) {
+		t.Fatalf("default window = %s, %v", got.Body, err)
+	}
+	wide := strings.Replace(feedWatch, `"interval"`, `"max_age":"168h","interval"`, 1)
+	if got, err = s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(wide)}); err != nil || !strings.Contains(string(got.Body), `"max_age":"168h0m0s"`) {
+		t.Errorf("a 7 day window = %s, %v", got.Body, err)
+	}
+}
+
 func TestRefusalsAreInvalidNotServerErrors(t *testing.T) {
 	s := start(t, "", &rssFetch{})
 	ctx := context.Background()
@@ -146,6 +160,8 @@ func TestRefusalsAreInvalidNotServerErrors(t *testing.T) {
 		"no sources":   `{"name":"x","sources":[]}`,
 		"bad interval": `{"name":"x","interval":"soon","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
 		"too short":    `{"name":"x","interval":"1s","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
+		"bad window":   `{"name":"x","max_age":"soon","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
+		"window range": `{"name":"x","max_age":"9000h","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
 	} {
 		if _, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(body)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
 			t.Errorf("%s: want invalid, got %v", name, err)

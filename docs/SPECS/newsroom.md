@@ -1,7 +1,7 @@
 ---
 id: SPEC-013
 title: Newsroom
-version: "1.5"
+version: "1.6"
 status: stable
 last_updated: 2026-11-21
 constitution_references: [I.1, III.6, IV.6, V.2]
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **1.6 (2026-11-21)** — **News is recent.** A watch has `max_age` (a Go duration string, default 72 h, 1 h to 30 days; a watch saved without one reads as the default). Before the model sees anything, a post whose own date (`Item.At`) is older than the window is dropped and recorded as seen (so it never returns); a post with no date is kept. The entry keeps `posted` (the source's date) beside `at` (when it was found) and the row says "posted …" when it is set. The watch form has a "Only news from the last" picker. A row with no model headline shows a plain fallback (the first sentence, no links or emoji, at most 90 characters) and the full post when opened. The dashboard card has the period control too (the watch chips still show only from two watches).
 - **1.5 (2026-11-21)** — **Headline and summary.** The model step also returns `digests: [{item, headline, summary}]` for every new item (headline at most 90 characters, summary at most 240; with `look_for` set only for items called relevant, both optional and checked against the shown items). The entry keeps `headline` and `summary` beside the original `title`, `link` and `text`; the feed row shows the headline (the title when there is none), and opening it shows the summary, the reason, the original title and the other reports. Check now says "Checking…" on the running watch's row. The feed takes `days` (1 to 30, calendar days in the reader's zone) beside `watch` and `unread`, and the page has a period select; with any filter on, Clear all / Clear read delete only the entries on screen.
 - **1.4 (2026-11-21)** — **Source look-up** (ADR-0074): the watch form can look a source up before it is saved. Two admin reads, `GET /admin/api/newsroom/sources/lookup` and `.../sources/suggest`. Telegram is a name check (no keyless channel search exists); Mastodon lists trending or matching tags; a page that is not a feed offers the feeds it advertises. Answers are remembered 10 minutes (64 at most), Telegram is limited to six look-ups a minute, and the look-up never uses the timer's Telegram read slot.
 - **1.3 (2026-11-21)** — **Strict filter:** with `look_for` set an item is shown only when the model says `relevant: true`; an item with no verdict is not shown and is named in the row; an answer with no verdicts, no model or a spent limit is `analysis_failed` (nothing shown or recorded, the next run retries). **Clear:** `POST /admin/api/newsroom/feed/clear` deletes entries for good (`ids`, `scope:"read"` or `scope:"all"`). **Screen:** the feed is a flat list of compact rows per day (newest day open, older days folded, "Show older days"), a select mode with Mark read and Clear, no "New" pill (the unread dot says it), details folded behind a chevron.
@@ -22,7 +23,7 @@ supersedes:
 
 ## Contract
 
-**Watches.** A watch has a name, one to ten sources, an interval (default 1 h, floor 5 min, sent as a Go duration string), an on/off flag and an optional channel (a connector type; empty means the feed only). It may say what to look for: `look_for` (the owner's words, at most 300 characters), `keywords` (an item must contain one) and `skip` (an item containing one is dropped), each list at most ten words of 40 characters, lower-cased and de-duplicated. A watch made by the assistant is on and feed-only and takes the same fields. Stored in one file, `watches.json`, in the stack's data folder; a factory reset empties it.
+**Watches.** A watch has a name, one to ten sources, an interval (default 1 h, floor 5 min, sent as a Go duration string), a news window `max_age` (default 72 h; older posts are skipped, see 1.6), an on/off flag and an optional channel (a connector type; empty means the feed only). It may say what to look for: `look_for` (the owner's words, at most 300 characters), `keywords` (an item must contain one) and `skip` (an item containing one is dropped), each list at most ten words of 40 characters, lower-cased and de-duplicated. A watch made by the assistant is on and feed-only and takes the same fields. Stored in one file, `watches.json`, in the stack's data folder; a factory reset empties it.
 
 **Sources** (guarded `Fetch` only: GET, no header, 1 MiB): RSS or Atom (also GitHub releases), Hacker News search, Mastodon tag, a web page (compared by its visible text), a public Telegram channel preview (per-channel opt-in, at most one read per 10 min). Each kind's target is checked when a watch is saved (`sources/validate.go`, mirrored in the form by `utils/newsroom/sourceCheck.ts`): an https address with a host for a feed or page, 1 to 200 characters for a search, a 4 to 32 character channel name, a bare tag and a plain host for Mastodon. Pasted forms are reduced to the bare value first: `https://t.me/s/aipost` or `@aipost` gives `aipost`, `#golang` gives `golang`, `https://Mastodon.social/` gives `mastodon.social`. `Fetch` itself stays strict. A source that cannot be read is `failing`, never "nothing new".
 

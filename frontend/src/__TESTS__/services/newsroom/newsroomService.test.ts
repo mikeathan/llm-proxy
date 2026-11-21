@@ -28,7 +28,7 @@ describe('NewsroomService.feed', () => {
 })
 
 describe('NewsroomService writes', () => {
-  const edit = { name: 'Go', interval: '1h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed' as const, target: 'https://go.dev/blog/feed.atom' }] }
+  const edit = { name: 'Go', interval: '1h', max_age: '72h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed' as const, target: 'https://go.dev/blog/feed.atom' }] }
 
   it('creates with POST, saves with PUT, deletes and runs by id', async () => {
     const fetchMock = ok({ id: 7 })

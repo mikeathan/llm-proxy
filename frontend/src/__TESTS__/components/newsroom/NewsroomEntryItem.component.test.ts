@@ -66,7 +66,10 @@ describe('NewsroomEntryItem', () => {
   it('does not say a post twice, even when the text has line breaks the title lost', async () => {
     const real = show(entry({ title: NEURALINK_TITLE, text: NEURALINK_TEXT, link: undefined }))
     expect(real.text().split('A Neuralink patient').length - 1).toBe(1)
-    expect(real.find('button[aria-expanded]').exists()).toBe(false) // the text adds nothing, so there is nothing to open
+    // The row shows a short fallback headline, so the rest of the post is behind the button, once.
+    const opened = await openDetails(real)
+    expect(opened.text()).toContain('a day after the game came out.')
+    expect(opened.text().split('Neuralink posted the two-minute clip').length - 1).toBe(1)
     const clipped = await openDetails(show(entry({ title: NEURALINK_TITLE.slice(0, 60) + '…', text: NEURALINK_TEXT, link: undefined })))
     expect(clipped.text()).toContain('Neuralink posted the two-minute clip')
     const other = await openDetails(show(entry({ text: 'A different summary line' })))
@@ -101,5 +104,19 @@ describe('NewsroomEntryItem', () => {
     expect((box.element as HTMLInputElement).checked).toBe(true)
     await box.trigger('change')
     expect(s.emitted('toggle-select')).toHaveLength(1)
+  })
+})
+
+describe('NewsroomEntryItem posted date', () => {
+  it('says when the post was published, not when the watch found it', () => {
+    const w = show(entry({ at: '2026-11-21T17:10:00Z', posted: '2026-10-17T09:00:00Z' }))
+    expect(w.get('time').attributes('datetime')).toBe('2026-10-17T09:00:00Z')
+    expect(w.get('time').text()).toContain('posted')
+  })
+
+  it('falls back to when it was found when the source gave no date', () => {
+    const w = show(entry({ at: '2026-11-21T17:10:00Z' }))
+    expect(w.get('time').attributes('datetime')).toBe('2026-11-21T17:10:00Z')
+    expect(w.get('time').text()).not.toContain('posted')
   })
 })

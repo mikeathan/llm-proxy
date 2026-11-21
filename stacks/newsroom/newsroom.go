@@ -262,9 +262,16 @@ func (a modelAdapter) Complete(ctx context.Context, system, user string) (string
 type watchView struct {
 	watches.Watch
 	Interval string `json:"interval"`
+	// MaxAge is how old a post may be and still be news, as a duration; a watch saved before the setting existed reads as the default.
+	MaxAge string `json:"max_age"`
 }
 
-func view(t watches.Watch) watchView { return watchView{Watch: t, Interval: t.Interval.String()} }
+func view(t watches.Watch) watchView {
+	if t.MaxAge == 0 {
+		t.MaxAge = watches.DefaultMaxAge
+	}
+	return watchView{Watch: t, Interval: t.Interval.String(), MaxAge: t.MaxAge.String()}
+}
 
 func views(list []watches.Watch) []watchView {
 	out := make([]watchView, 0, len(list))
@@ -278,6 +285,7 @@ func views(list []watches.Watch) []watchView {
 type watchIn struct {
 	watches.Watch
 	Interval string `json:"interval"`
+	MaxAge   string `json:"max_age"`
 }
 
 func (in watchIn) watch() (watches.Watch, error) {
@@ -288,6 +296,13 @@ func (in watchIn) watch() (watches.Watch, error) {
 			return watches.Watch{}, fmt.Errorf("%w: the interval %q is not a duration such as 1h", watches.ErrInvalid, in.Interval)
 		}
 		t.Interval = d
+	}
+	if in.MaxAge != "" {
+		d, err := time.ParseDuration(in.MaxAge)
+		if err != nil {
+			return watches.Watch{}, fmt.Errorf("%w: the news window %q is not a duration such as 72h", watches.ErrInvalid, in.MaxAge)
+		}
+		t.MaxAge = d
 	}
 	return t, nil
 }

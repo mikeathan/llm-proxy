@@ -18,9 +18,14 @@ import (
 const (
 	DefaultInterval = time.Hour
 	MinInterval     = 5 * time.Minute
-	MaxWatches      = 50
-	MaxSources      = 10
-	MaxNameRunes    = 80
+	// DefaultMaxAge is how old a post may be and still count as news: last night and two days ago do, last month does not. A watch can widen it up to
+	// MaxMaxAge (kept well inside SeenRetention, so an old post that is still on a source page is never mistaken for a new one).
+	DefaultMaxAge = 72 * time.Hour
+	MinMaxAge     = time.Hour
+	MaxMaxAge     = 30 * 24 * time.Hour
+	MaxWatches    = 50
+	MaxSources    = 10
+	MaxNameRunes  = 80
 	// MaxLookForRunes, MaxWords and MaxWordRunes bound what the owner types to say what the watch is for.
 	MaxLookForRunes = 300
 	MaxWords        = 10
@@ -73,7 +78,9 @@ type Watch struct {
 	Sources []SourceSpec `json:"sources"`
 	// Interval is the time between reads; zero in a request means DefaultInterval.
 	Interval time.Duration `json:"interval"`
-	Enabled  bool          `json:"enabled"`
+	// MaxAge is how old a post may be and still be news; zero (a watch saved before this existed) means DefaultMaxAge. A post with no date is kept.
+	MaxAge  time.Duration `json:"max_age"`
+	Enabled bool          `json:"enabled"`
 	// Channel is the connector type notices are sent through ("telegram", "email"); empty means the feed only. The feed always records every change.
 	Channel string `json:"channel,omitempty"`
 	// LookFor says in the owner's words what the watch is for ("new AI model releases, not ads"). When it is set, the model judges each new item against it
@@ -138,17 +145,31 @@ func Normalize(t Watch) (Watch, error) {
 			return Watch{}, fmt.Errorf("%w: source %d: %v", ErrInvalid, i+1, err)
 		}
 	}
-	if t.Interval == 0 {
-		t.Interval = DefaultInterval
-	}
-	if t.Interval < MinInterval {
-		return Watch{}, fmt.Errorf("%w: the interval must be at least %s", ErrInvalid, MinInterval)
+	if err := t.normalizeTimes(); err != nil {
+		return Watch{}, err
 	}
 	t.Channel = strings.ToLower(strings.TrimSpace(t.Channel))
 	if t.Channel != "" && !channelNameRe.MatchString(t.Channel) {
 		return Watch{}, fmt.Errorf("%w: the channel must be a connector type such as telegram", ErrInvalid)
 	}
 	return normalizeLookFor(t)
+}
+
+// normalizeTimes fills the interval and the news window with their defaults and keeps both in range.
+func (t *Watch) normalizeTimes() error {
+	if t.Interval == 0 {
+		t.Interval = DefaultInterval
+	}
+	if t.Interval < MinInterval {
+		return fmt.Errorf("%w: the interval must be at least %s", ErrInvalid, MinInterval)
+	}
+	if t.MaxAge == 0 {
+		t.MaxAge = DefaultMaxAge
+	}
+	if t.MaxAge < MinMaxAge || t.MaxAge > MaxMaxAge {
+		return fmt.Errorf("%w: the news window must be from %s to %s", ErrInvalid, MinMaxAge, MaxMaxAge)
+	}
+	return nil
 }
 
 var channelNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
@@ -187,6 +208,23 @@ func normalizeWords(in []string, what string) ([]string, error) {
 		return nil, fmt.Errorf("%w: at most %d %s", ErrInvalid, MaxWords, what)
 	}
 	return out, nil
+}
+
+// Fresh splits items by age: a post older than the watch's window is stale, anything else (an undated item included, since its age cannot be judged)
+// is kept. Stale items are only recorded as seen, so they are not looked at again.
+func (t Watch) Fresh(items []sources.Item, now time.Time) (kept, stale []sources.Item) {
+	age := t.MaxAge
+	if age == 0 {
+		age = DefaultMaxAge
+	}
+	for _, it := range items {
+		if !it.At.IsZero() && it.At.Before(now.Add(-age)) {
+			stale = append(stale, it)
+		} else {
+			kept = append(kept, it)
+		}
+	}
+	return kept, stale
 }
 
 // Gate splits items by the watch's keywords and skip words: kept ones go on to the model, dropped ones are only recorded as seen. A watch with neither
