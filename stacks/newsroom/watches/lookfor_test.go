@@ -70,7 +70,7 @@ func relevanceHarness(t *testing.T, look string, m *scriptedModel) *harness {
 }
 
 func TestTheModelKeepsOnlyRelevantItemsAndSaysWhy(t *testing.T) {
-	m := &scriptedModel{answers: []string{`{}`, `{"matches":[{"item":2,"why":"a new model release"}]}`}}
+	m := &scriptedModel{answers: []string{`{}`, `{"verdicts":[{"item":1,"why":"a recipe","relevant":false},{"item":2,"why":"a new model release","relevant":true},{"item":3,"why":"sport","relevant":false}]}`}}
 	h := relevanceHarness(t, "new AI model releases", m)
 	h.fetch.bodies[feedURL] = itemsRSS("seed")
 	h.tick(t, 0)
@@ -102,18 +102,35 @@ func TestAnAnswerWithoutAJudgementKeepsEveryItem(t *testing.T) {
 	}
 }
 
-func TestMatchesAreIgnoredWhenNothingWasAskedFor(t *testing.T) {
-	a, err := parseAnalysis(`{"matches":[{"item":1,"why":"x"}]}`, 2, 0, false)
+func TestVerdictsAreIgnoredWhenNothingWasAskedFor(t *testing.T) {
+	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true}]}`, 2, 0, false)
 	if err != nil || a.Judged || len(a.Matches) != 0 {
 		t.Fatalf("%+v %v", a, err)
 	}
-	a, _ = parseAnalysis(`{"matches":[{"item":1,"why":"x"},{"item":9,"why":"y"}]}`, 2, 0, true)
-	if !a.Judged || len(a.Matches) != 1 {
-		t.Errorf("a match must name a shown item: %+v", a)
+	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":9,"why":"y","relevant":true},{"item":2,"why":"z","relevant":false}]}`, 2, 0, true)
+	if !a.Judged || len(a.Matches) != 1 || a.Matches[1] != "x" {
+		t.Errorf("a verdict must name a shown item and only relevant ones are kept: %+v", a)
 	}
-	a, _ = parseAnalysis(`{"matches":[]}`, 2, 0, true)
-	if !a.Judged || len(a.Matches) != 0 {
-		t.Errorf("an empty list is a judgement that nothing matched: %+v", a)
+	a, _ = parseAnalysis(`{"verdicts":[]}`, 2, 0, true)
+	if !a.Judged || len(a.Matches) != 2 {
+		t.Errorf("an item with no verdict is kept (a gap must not hide what the owner wanted): %+v", a)
+	}
+}
+
+// Regression (2026-11-21): a model that put every item in the old "matches" list, each with a reason such as "not a new model release", defeated the
+// filter, because being listed meant being kept. A verdict on every item says relevant or not, so the reason can no longer keep an item.
+func TestAnItemTheModelCalledIrrelevantIsDroppedWhateverItsReasonSays(t *testing.T) {
+	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"Benchmark, not new model release","relevant":false},{"item":2,"why":"new Qwen release","relevant":true}]}`, 2, 0, true)
+	if err != nil || !a.Judged || len(a.Matches) != 1 || a.Matches[2] == "" {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if _, kept := a.Matches[1]; kept {
+		t.Error("an item judged not relevant must not be kept")
+	}
+	// The old shape is no longer a judgement: it keeps every item rather than trusting a list that cannot say no.
+	a, _ = parseAnalysis(`{"matches":[{"item":1,"why":"not a release"}]}`, 2, 0, true)
+	if a.Judged {
+		t.Errorf("the old matches list is not a verdict: %+v", a)
 	}
 }
 
@@ -132,7 +149,7 @@ func TestTheFirstCheckShowsFirstFindingsWithoutSendingAnything(t *testing.T) {
 }
 
 func TestTheFirstCheckFollowsWhatTheOwnerLooksFor(t *testing.T) {
-	m := &scriptedModel{answers: []string{`{"matches":[{"item":2,"why":"release"}],"state":"s"}`}}
+	m := &scriptedModel{answers: []string{`{"verdicts":[{"item":1,"why":"a recipe","relevant":false},{"item":2,"why":"release","relevant":true}],"state":"s"}`}}
 	h := relevanceHarness(t, "releases", m)
 	h.fetch.bodies[feedURL] = itemsRSS("Cake", "Qwen4 released")
 	h.tick(t, 0)

@@ -3,6 +3,7 @@ import { computed } from "vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
+import { textBeyondTitle } from "../../utils/newsroom/entryText"
 import { ALSO_SEEN_LABEL, CHIP_CHANGED, CHIP_NEW, FIRST_CHECK_LABEL, UNREAD_LABEL, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
@@ -10,6 +11,7 @@ import type { NewsroomEntry } from "../../types/newsroom"
 // open internet, so it is shown as text and a link is opened only if it is a real http or https address (utils/newsroom/safeLink).
 const props = defineProps<{ entry: NewsroomEntry }>()
 const link = computed(() => safeWebLink(props.entry.link))
+const extraText = computed(() => textBeyondTitle(props.entry.title, props.entry.text))
 const changed = computed(() => Boolean(props.entry.was && props.entry.now))
 </script>
 
@@ -28,7 +30,7 @@ const changed = computed(() => Boolean(props.entry.was && props.entry.now))
     <p v-else class="m-0 min-w-0 break-words font-medium text-primary">{{ entry.title }}</p>
     <p v-if="changed" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ entry.was }} → {{ entry.now }}</p>
     <p v-if="entry.why" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ whyWords(entry.why) }}</p>
-    <p v-if="entry.text" class="m-0 break-words text-[length:var(--text-small)] text-muted">{{ entry.text }}</p>
+    <p v-if="extraText" class="m-0 break-words text-[length:var(--text-small)] text-muted">{{ extraText }}</p>
     <p v-if="entry.also_seen?.length" class="m-0 break-words text-[length:var(--text-small)] text-faint">
       {{ ALSO_SEEN_LABEL }}:
       <template v-for="(seen, i) in entry.also_seen" :key="i">

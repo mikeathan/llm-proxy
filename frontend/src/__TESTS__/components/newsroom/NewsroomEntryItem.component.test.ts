@@ -23,6 +23,17 @@ describe('NewsroomEntryItem', () => {
     expect(w.text()).toContain('evil')
   })
 
+  it('does not say a post twice when its headline is the start of its text', () => {
+    const post = 'Datalab just released OmniParseBench, an open OCR benchmark that turns document parsing into yes/no questions. It covers 2,937 pages.'
+    const same = show(entry({ title: post, text: post, link: undefined }))
+    expect(same.text().split('Datalab just released').length - 1).toBe(1)
+    const clipped = show(entry({ title: post.slice(0, 60) + '…', text: post, link: undefined }))
+    expect(clipped.text()).toContain('It covers 2,937 pages.')
+    expect(clipped.text()).not.toContain(post.slice(0, 60) + ' ')
+    const other = show(entry({ text: 'A different summary line' }))
+    expect(other.text()).toContain('A different summary line')
+  })
+
   it('shows text from the internet as text, never as markup', () => {
     const w = show(entry({ title: '<img src=x onerror=alert(1)>', text: '<script>alert(1)</script>', link: undefined }))
     expect(w.find('img').exists()).toBe(false)
