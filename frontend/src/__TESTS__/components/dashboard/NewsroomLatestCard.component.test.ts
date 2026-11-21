@@ -13,6 +13,34 @@ const mountCard = async () => { const w = mount(NewsroomLatestCard); await flush
 
 beforeEach(() => { vi.clearAllMocks() })
 
+describe('NewsroomLatestCard watch chips', () => {
+  const two = () => service.watches.mockResolvedValue([watch(), watch({ id: 2, name: 'Security' })])
+
+  it('shows the short headline in place of the long title', async () => {
+    service.watches.mockResolvedValue([watch()])
+    service.feed.mockResolvedValue([day({ ...entry(1, 'A very long original post title that goes on', 'https://go.dev/x'), headline: 'Short headline' } as ReturnType<typeof entry>)])
+    const w = await mountCard()
+    expect(w.get('[data-test="newsroom-headline"]').text()).toContain('Short headline')
+    expect(w.text()).not.toContain('very long original')
+  })
+
+  it('offers a chip per watch and asks the feed for the chosen one', async () => {
+    two()
+    service.feed.mockResolvedValue([])
+    const w = await mountCard()
+    expect(service.feed.mock.calls[0]![0]).toMatchObject({ watch: null })
+    await w.findAll('[data-test="watch-chips"] button')[2]!.trigger('click')
+    await flushPromises()
+    expect(service.feed.mock.calls[service.feed.mock.calls.length - 1]![0]).toMatchObject({ watch: 2 })
+  })
+
+  it('shows no chips for a single watch', async () => {
+    service.watches.mockResolvedValue([watch()])
+    service.feed.mockResolvedValue([])
+    expect((await mountCard()).find('[data-test="watch-chips"]').exists()).toBe(false)
+  })
+})
+
 describe('NewsroomLatestCard', () => {
   it('shows the newest headline as a link and has nothing to press', async () => {
     service.watches.mockResolvedValue([watch()])

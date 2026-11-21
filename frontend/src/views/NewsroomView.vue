@@ -40,7 +40,7 @@ const tabs: readonly StackTabItem[] = [
 ]
 
 const NEW = "new" as const
-const { watches, feed, filter, loading, error, actionError, saving, create, save, remove, markRead, clear, run } = useNewsroom()
+const { watches, feed, filter, loading, error, actionError, saving, runningId, create, save, remove, markRead, clear, run } = useNewsroom()
 const channels = useNewsroomChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
@@ -79,6 +79,12 @@ async function askClear(what: { ids: number[] } | { scope: "read" | "all" }) {
   const count = "ids" in what ? what.ids.length : what.scope === "read" ? entries.filter((e) => e.read).length : entries.length
   if (!count) return
   const kind = "ids" in what ? "selected" : what.scope
+  // With a filter on, "all" and "read" mean what is on screen: the scope would reach entries the owner cannot see, so the visible ids are sent instead.
+  const filtered = filter.value.watch !== null || filter.value.unreadOnly || filter.value.days !== null
+  if ("scope" in what && filtered) {
+    const onlyRead = what.scope === "read"
+    what = { ids: entries.filter((e) => !onlyRead || e.read).map((e) => e.id) }
+  }
   const sure = await confirm({ title: clearTitle, message: clearMessage(kind, count), type: "warning", confirmText: "Delete" })
   if (!sure) return
   const gone = await clear(what)
@@ -115,7 +121,7 @@ async function check(t: NewsroomWatch) {
             <BaseButton size="sm" icon="plus" @click="startNew">{{ NO_WATCHES_ACTION }}</BaseButton>
           </template>
         </EmptyState>
-        <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
+        <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
         <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
         <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       </template>
@@ -134,7 +140,7 @@ async function check(t: NewsroomWatch) {
           <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" aria-label="Watches you follow">
             <li v-for="t in watches" :key="t.id" class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
               <NewsroomWatchEditor v-if="editing === t.id" :watch="t" :channels="channels" :saving="saving" :error="actionError" @save="submit(t.id, $event)" @cancel="editing = null" />
-              <NewsroomWatchRow v-else :watch="t" :busy="saving" @run="check(t)" @edit="open(t.id)" @delete="askDelete(t)" />
+              <NewsroomWatchRow v-else :watch="t" :busy="saving" :running="runningId === t.id" @run="check(t)" @edit="open(t.id)" @delete="askDelete(t)" />
             </li>
           </ul>
         </Panel>

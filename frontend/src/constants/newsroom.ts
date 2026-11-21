@@ -18,6 +18,17 @@ export const NO_WATCHES_ACTION = 'Add a watch'
 export const FILTER_ALL_WATCHES = 'All watches'
 export const FILTER_WATCH_LABEL = 'Show one watch'
 export const FILTER_UNREAD_LABEL = 'Unread only'
+export const FILTER_PERIOD_LABEL = 'Show a period'
+export const FEED_FILTER_EMPTY = 'Nothing here for this filter. Try another watch or a longer period.'
+// Below this many watches there is nothing to choose between, so the chip row is not shown.
+export const MIN_WATCHES_FOR_CHIPS = 2
+// The feed keeps 30 days, so "All" is the last 30 days; the values are calendar days in the reader's zone.
+export const PERIOD_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: '1', label: 'Today' },
+  { value: '7', label: '7 days' },
+  { value: '14', label: '14 days' },
+]
 export const MARK_READ_LABEL = 'Mark read'
 export const MARK_ALL_READ_LABEL = 'Mark all read'
 export const SELECT_LABEL = 'Select'
@@ -84,6 +95,9 @@ export const SOURCE_KIND_LABEL = 'Kind'
 export const SOURCE_INSTANCE_LABEL = 'Server'
 export const SOURCE_INSTANCE_HINT = 'For example mastodon.social'
 export const RUN_NOW_LABEL = 'Check now'
+export const RUNNING_LABEL = 'Checking…'
+export const RUNNING_WORDS = 'Reading the sources and picking what matches. This can take a minute with a local model.'
+export const originalWords = (title: string): string => `Original: ${title}`
 export const PAUSED_LABEL = 'Paused'
 export const FEED_ONLY_WORDS = 'Feed only'
 export const sendsToWords = (channel: string): string => `Sends to ${channel}`

@@ -15,12 +15,14 @@ const reasonOf = (e: unknown, fallback: string): string => (e instanceof Error &
 export function useNewsroom() {
   const watches = ref<NewsroomWatch[]>([])
   const feed = ref<NewsroomDay[]>([])
-  const filter = ref<NewsroomFeedFilter>({ watch: null, unreadOnly: false })
+  const filter = ref<NewsroomFeedFilter>({ watch: null, unreadOnly: false, days: null })
   const loading = ref(true)
   const error = ref<string | null>(null)
   // The server's reason for the last refused or failed change; empty when none.
   const actionError = ref('')
   const saving = ref(false)
+  // The watch whose check is under way, so its row can say so; null when none is running.
+  const runningId = ref<number | null>(null)
   let latest = 0
 
   async function load() {
@@ -62,13 +64,18 @@ export function useNewsroom() {
     return done.ok ? done.value : null
   }
   async function run(id: number): Promise<NewsroomRunOutcome | null> {
-    const done = await change(() => NewsroomService.run(id))
-    return done.ok ? done.value : null
+    runningId.value = id
+    try {
+      const done = await change(() => NewsroomService.run(id))
+      return done.ok ? done.value : null
+    } finally {
+      runningId.value = null
+    }
   }
 
   watch(filter, () => void load(), { deep: true })
   onMounted(load)
   usePolling(load, POLL_INTERVAL_MS)
 
-  return { watches, feed, filter, loading, error, actionError, saving, load, create, save, remove, markRead, clear, run }
+  return { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, clear, run }
 }

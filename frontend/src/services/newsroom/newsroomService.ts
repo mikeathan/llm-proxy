@@ -19,6 +19,7 @@ export class NewsroomService {
     const query = new URLSearchParams({ zone })
     if (filter.watch !== null) query.set('watch', String(filter.watch))
     if (filter.unreadOnly) query.set('unread', 'true')
+    if (filter.days !== null) query.set('days', String(filter.days))
     const res = await apiFetch(`${BASE}/feed?${query}`)
     if (!res.ok) throw await failureReason(res, 'read the feed')
     return (await res.json()) ?? []

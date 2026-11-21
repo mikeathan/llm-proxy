@@ -16,6 +16,28 @@ const openDetails = async (w: ReturnType<typeof show>) => {
 const NEURALINK_TEXT = "😎 A Neuralink patient is already playing GTA VI, using only his brain implant\n\nNeuralink posted the two-minute clip on Friday, a day after the game came out."
 const NEURALINK_TITLE = '😎 A Neuralink patient is already playing GTA VI, using only his brain implant Neuralink posted the two-minute clip on Friday, a day after the game came out.'
 
+describe('NewsroomEntryItem headline and summary', () => {
+  const digested = entry({ title: 'OpenAI GPT-Live-1.1 listens while it talks, a long original post title', headline: 'GPT-Live-1.1 listens while it talks', summary: 'A full-duplex voice model in the API.', why: 'New model: GPT-Live-1.1' })
+
+  it('shows the short headline as the row title and keeps the link', () => {
+    const w = show(digested)
+    expect(w.get('a').text()).toBe('GPT-Live-1.1 listens while it talks')
+    expect(w.get('a').attributes('href')).toBe('https://go.dev/blog/go1.26')
+    expect(w.text()).not.toContain('long original post title')
+  })
+
+  it('opens to the summary, the reason and the original title', async () => {
+    const w = await openDetails(show(digested))
+    expect(w.text()).toContain('A full-duplex voice model in the API.')
+    expect(w.text()).toContain('Why: New model: GPT-Live-1.1')
+    expect(w.text()).toContain('Original: OpenAI GPT-Live-1.1 listens while it talks, a long original post title')
+  })
+
+  it('falls back to the original title when there is no headline', () => {
+    expect(show(entry()).get('a').text()).toBe('Go 1.26 released')
+  })
+})
+
 describe('NewsroomEntryItem', () => {
   it('opens the source in a new tab without handing it the page, and counts that as reading it', async () => {
     const w = show(entry())

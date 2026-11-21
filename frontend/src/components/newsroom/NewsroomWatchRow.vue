@@ -5,12 +5,12 @@ import StatusTag from "../common/display/StatusTag.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { compactInterval } from "../../utils/newsroom/interval"
 import {
-  FEED_ONLY_WORDS, INTERVAL_OPTIONS, lastCheckedWords, lookingForWords, NEVER_CHECKED, PAUSED_LABEL, RUN_NOW_LABEL, sendsToWords, WATCH_STATUS_TAG,
+  FEED_ONLY_WORDS, INTERVAL_OPTIONS, lastCheckedWords, lookingForWords, NEVER_CHECKED, PAUSED_LABEL, RUN_NOW_LABEL, RUNNING_LABEL, RUNNING_WORDS, sendsToWords, WATCH_STATUS_TAG,
 } from "../../constants/newsroom"
 import type { NewsroomWatch } from "../../types/newsroom"
 
 // One followed watch: its name, where it reads, how often, where it tells you, and what its last check did.
-const props = defineProps<{ watch: NewsroomWatch; busy: boolean }>()
+const props = defineProps<{ watch: NewsroomWatch; busy: boolean; running?: boolean }>()
 const emit = defineEmits<{ (e: "run"): void; (e: "edit"): void; (e: "delete"): void }>()
 
 const sourceNames = computed(() => props.watch.sources.map((s) => s.label || s.target).join(", "))
@@ -35,8 +35,9 @@ const tag = computed(() => (props.watch.last_status ? WATCH_STATUS_TAG[props.wat
       {{ watch.last_run ? lastCheckedWords(formatRelativeTime(watch.last_run)) : NEVER_CHECKED }}
     </p>
     <p v-if="watch.last_detail" class="m-0 break-words text-[length:var(--text-small)] text-faint">{{ watch.last_detail }}</p>
+    <p v-if="running" role="status" class="m-0 text-[length:var(--text-small)] text-secondary">{{ RUNNING_WORDS }}</p>
     <div class="flex flex-wrap gap-2">
-      <BaseButton variant="secondary" size="sm" :disabled="busy || !watch.enabled" @click="emit('run')">{{ RUN_NOW_LABEL }}</BaseButton>
+      <BaseButton variant="secondary" size="sm" :loading="running" :disabled="busy || !watch.enabled" @click="emit('run')">{{ running ? RUNNING_LABEL : RUN_NOW_LABEL }}</BaseButton>
       <BaseButton variant="secondary" size="sm" :disabled="busy" @click="emit('edit')">Edit</BaseButton>
       <BaseButton variant="danger" size="sm" :disabled="busy" @click="emit('delete')">Delete</BaseButton>
     </div>

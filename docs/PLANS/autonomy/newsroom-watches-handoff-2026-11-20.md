@@ -30,6 +30,9 @@ evidence: Branch newsroom-watches, cut from newsroom-source-help-and-checks (fd4
 3. **Hot-topic suggestions: built in v0.118.0 as the source look-up** (ADR-0074, `stacks/newsroom/sources/lookup.go`); Mastodon trending tags are offered, the Hacker News front page is not (it does not help choose a search). Original plan: a keyless route in the stack that reads Mastodon trending tags (`/api/v1/trends/tags`) and the Hacker News front page through the guarded `Fetch`, and offers them as chips that fill the form (a Mastodon tag source, or a Hacker News search). Not built; needs a GET-only fetch of a JSON list, so the existing adapters' pattern fits.
 4. Visual baseline for the new page.
 
+## Added 2026-11-21 (uncommitted, on the merged `newsroom-source-finder` branch; a new branch is the owner's call)
+- Headline + summary per item (`digests`), "Checking…" on a running watch, a period filter (Everything / Today / 7 / 14 days) and Clear that follows the filter. Checks run: stack `-race`, backend build/test, complexity, frontend test + build, harness. **Not run:** `npm run test:visual`; vertex (does the real model return `digests` without breaking the JSON? the model port's output cap was not found in the code); a look on a phone. Commit `frontend_dist/index.html`. Notices sent to a channel still carry the original titles (`Digests` stays inside the stack).
+
 ## Traps
 - The first-check feed entries break any test that expected an empty feed after a baseline; `harness.forgetFirstFindings` removes them for tests about later runs.
 - `stacks/sdk` `NoticeRequest` is shared with the core, so the rename reached `stackport/notice.go`.
