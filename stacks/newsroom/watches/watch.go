@@ -1,7 +1,7 @@
-// Package topics is the Topics module of the Newsroom stack: what the owner follows, when each topic is read, and which items are new. It reads sources
+// Package watches is the Watches module of the Newsroom stack: what the owner follows, when each watch is read, and which items are new. It reads sources
 // through the sources package, keeps its state in one file in the stack's data folder, and hands only the new items to a delivery hook. It calls no
-// model and no search; both are later phases and sit behind this package's seams (Runner.Notify).
-package topics
+// model; that step sits behind this package's seams (Runner.Analyzer, Runner.Notify).
+package watches
 
 import (
 	"errors"
@@ -18,37 +18,27 @@ import (
 const (
 	DefaultInterval = time.Hour
 	MinInterval     = 5 * time.Minute
-	MaxTopics       = 50
+	MaxWatches      = 50
 	MaxSources      = 10
 	MaxNameRunes    = 80
+	// MaxLookForRunes, MaxWords and MaxWordRunes bound what the owner types to say what the watch is for.
+	MaxLookForRunes = 300
+	MaxWords        = 10
+	MaxWordRunes    = 40
 	// MaxStateRunes bounds the last-known-state note.
 	MaxStateRunes = 600
-	// SeenRetention and MaxSeen bound one topic's ledger, as the automation ledger's defaults do.
+	// SeenRetention and MaxSeen bound one watch's ledger, as the automation ledger's defaults do.
 	SeenRetention = 60 * 24 * time.Hour
 	MaxSeen       = 2000
 )
 
-// ErrInvalid wraps every refusal of a topic the owner described; a transport maps it to a 400.
-var ErrInvalid = errors.New("invalid topic")
+// ErrInvalid wraps every refusal of a watch the owner described; a transport maps it to a 400.
+var ErrInvalid = errors.New("invalid watch")
 
-// ErrNotFound is returned for a topic id that does not exist.
-var ErrNotFound = errors.New("topic not found")
+// ErrNotFound is returned for a watch id that does not exist.
+var ErrNotFound = errors.New("watch not found")
 
-// SearchMode says how a topic may use web search (it spends the owner's quota). Phase 2 only stores it; the model step that uses it is Phase 3.
-type SearchMode string
-
-const (
-	// SearchOff never searches: feeds only.
-	SearchOff SearchMode = "off"
-	// SearchConfirm (the default) searches only to confirm a change the feeds showed, within a bounded budget.
-	SearchConfirm SearchMode = "confirm"
-	// SearchLimited searches at most SearchPerDay times a day.
-	SearchLimited SearchMode = "limited"
-	// SearchEveryRun searches on every run.
-	SearchEveryRun SearchMode = "every_run"
-)
-
-// Kind names a source type a topic can read.
+// Kind names a source type a watch can read.
 type Kind string
 
 const (
@@ -59,7 +49,7 @@ const (
 	KindTelegram Kind = "telegram"
 )
 
-// SourceSpec is one source of a topic, as plain data. Param meaning by kind: feed and page: Target is the URL; hackernews: Target is the query;
+// SourceSpec is one source of a watch, as plain data. Param meaning by kind: feed and page: Target is the URL; hackernews: Target is the query;
 // mastodon: Instance is the host and Target the hashtag (no #); telegram: Target is the channel name (no @).
 type SourceSpec struct {
 	Kind     Kind   `json:"kind"`
@@ -76,8 +66,8 @@ func (s SourceSpec) Name() string {
 	return string(s.Kind) + " " + s.Target
 }
 
-// Topic is one thing the owner follows.
-type Topic struct {
+// Watch is one thing the owner follows.
+type Watch struct {
 	ID      int64        `json:"id"`
 	Name    string       `json:"name"`
 	Sources []SourceSpec `json:"sources"`
@@ -85,12 +75,14 @@ type Topic struct {
 	Interval time.Duration `json:"interval"`
 	Enabled  bool          `json:"enabled"`
 	// Channel is the connector type notices are sent through ("telegram", "email"); empty means the feed only. The feed always records every change.
-	Channel      string     `json:"channel,omitempty"`
-	Search       SearchMode `json:"search"`
-	SearchPerDay int        `json:"search_per_day,omitempty"`
-	// Paper puts this topic's changes in the morning paper under Section (morning-paper.md); stored now, used later.
-	Paper   bool   `json:"paper,omitempty"`
-	Section string `json:"section,omitempty"`
+	Channel string `json:"channel,omitempty"`
+	// LookFor says in the owner's words what the watch is for ("new AI model releases, not ads"). When it is set, the model judges each new item against it
+	// (and says why one matched); empty means every new item counts.
+	LookFor string `json:"look_for,omitempty"`
+	// Keywords keeps only items that contain at least one of them; Skip drops items that contain any. Both are plain, case-insensitive text matches that
+	// need no model, and both are optional.
+	Keywords []string `json:"keywords,omitempty"`
+	Skip     []string `json:"skip,omitempty"`
 	// State is the short note of the last known state, rewritten by the framework each run (Phase 3); empty until then.
 	State string `json:"state,omitempty"`
 
@@ -103,7 +95,7 @@ type Topic struct {
 	CreatedAt  time.Time `json:"created_at,omitzero"`
 }
 
-// Status is the outcome of a topic's last run, in words the row can show.
+// Status is the outcome of a watch's last run, in words the row can show.
 type Status string
 
 const (
@@ -111,7 +103,7 @@ const (
 	StatusBaseline Status = "baseline"
 	// StatusNothingNew: every source answered and nothing was new.
 	StatusNothingNew Status = "nothing_new"
-	// StatusInFeed: new items were recorded in the feed; the topic has no channel, so nothing was sent.
+	// StatusInFeed: new items were recorded in the feed; the watch has no channel, so nothing was sent.
 	StatusInFeed Status = "in_feed"
 	// StatusSent: new items were delivered.
 	StatusSent Status = "sent"
@@ -126,55 +118,98 @@ const (
 	StatusFailing Status = "failing"
 )
 
-// Normalize validates a topic the owner described and fills its defaults. It returns a copy; ID and the run record are the store's.
-func Normalize(t Topic) (Topic, error) {
+// Normalize validates a watch the owner described and fills its defaults. It returns a copy; ID and the run record are the store's.
+func Normalize(t Watch) (Watch, error) {
 	t.Name = strings.TrimSpace(t.Name)
 	if t.Name == "" || utf8.RuneCountInString(t.Name) > MaxNameRunes {
-		return Topic{}, fmt.Errorf("%w: a name of 1 to %d characters is needed", ErrInvalid, MaxNameRunes)
+		return Watch{}, fmt.Errorf("%w: a name of 1 to %d characters is needed", ErrInvalid, MaxNameRunes)
 	}
 	if n := len(t.Sources); n == 0 || n > MaxSources {
-		return Topic{}, fmt.Errorf("%w: a topic needs 1 to %d sources", ErrInvalid, MaxSources)
+		return Watch{}, fmt.Errorf("%w: a watch needs 1 to %d sources", ErrInvalid, MaxSources)
 	}
 	t.Sources = append([]SourceSpec(nil), t.Sources...)
 	for i, s := range t.Sources {
 		s = s.canonical()
 		t.Sources[i] = s
 		if err := s.validate(); err != nil {
-			return Topic{}, fmt.Errorf("%w: source %d: %v", ErrInvalid, i+1, err)
+			return Watch{}, fmt.Errorf("%w: source %d: %v", ErrInvalid, i+1, err)
 		}
 	}
 	if t.Interval == 0 {
 		t.Interval = DefaultInterval
 	}
 	if t.Interval < MinInterval {
-		return Topic{}, fmt.Errorf("%w: the interval must be at least %s", ErrInvalid, MinInterval)
+		return Watch{}, fmt.Errorf("%w: the interval must be at least %s", ErrInvalid, MinInterval)
 	}
 	t.Channel = strings.ToLower(strings.TrimSpace(t.Channel))
 	if t.Channel != "" && !channelNameRe.MatchString(t.Channel) {
-		return Topic{}, fmt.Errorf("%w: the channel must be a connector type such as telegram", ErrInvalid)
+		return Watch{}, fmt.Errorf("%w: the channel must be a connector type such as telegram", ErrInvalid)
 	}
-	return normalizeSearch(t)
+	return normalizeLookFor(t)
 }
 
 var channelNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
 
-func normalizeSearch(t Topic) (Topic, error) {
-	switch t.Search {
-	case "":
-		t.Search = SearchConfirm
-	case SearchOff, SearchConfirm, SearchEveryRun:
-	case SearchLimited:
-		if t.SearchPerDay <= 0 {
-			return Topic{}, fmt.Errorf("%w: limited search needs a number of searches a day", ErrInvalid)
-		}
-	default:
-		return Topic{}, fmt.Errorf("%w: search must be off, confirm, limited or every_run", ErrInvalid)
+func normalizeLookFor(t Watch) (Watch, error) {
+	t.LookFor = strings.TrimSpace(t.LookFor)
+	if utf8.RuneCountInString(t.LookFor) > MaxLookForRunes {
+		return Watch{}, fmt.Errorf("%w: what to look for is at most %d characters", ErrInvalid, MaxLookForRunes)
 	}
-	if t.Search != SearchLimited {
-		t.SearchPerDay = 0
+	var err error
+	if t.Keywords, err = normalizeWords(t.Keywords, "keywords"); err != nil {
+		return Watch{}, err
 	}
-	t.Section = strings.TrimSpace(t.Section)
+	if t.Skip, err = normalizeWords(t.Skip, "skip words"); err != nil {
+		return Watch{}, err
+	}
 	return t, nil
+}
+
+// normalizeWords trims, lower-cases and de-duplicates a list of match words, dropping empty ones.
+func normalizeWords(in []string, what string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, w := range in {
+		w = strings.ToLower(strings.TrimSpace(w))
+		if w == "" || seen[w] {
+			continue
+		}
+		if utf8.RuneCountInString(w) > MaxWordRunes {
+			return nil, fmt.Errorf("%w: each of the %s is at most %d characters", ErrInvalid, what, MaxWordRunes)
+		}
+		seen[w] = true
+		out = append(out, w)
+	}
+	if len(out) > MaxWords {
+		return nil, fmt.Errorf("%w: at most %d %s", ErrInvalid, MaxWords, what)
+	}
+	return out, nil
+}
+
+// Gate splits items by the watch's keywords and skip words: kept ones go on to the model, dropped ones are only recorded as seen. A watch with neither
+// keeps everything. The match is on the title and text, case-insensitive.
+func (t Watch) Gate(items []sources.Item) (kept, dropped []sources.Item) {
+	if len(t.Keywords) == 0 && len(t.Skip) == 0 {
+		return items, nil
+	}
+	for _, it := range items {
+		hay := strings.ToLower(it.Title + " " + it.Text)
+		if (len(t.Keywords) == 0 || containsAny(hay, t.Keywords)) && !containsAny(hay, t.Skip) {
+			kept = append(kept, it)
+		} else {
+			dropped = append(dropped, it)
+		}
+	}
+	return kept, dropped
+}
+
+func containsAny(hay string, words []string) bool {
+	for _, w := range words {
+		if strings.Contains(hay, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // canonical reduces what the owner typed to the form the source reads: a bare channel name, a bare tag, a bare host, no stray spaces.
@@ -213,8 +248,8 @@ func (s SourceSpec) validate() error {
 	return fmt.Errorf("unknown source kind %q", s.Kind)
 }
 
-// Due reports whether a topic should be read at now: enabled, and never read or read at least one interval ago.
-func (t Topic) Due(now time.Time) bool {
+// Due reports whether a watch should be read at now: enabled, and never read or read at least one interval ago.
+func (t Watch) Due(now time.Time) bool {
 	if !t.Enabled {
 		return false
 	}

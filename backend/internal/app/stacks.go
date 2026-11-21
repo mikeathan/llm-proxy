@@ -137,7 +137,7 @@ func stackDefinitions() []stack.Stack {
 			Layers: []stack.Layer{{ID: "remind", Title: "Remind", Purpose: "What you asked to be reminded of"}},
 		},
 		{
-			ID: stack.Newsroom, Title: "Newsroom", Purpose: "Follow topics you care about and see what is new.",
+			ID: stack.Newsroom, Title: "Newsroom", Purpose: "Follow watches you care about and see what is new.",
 			Layers: []stack.Layer{{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"}},
 		},
 	}
@@ -264,7 +264,7 @@ func remindersModules(d stackDeps) []stack.Module {
 func newsroomModules(d stackDeps) []stack.Module {
 	guard := d.Guard
 	return []stack.Module{
-		{ID: newsroom.ModuleID, Title: "Topics", Purpose: "Read the sources of each topic you follow and keep what is new.", Stack: stack.Newsroom, Layer: "follow", Sends: stack.SendsInternet,
+		{ID: newsroom.ModuleID, Title: "Watches", Purpose: "Read the sources of each watch you follow and keep what is new.", Stack: stack.Newsroom, Layer: "follow", Sends: stack.SendsInternet,
 			Switch: newsroomSwitch{store: d.Newsroom, host: d.NewsroomHost},
 			Ready:  func() (bool, string) { return networkReady(guard(), false, true) }},
 	}
@@ -640,11 +640,11 @@ func (s *AppServices) radioOn(ctx context.Context) bool {
 	return ok && st.Enabled
 }
 
-// newsroomStack is the Newsroom stack: the topics the owner follows (stacks/newsroom). Only this file imports a stack (Constitution IV.6).
+// newsroomStack is the Newsroom stack: the watches the owner follows (stacks/newsroom). Only this file imports a stack (Constitution IV.6).
 func newsroomStack() stacksdk.Stack { return newsroom.New() }
 
 // newNewsroomHost hosts the Newsroom stack over the core's own services, one adapter per port its manifest requires: the settings document, the log, the
-// data folder restricted to the one file the manifest lists, and the guarded fetch. A factory reset removes the topics file.
+// data folder restricted to the one file the manifest lists, and the guarded fetch. A factory reset removes the watches file.
 func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetch) (*stackHost, error) {
 	st := newsroomStack()
 	files := st.Manifest().Storage
@@ -657,16 +657,16 @@ func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetc
 		Log:     stackport.Log{Stack: st.Manifest().ID},
 		DataDir: stackport.DataDir{Dir: dir, Files: files},
 		Fetch:   fetch,
-		// The owner's configured model answers one tool-free question, while the Topics module is on (ADR-0071).
+		// The owner's configured model answers one tool-free question, while the Watches module is on (ADR-0071).
 		Model: s.stackModelPort(st.Manifest().ID, func() bool { return !policy.Get().Disabled }),
-		// The core words a topic's notice and sends it to the connector the topic names, if the owner enabled it (ADR-0036).
+		// The core words a watch's notice and sends it to the connector the watch names, if the owner enabled it (ADR-0036).
 		Notice: stackport.Notice{Notify: s.notifyPort()},
 	})
 	if err != nil {
 		return nil, err
 	}
-	// The stack holds its topics in memory and would write them back, so it forgets them first and the file is removed after.
-	s.AppCtx.AfterFactoryReset("The topics you follow", func() error {
+	// The stack holds its watches in memory and would write them back, so it forgets them first and the file is removed after.
+	s.AppCtx.AfterFactoryReset("The watches you follow", func() error {
 		if nr, ok := h.stack.(*newsroom.Stack); ok {
 			if err := nr.EraseAll(); err != nil {
 				return err

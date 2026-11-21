@@ -207,7 +207,7 @@ const (
 	// PortModel lets a stack ask the core for one model answer: a system and a user text in, text out (ADR-0071). The core chooses the model; the stack names no
 	// provider, model or parameter, and the call carries no tools, no memory and no history.
 	PortModel = "model"
-	// PortNotice lets a stack hand the core a structured notice (a topic, the items found, the facts that changed) to send to one connector type the owner
+	// PortNotice lets a stack hand the core a structured notice (a watch, the items found, the facts that changed) to send to one connector type the owner
 	// enabled. The core words it from fixed wording and sends it as plain text; the stack never sends and never writes the message (ADR-0036, ADR-0071).
 	PortNotice = "notice"
 )

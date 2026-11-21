@@ -80,7 +80,7 @@ func startEvery(t *testing.T, cfg string, fetch stacksdk.Fetch, every time.Durat
 	return s
 }
 
-const feedTopic = `{"name":"Go","interval":"5m","enabled":true,"sources":[{"kind":"feed","target":"https://example.com/feed.xml"}]}`
+const feedWatch = `{"name":"Go","interval":"5m","enabled":true,"sources":[{"kind":"feed","target":"https://example.com/feed.xml"}]}`
 
 func TestManifestIsValidAndRoutesAreAdminOnly(t *testing.T) {
 	m := New().Manifest()
@@ -96,7 +96,7 @@ func TestManifestIsValidAndRoutesAreAdminOnly(t *testing.T) {
 
 func TestNotRunningRefusesEveryCall(t *testing.T) {
 	s := New()
-	if _, err := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: RouteTopics}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+	if _, err := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: RouteWatches}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
 		t.Errorf("a route before Start is unavailable, got %v", err)
 	}
 	if _, err := s.CallTool(context.Background(), ToolList, nil); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
@@ -110,7 +110,7 @@ func TestNotRunningRefusesEveryCall(t *testing.T) {
 func TestCreateListUpdateDeleteThroughRoutes(t *testing.T) {
 	s := start(t, "", &rssFetch{})
 	ctx := context.Background()
-	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
+	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
 	if err != nil || got.Status != http.StatusCreated {
 		t.Fatalf("create = %+v, %v", got, err)
 	}
@@ -119,21 +119,21 @@ func TestCreateListUpdateDeleteThroughRoutes(t *testing.T) {
 		Interval string `json:"interval"`
 	}
 	if err := json.Unmarshal(got.Body, &made); err != nil || made.ID == 0 || made.Interval != "5m0s" {
-		t.Fatalf("created topic = %s (%v)", got.Body, err)
+		t.Fatalf("created watch = %s (%v)", got.Body, err)
 	}
-	list, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteTopics})
+	list, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteWatches})
 	if !strings.Contains(string(list.Body), `"name":"Go"`) {
 		t.Errorf("list = %s", list.Body)
 	}
 	params := map[string]string{"id": "1"}
-	upd := strings.Replace(feedTopic, `"Go"`, `"Rust"`, 1)
-	if got, err = s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: topicPath("1", ""), Params: params, Body: []byte(upd)}); err != nil || !strings.Contains(string(got.Body), "Rust") {
+	upd := strings.Replace(feedWatch, `"Go"`, `"Rust"`, 1)
+	if got, err = s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: watchPath("1", ""), Params: params, Body: []byte(upd)}); err != nil || !strings.Contains(string(got.Body), "Rust") {
 		t.Errorf("update = %s, %v", got.Body, err)
 	}
-	if got, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: topicPath("1", ""), Params: params}); err != nil || got.Status != http.StatusNoContent {
+	if got, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: watchPath("1", ""), Params: params}); err != nil || got.Status != http.StatusNoContent {
 		t.Errorf("delete = %+v, %v", got, err)
 	}
-	if _, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: topicPath("1", ""), Params: params}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+	if _, err = s.Handle(ctx, stacksdk.Request{Method: "DELETE", Path: watchPath("1", ""), Params: params}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("a second delete is not_found, got %v", err)
 	}
 }
@@ -147,16 +147,16 @@ func TestRefusalsAreInvalidNotServerErrors(t *testing.T) {
 		"bad interval": `{"name":"x","interval":"soon","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
 		"too short":    `{"name":"x","interval":"1s","sources":[{"kind":"feed","target":"https://e.com/f"}]}`,
 	} {
-		if _, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(body)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		if _, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(body)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
 			t.Errorf("%s: want invalid, got %v", name, err)
 		}
 	}
-	if _, err := s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: topicPath("x", ""), Params: map[string]string{"id": "x"}}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+	if _, err := s.Handle(ctx, stacksdk.Request{Method: "PUT", Path: watchPath("x", ""), Params: map[string]string{"id": "x"}}); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("a non-numeric id is not_found, got %v", err)
 	}
 }
 
-func TestFollowToolCreatesAFeedOnlyTopic(t *testing.T) {
+func TestFollowToolCreatesAFeedOnlyWatch(t *testing.T) {
 	s := start(t, "", &rssFetch{})
 	out, err := s.CallTool(context.Background(), ToolFollow, json.RawMessage(`{"name":"Go","channel":"telegram","enabled":false,"sources":[{"kind":"feed","target":"https://example.com/f"}]}`))
 	if err != nil {
@@ -167,35 +167,35 @@ func TestFollowToolCreatesAFeedOnlyTopic(t *testing.T) {
 		Enabled bool   `json:"enabled"`
 	}
 	if json.Unmarshal(out, &made); made.Channel != "" || !made.Enabled {
-		t.Errorf("the assistant's topic is on and feed-only, got %s", out)
+		t.Errorf("the assistant's watch is on and feed-only, got %s", out)
 	}
 	if _, err := s.CallTool(context.Background(), "nope", nil); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("an undeclared tool is not_found, got %v", err)
 	}
 }
 
-func TestManualRunBaselinesThenFeedStaysEmpty(t *testing.T) {
+func TestManualRunBaselinesThenFeedShowsTheFirstFindingsMarkedAsSuch(t *testing.T) {
 	s := startEvery(t, "", &rssFetch{}, time.Hour)
 	ctx := context.Background()
-	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
-	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: topicPath("1", "/run"), Params: map[string]string{"id": "1"}})
+	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
+	got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: watchPath("1", "/run"), Params: map[string]string{"id": "1"}})
 	if err != nil || !strings.Contains(string(got.Body), "baseline") {
 		t.Fatalf("first run = %s, %v", got.Body, err)
 	}
 	feed, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteFeed})
-	if strings.TrimSpace(string(feed.Body)) != "[]" && strings.TrimSpace(string(feed.Body)) != "null" {
-		t.Errorf("a baseline announces nothing, feed = %s", feed.Body)
+	if !strings.Contains(string(feed.Body), "\"first\":true") {
+		t.Errorf("the first check shows what was already there, marked as the first check: %s", feed.Body)
 	}
 }
 
-func TestLoopReadsDueTopicsOnlyWhileTheModuleIsOn(t *testing.T) {
+func TestLoopReadsDueWatchesOnlyWhileTheModuleIsOn(t *testing.T) {
 	for _, tc := range []struct {
 		cfg  string
 		want bool
 	}{{"", true}, {`{"disabled":true}`, false}} {
 		f := &rssFetch{}
 		s := start(t, tc.cfg, f)
-		if _, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)}); err != nil {
+		if _, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(150 * time.Millisecond)
@@ -268,27 +268,27 @@ func TestTheManifestRequiresTheModelPort(t *testing.T) {
 func TestAManualRunFollowsTheSwitchAndFetchesNothingWhileOff(t *testing.T) {
 	f := &rssFetch{}
 	s := start(t, `{"disabled":true}`, f)
-	s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
-	_, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: topicPath("1", "/run"), Params: map[string]string{"id": "1"}})
+	s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
+	_, err := s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: watchPath("1", "/run"), Params: map[string]string{"id": "1"}})
 	if stacksdk.CodeOf(err) != stacksdk.CodeUnavailable || f.count() != 0 {
 		t.Errorf("err = %v, fetches = %d", err, f.count())
 	}
 }
 
-func TestEraseAllEmptiesTheTopicsAndIsHarmlessWhenNotRunning(t *testing.T) {
+func TestEraseAllEmptiesTheWatchesAndIsHarmlessWhenNotRunning(t *testing.T) {
 	if err := New().EraseAll(); err != nil {
 		t.Errorf("a stack that is not running has nothing to erase, got %v", err)
 	}
 	s := start(t, "", &rssFetch{})
-	s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteTopics, Body: []byte(feedTopic)})
+	s.Handle(context.Background(), stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
 	if err := s.EraseAll(); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: RouteTopics})
+	got, _ := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: RouteWatches})
 	if strings.TrimSpace(string(got.Body)) != "[]" {
-		t.Errorf("topics after erase = %s", got.Body)
+		t.Errorf("watches after erase = %s", got.Body)
 	}
 }
 
-// topicPath is the path the core really passes: the route with the id filled in, not the {id} pattern.
-func topicPath(id, suffix string) string { return RouteTopics + "/" + id + suffix }
+// watchPath is the path the core really passes: the route with the id filled in, not the {id} pattern.
+func watchPath(id, suffix string) string { return RouteWatches + "/" + id + suffix }

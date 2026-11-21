@@ -1,4 +1,4 @@
-// The Newsroom as /admin/api/newsroom/* reports it (stacks/newsroom: topics, the topic view and the feed view model).
+// The Newsroom as /admin/api/newsroom/* reports it (stacks/newsroom: watches, the watch view and the feed view model).
 
 export const SOURCE_KINDS = ['feed', 'hackernews', 'mastodon', 'page', 'telegram'] as const
 export type SourceKind = (typeof SOURCE_KINDS)[number]
@@ -11,38 +11,46 @@ export interface NewsroomSource {
   instance?: string
 }
 
-/** The words the topic form shows for one kind of source. */
+/** The words the watch form shows for one kind of source. */
 export interface SourceKindInfo {
   label: string
   targetLabel: string
   hint: string
 }
 
-/** What a topic's last run did, in the server's words. */
-export type TopicStatus = 'baseline' | 'nothing_new' | 'in_feed' | 'sent' | 'send_failed' | 'no_channel' | 'analysis_failed' | 'failing'
+/** What a watch's last run did, in the server's words. */
+export type WatchStatus = 'baseline' | 'nothing_new' | 'in_feed' | 'sent' | 'send_failed' | 'no_channel' | 'analysis_failed' | 'failing'
 
-export interface NewsroomTopic {
+export interface NewsroomWatch {
   id: number
   name: string
   sources: NewsroomSource[]
   /** A duration such as "1h0m0s". */
   interval: string
   enabled: boolean
+  /** What the owner wants to know about, in their words; absent means every new item counts. */
+  look_for?: string
+  /** An item must contain one of these to be looked at (lower case), and is dropped if it contains one of skip. */
+  keywords?: string[]
+  skip?: string[]
   /** The connector type notices go through; absent means the feed only. */
   channel?: string
   last_run?: string
-  last_status?: TopicStatus
+  last_status?: WatchStatus
   last_detail?: string
   last_new?: number
 }
 
 /** What a create or a save sends. The interval is a duration such as "1h". */
-export interface NewsroomTopicEdit {
+export interface NewsroomWatchEdit {
   name: string
   sources: NewsroomSource[]
   interval: string
   enabled: boolean
   channel: string
+  look_for: string
+  keywords: string[]
+  skip: string[]
 }
 
 export interface NewsroomAlsoSeen {
@@ -53,12 +61,16 @@ export interface NewsroomAlsoSeen {
 
 export interface NewsroomEntry {
   id: number
-  topic_id: number
+  watch_id: number
   at: string
   source: string
   title: string
   link?: string
   text?: string
+  /** The model's short reason the item matches what the watch looks for. */
+  why?: string
+  /** True for an item shown from the watch's first check: it was already there, so nothing was announced. */
+  first?: boolean
   /** A changed fact, when the model step found one. */
   was?: string
   now?: string
@@ -67,10 +79,10 @@ export interface NewsroomEntry {
   read?: boolean
 }
 
-/** One topic's findings on one day: the newest first, every earlier one beneath it. */
-export interface NewsroomTopicDay {
-  topic_id: number
-  topic: string
+/** One watch's findings on one day: the newest first, every earlier one beneath it. */
+export interface NewsroomWatchDay {
+  watch_id: number
+  watch: string
   updates: number
   unread: number
   current: NewsroomEntry
@@ -84,39 +96,26 @@ export interface NewsroomDay {
   label: string
   updates: number
   unread: number
-  topics: NewsroomTopicDay[]
+  watches: NewsroomWatchDay[]
 }
 
 export interface NewsroomFeedFilter {
-  topic: number | null
+  watch: number | null
   unreadOnly: boolean
 }
 
 export interface NewsroomRunOutcome {
-  topic_id: number
-  status: TopicStatus
+  watch_id: number
+  status: WatchStatus
   detail: string
   new: number
 }
 
-/** A finding with the topic it belongs to, for a list that mixes topics. */
+/** A finding with the watch it belongs to, for a list that mixes watches. */
 export interface Headline {
-  topic: string
+  watch: string
   entry: NewsroomEntry
 }
-
-/** One place the Newsroom reads, with the topics that read it. The status is the last check of those topics: the server keeps one per topic, not one per source. */
-export interface SourceRow {
-  key: string
-  source: NewsroomSource
-  topics: NewsroomTopic[]
-  state: 'failing' | 'working' | 'unchecked' | 'paused'
-  /** The server's words for the failure, when there is one. */
-  detail: string
-}
-
-/** One block of the Newsroom Help tab. */
-export interface HelpSection { title: string; lines: readonly string[] }
 
 /** How to use one kind of source: what it is for, the steps to fill it in, and an example of what to type. */
 export interface SourceGuide {

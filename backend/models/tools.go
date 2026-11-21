@@ -66,9 +66,9 @@ const (
 	ToolListReminders    = "list_reminders"
 	ToolCancelReminder   = "cancel_reminder"
 
-	// Newsroom (the Newsroom stack's topics; attended chat only)
-	ToolNewsroomFollow = "newsroom_follow"
-	ToolNewsroomTopics = "newsroom_topics"
+	// Newsroom (the Newsroom stack's watches; attended chat only)
+	ToolNewsroomFollow  = "newsroom_follow"
+	ToolNewsroomWatches = "newsroom_watches"
 
 	// FileSystem
 	ToolFileRead      = "read_file"

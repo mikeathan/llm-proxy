@@ -10,7 +10,7 @@ import (
 	"llm-proxy/models"
 )
 
-// The registry (core) and the manifest (stack) both describe the Topics module; the registry must not drift from the manifest, including the words
+// The registry (core) and the manifest (stack) both describe the Watches module; the registry must not drift from the manifest, including the words
 // the card shows.
 func TestNewsroomStack_TheRegistryModuleMatchesTheManifestSpec(t *testing.T) {
 	spec := newsroomStack().Manifest().Modules[0]
@@ -26,14 +26,14 @@ func TestNewsroomStack_TheRegistryModuleMatchesTheManifestSpec(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("the Topics module is not in the registry")
+	t.Fatal("the Watches module is not in the registry")
 }
 
 func TestNewsroomStack_TheSwitchIsOnUntilTurnedOffAndNeedsNoPassphrase(t *testing.T) {
 	d := newTestStacks(t)
 	m, ok := d.reg.Module(stack.Newsroom, newsroom.ModuleID)
 	if !ok {
-		t.Fatal("the Topics module is not in the registry")
+		t.Fatal("the Watches module is not in the registry")
 	}
 	if m.StepUp || !m.Switch.Enabled() {
 		t.Fatalf("a fresh install has the module on without a passphrase, got step-up %v, enabled %v", m.StepUp, m.Switch.Enabled())

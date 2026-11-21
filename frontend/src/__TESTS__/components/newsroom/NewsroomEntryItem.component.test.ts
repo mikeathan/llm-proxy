@@ -4,7 +4,7 @@ import NewsroomEntryItem from '../../../components/newsroom/NewsroomEntryItem.vu
 import type { NewsroomEntry } from '../../../types/newsroom'
 
 const entry = (over: Partial<NewsroomEntry> = {}): NewsroomEntry => ({
-  id: 1, topic_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title: 'Go 1.26 released', link: 'https://go.dev/blog/go1.26', ...over,
+  id: 1, watch_id: 1, at: '2026-11-20T10:00:00Z', source: 'go.dev', title: 'Go 1.26 released', link: 'https://go.dev/blog/go1.26', ...over,
 })
 const show = (e: NewsroomEntry) => mount(NewsroomEntryItem, { props: { entry: e }, global: { stubs: { Icon: true } } })
 

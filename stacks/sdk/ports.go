@@ -706,10 +706,10 @@ type NoticeChange struct {
 	Now  string `json:"now"`
 }
 
-// NoticeRequest is what a stack offers: the topic's name, the items and the changed facts. It has no prose of the stack's own: the core words the
+// NoticeRequest is what a stack offers: the watch's name, the items and the changed facts. It has no prose of the stack's own: the core words the
 // message from fixed wording around these fields.
 type NoticeRequest struct {
-	Topic   string         `json:"topic"`
+	Watch   string         `json:"watch"`
 	Items   []NoticeItem   `json:"items"`
 	Changes []NoticeChange `json:"changes,omitempty"`
 }

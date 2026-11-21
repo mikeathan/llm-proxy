@@ -60,10 +60,10 @@ const (
 // could not be made carries a fixed Reason code and never reads as "nothing found". The typed facts are numbers, flags and
 // validated short names only, never text an outside service chose.
 type FootprintResult struct {
-	Watch  string    `json:"watch"` // the finding label: "domain:example.com" or "email:<id>"
-	Check  string    `json:"check"`
-	Status string    `json:"status"`
-	Reason string    `json:"reason,omitempty"`
+	Watch  string `json:"watch"` // the finding label: "domain:example.com" or "email:<id>"
+	Check  string `json:"check"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 	// At is the latest attempt; LookedAt is the last look that worked. After a failed attempt the typed facts of the last good look
 	// are kept, so a service that is down never erases what was known.
 	At       time.Time `json:"at"`

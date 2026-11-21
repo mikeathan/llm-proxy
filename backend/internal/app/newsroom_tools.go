@@ -12,9 +12,9 @@ import (
 	stacksdk "llm-proxy-stacks/sdk"
 )
 
-// newsroomToolModule offers the assistant the Newsroom stack's two declared tools, newsroom_follow and newsroom_topics. They are scoped to attended runs:
-// a topic makes the service read its sources from then on, and an unattended automation may be steered by content it read. They are offered only while
-// the Topics module is on, so the model is never shown a tool that can only refuse. The stack answers with the topic as JSON, or refuses in its own words.
+// newsroomToolModule offers the assistant the Newsroom stack's two declared tools, newsroom_follow and newsroom_watches. They are scoped to attended runs:
+// a watch makes the service read its sources from then on, and an unattended automation may be steered by content it read. They are offered only while
+// the Watches module is on, so the model is never shown a tool that can only refuse. The stack answers with the watch as JSON, or refuses in its own words.
 func newsroomToolModule(h *stackHost) toolregistry.Module {
 	// The stack's tool names are the core's (models.ToolNewsroom*); a test pins that the stack declares exactly these. The module is the stack's one.
 	moduleID := h.stack.Manifest().Modules[0].ID
@@ -47,8 +47,8 @@ func newsroomToolModule(h *stackHost) toolregistry.Module {
 	}
 	return toolregistry.Module{
 		Handlers: map[string]toolregistry.ToolHandler{
-			models.ToolNewsroomFollow: call(models.ToolNewsroomFollow),
-			models.ToolNewsroomTopics: call(models.ToolNewsroomTopics),
+			models.ToolNewsroomFollow:  call(models.ToolNewsroomFollow),
+			models.ToolNewsroomWatches: call(models.ToolNewsroomWatches),
 		},
 		Available: available,
 	}

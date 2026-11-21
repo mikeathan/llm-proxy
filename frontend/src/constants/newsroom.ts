@@ -1,22 +1,22 @@
-import type { HelpSection, SourceGuide, SourceKind, SourceKindInfo, TopicStatus } from '../types/newsroom'
+import type { SourceGuide, SourceKind, SourceKindInfo, WatchStatus } from '../types/newsroom'
 import type { ChoiceOption, StatusState } from '../types/ui'
 
 // The words of the Newsroom screens.
 
 export const NEWSROOM_TITLE = 'Newsroom'
-export const NEWSROOM_SUBTITLE = 'Topics you follow, and what is new in them. Ask the assistant to follow one, or add one here.'
-export const NEWSROOM_TAB_LABELS = { feed: 'Feed', topics: 'Topics', sources: 'Sources', settings: 'Settings', help: 'Help' } as const
+export const NEWSROOM_SUBTITLE = 'What is new about the things you care about. Set up a watch once, or ask the assistant to.'
+export const NEWSROOM_TAB_LABELS = { feed: 'Feed', watches: 'Watches', settings: 'Settings' } as const
 export const NEWSROOM_LOAD_FAILED = 'The Newsroom could not be read.'
 export const NEWSROOM_ACTION_FAILED = 'The change could not be made.'
 export const NEWSROOM_RELOAD_HINT = 'Check that the service is running, then reload the page.'
 
 export const FEED_EMPTY_TITLE = 'Nothing new yet'
-export const FEED_EMPTY_BODY = 'A topic shows its changes here. A topic you have just added records what is already there first and announces nothing.'
-export const NO_TOPICS_TITLE = 'You follow nothing yet'
-export const NO_TOPICS_BODY = 'Add a topic, or ask the assistant: "keep an eye on new Go releases".'
-export const NO_TOPICS_ACTION = 'Add a topic'
-export const FILTER_ALL_TOPICS = 'All topics'
-export const FILTER_TOPIC_LABEL = 'Show one topic'
+export const FEED_EMPTY_BODY = 'What a watch finds shows up here. A new watch shows a few items that were already there, marked "First check", and tells you only about what comes after.'
+export const NO_WATCHES_TITLE = 'You follow nothing yet'
+export const NO_WATCHES_BODY = 'Add a watch, or ask the assistant: "keep an eye on new Go releases".'
+export const NO_WATCHES_ACTION = 'Add a watch'
+export const FILTER_ALL_WATCHES = 'All watches'
+export const FILTER_WATCH_LABEL = 'Show one watch'
 export const FILTER_UNREAD_LABEL = 'Unread only'
 export const MARK_READ_LABEL = 'Mark read'
 export const EARLIER_LABEL = 'Earlier today'
@@ -25,35 +25,43 @@ export const CHIP_CHANGED = 'Changed'
 export const ALSO_SEEN_LABEL = 'Also seen'
 export const UNREAD_LABEL = 'Unread'
 
-export const SOURCES_TITLE = 'Where the Newsroom reads'
-export const CHECK_SOURCE_LABEL = 'Check now'
-export const readByWords = (names: readonly string[]): string => `Read for: ${names.join(', ')}`
-export const NO_SOURCES_TITLE = 'No sources yet'
-export const NO_SOURCES_BODY = 'A source belongs to a topic. Add a topic and give it somewhere to read.'
-/** What a source's state says. It is the last check of the topics that read it; a paused or never-checked source has not failed. */
-export const SOURCE_STATE_TAG: Record<'failing' | 'working' | 'unchecked' | 'paused', { state: StatusState; label: string }> = {
-  failing: { state: 'error', label: 'Failing' },
-  working: { state: 'success', label: 'Working' },
-  unchecked: { state: 'neutral', label: 'Not checked yet' },
-  paused: { state: 'neutral', label: 'Paused' },
-}
-
-export const CARD_NO_TOPICS = 'You follow nothing yet. Ask the assistant to keep an eye on something.'
+export const CARD_NO_WATCHES = 'You follow nothing yet. Ask the assistant to keep an eye on something.'
 export const CARD_HEADLINES_EMPTY = 'Nothing new yet.'
 export const CARD_FAILING_WORDS = (names: readonly string[]): string => `${names.join(', ')} cannot read a source.`
 export const NEWSROOM_CARD_RELOAD = 'It is read again in a minute.'
 
-export const NEW_TOPIC_LABEL = 'New topic'
-export const TOPIC_NAME_LABEL = 'Name'
-export const TOPIC_NAME_MAX = 80
-export const TOPIC_NAME_HINT = 'Only a label for you, such as "AI news". Where it reads is set under Sources below.'
-export const TOPIC_FORM_INTRO = 'A topic is something you follow. Give it a name, then say where to read about it.'
-export const TOPIC_INTERVAL_LABEL = 'Check every'
-export const TOPIC_CHANNEL_LABEL = 'Send a message when something is new'
-export const TOPIC_CHANNEL_HINT = 'Every change is kept in the feed either way. Pick a channel to be told as well.'
-export const TOPIC_FEED_ONLY = 'No, the feed only'
-export const TOPIC_ON_LABEL = 'Following'
-export const TOPIC_SOURCES_LABEL = 'Sources'
+export const WATCH_FILTER_ACTIVE = 'looking for'
+export const NEW_WATCH_LABEL = 'New watch'
+export const WATCH_NAME_LABEL = 'Name'
+export const WATCH_NAME_MAX = 80
+export const WATCH_NAME_HINT = 'Only a label for you, such as "AI model news".'
+export const WATCH_FORM_INTRO = 'A watch is one thing you follow: where to read, what to look for, and how often. Start from a suggestion or write your own.'
+export const WATCH_INTERVAL_LABEL = 'Check every'
+export const WATCH_CHANNEL_LABEL = 'Send a message when something is new'
+export const WATCH_CHANNEL_HINT = 'Every change is kept in the feed either way. Pick a channel to be told as well.'
+export const WATCH_FEED_ONLY = 'No, the feed only'
+export const WATCH_ON_LABEL = 'Following'
+export const WATCH_SOURCES_LABEL = 'Where to read'
+export const WATCH_LOOK_FOR_LABEL = 'What to look for'
+export const WATCH_LOOK_FOR_HINT = 'In your own words, for example "new open-weight model releases, not ads". The model keeps only items about it and says why. Empty means everything the sources post.'
+export const WATCH_LOOK_FOR_MAX = 300
+export const WATCH_SUGGESTIONS_LABEL = 'Suggestions'
+export const WATCH_KEYWORDS_LABEL = 'Must contain one of (optional)'
+export const WATCH_KEYWORDS_HINT = 'Separate with commas. An item without any of these words is dropped before the model looks at it.'
+export const WATCH_SKIP_LABEL = 'Skip if it contains (optional)'
+export const WATCH_SKIP_HINT = 'Separate with commas, such as sponsored, giveaway.'
+/** Starting points for what to look for. Choosing one fills in the name when it is empty and the text; both stay editable. */
+export const WATCH_TEMPLATES: readonly { label: string; name: string; lookFor: string }[] = [
+  { label: 'Product releases', name: 'Releases', lookFor: 'New versions or releases of the software or products I follow; not announcements of plans.' },
+  { label: 'Security problems', name: 'Security', lookFor: 'Security vulnerabilities, breaches and urgent patches; not general security advice.' },
+  { label: 'Price drops', name: 'Price drops', lookFor: 'Price cuts, sales and deals on things I might buy.' },
+  { label: 'Job posts', name: 'Jobs', lookFor: 'New job openings that match my skills; not recruiter ads.' },
+  { label: 'Outages and incidents', name: 'Outages', lookFor: 'Service outages, incidents and their resolution.' },
+  { label: 'Anything new', name: 'Everything new', lookFor: '' },
+]
+export const FIRST_CHECK_LABEL = 'First check'
+export const whyWords = (why: string): string => `Why: ${why}`
+export const lookingForWords = (what: string): string => `Looking for: ${what}`
 export const MAX_SOURCES = 10
 export const ADD_SOURCE_LABEL = 'Add a source'
 export const REMOVE_SOURCE_LABEL = 'Remove source'
@@ -70,8 +78,8 @@ export const updatesWords = (n: number): string => `${n} ${n === 1 ? 'update' : 
 export const dayHeadline = (updates: number, last: string): string => `${updatesWords(updates)}, last ${last}`
 export const runDoneWords = (found: number): string => (found === 0 ? 'Checked: nothing new' : `Checked: ${found} new`)
 
-export const deleteTopicTitle = 'Stop following this topic?'
-export const deleteTopicMessage = (name: string): string => `"${name}" and what it found are removed from the feed.`
+export const deleteWatchTitle = 'Stop following this watch?'
+export const deleteWatchMessage = (name: string): string => `"${name}" and what it found are removed from the feed.`
 
 export const INTERVAL_OPTIONS: ChoiceOption[] = [
   { value: '5m', label: 'Every 5 minutes' },
@@ -105,8 +113,8 @@ export const SOURCE_PROBLEMS = {
 } as const
 export const HN_QUERY_MAX = 200
 
-/** What a topic's last run says, in plain words. */
-export const TOPIC_STATUS_TAG: Record<TopicStatus, { state: StatusState; label: string }> = {
+/** What a watch's last run says, in plain words. */
+export const WATCH_STATUS_TAG: Record<WatchStatus, { state: StatusState; label: string }> = {
   baseline: { state: 'info', label: 'Recorded what is there' },
   nothing_new: { state: 'neutral', label: 'Nothing new' },
   in_feed: { state: 'success', label: 'In the feed' },
@@ -117,16 +125,6 @@ export const TOPIC_STATUS_TAG: Record<TopicStatus, { state: StatusState; label: 
   failing: { state: 'error', label: 'Source failing' },
 }
 
-export const HELP_TITLE = 'Help'
-export const HELP_INTRO = 'You follow topics. A topic is a name plus the places it reads. The Newsroom reads them on a timer and keeps only what is new in the Feed.'
-export const HELP_STEPS_TITLE = 'Follow something'
-export const HELP_STEPS: readonly string[] = [
-  'Topics tab, then New topic. Give it a name and add a source.',
-  'Save, then press Check now. The first check only records what is already there and tells you nothing.',
-  'Later checks add what is new to the Feed. Pick a channel on the topic if you also want a message.',
-]
-export const HELP_SOURCES_TITLE = 'Sources you can add'
-export const HELP_SOURCES_INTRO = 'Pick a source to see how to fill it in.'
 export const GUIDE_STEPS_LABEL = 'How to fill it in'
 export const GUIDE_EXAMPLE_LABEL = 'Example'
 export const GUIDE_SHOW_LABEL = 'How do I find this?'
@@ -178,10 +176,3 @@ export const SOURCE_GUIDES: Record<SourceKind, SourceGuide> = {
   },
 }
 
-export const HELP_GOOD_TITLE = 'Good to know'
-export const HELP_GOOD_TO_KNOW: readonly HelpSection[] = [
-  { title: 'Feed only', lines: ['Changes are kept in the Feed and nothing is sent. Choose a channel on a topic to be messaged as well.'] },
-  { title: 'Source failing', lines: ['The address could not be read. Open it in a browser, and check that this computer can reach the internet.'] },
-  { title: 'Could not compare', lines: ['No model is chosen, so every item is announced as new instead of being compared with what you saw before.'] },
-  { title: 'Deleting a topic', lines: ['It removes what the topic found from the Feed.'] },
-]
