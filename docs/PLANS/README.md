@@ -119,6 +119,7 @@ harness checks the plan's own status line matches this table).
 | [SQLite Session Storage](cross-cutting/sqlite-session-storage.md) | proposed | 2026-08-20 | SPEC-001 | JSON → SQLite migration (deliberately deferred, future work) |
 | [Tool-Call Grammar Re-enable](cross-cutting/tool-call-grammar-reenable.md) | proposed | 2026-09-05 | SPEC-001, SPEC-002 | envelope-aware GBNF + opt-in per-model toggle, XML path only |
 | [GPU Performance](gpu-performance.md) | active | 2026-08-06 | — | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
+| [Skill evaluation: does a skill change what an agent does?](cross-cutting/skill-eval.md) | proposed | 2026-11-22 | — | Kit and runbook built and self-checked (docs/guides/skill-eval.md); no run yet; owner approves the 4-run pilot and picks the agent and model |
 
 ## Follow-ups left by archived plans
 
