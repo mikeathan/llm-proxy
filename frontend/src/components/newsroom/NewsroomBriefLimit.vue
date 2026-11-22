@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import FormField from "../common/forms/FormField.vue"
-import { MODEL_CALLS_HINT, MODEL_CALLS_LABEL, modelCallsProblem } from "../../constants/newsroom"
+import { MODEL_CALLS_LABEL, MODEL_LIMIT_HINT, modelCallsProblem } from "../../constants/newsroom"
 import type { BriefSettings } from "../../types/newsroom"
 
 // The daily limit of model calls: the Newsroom's watches and its briefs share it. An empty box means the default. The server checks the number again.
@@ -21,7 +21,7 @@ const canSave = computed(() => !props.saving && changed.value && problem.value =
 
 <template>
   <form class="flex flex-wrap items-end gap-3" @submit.prevent="canSave && save(calls)">
-    <FormField :label="MODEL_CALLS_LABEL" :hint="MODEL_CALLS_HINT(settings.default, settings.max)" :error="problem">
+    <FormField :label="MODEL_CALLS_LABEL" :hint="MODEL_LIMIT_HINT(settings.default, settings.max)" :error="problem">
       <template #default="{ id, describedBy, invalid }">
         <input :id="id" v-model="text" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" inputmode="numeric" :placeholder="String(settings.default)" class="form-control w-32" />
       </template>

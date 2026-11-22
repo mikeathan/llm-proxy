@@ -14,15 +14,14 @@ export function hoursOf(duration: string): number | null {
 
 export const hoursToDuration = (hours: number): string => `${hours}h`
 
-/** The topic as the form edits it: searches and feeds one per line. */
-export function topicFields(t: BriefTopic | null): { name: string; category: string; searches: string; region: string; feeds: string; ignore: string } {
+/** The topic as the form edits it: searches and skip words as lists, feeds one per line. */
+export function topicFields(t: BriefTopic | null): { name: string; searches: string[]; region: string; feeds: string; ignore: string[] } {
   return {
     name: t?.name ?? '',
-    category: t?.category ?? '',
-    searches: (t?.queries ?? []).join('\n'),
+    searches: [...(t?.queries ?? [])],
     region: t?.region ?? '',
     feeds: (t?.sources ?? []).filter((s) => s.kind === 'feed').map((s) => s.target).join('\n'),
-    ignore: (t?.ignore ?? []).join(', '),
+    ignore: [...(t?.ignore ?? [])],
   }
 }
 
@@ -34,11 +33,12 @@ export function topicEdit(f: ReturnType<typeof topicFields>, was: BriefTopic | n
   const kept = (was?.sources ?? []).filter((s) => s.kind !== 'feed')
   return {
     name: f.name.trim(),
-    category: f.category.trim(),
-    queries: fromLines(f.searches),
+    // The form has no category field; a topic's own is kept as it was.
+    category: was?.category ?? '',
+    queries: [...new Set(f.searches.map((s) => s.trim()).filter((s) => s !== ''))],
     region: f.region.trim(),
     sources: [...fromLines(f.feeds).map((target) => ({ kind: 'feed' as const, target })), ...kept],
-    ignore: fromWords(f.ignore),
+    ignore: fromWords(f.ignore.join(',')),
   }
 }
 

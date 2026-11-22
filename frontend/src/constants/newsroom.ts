@@ -281,28 +281,9 @@ export const NO_TOPICS_BODY = 'A topic is a news area you choose, such as Techno
 export const NO_EDITIONS_SETUP_BODY = 'An edition lists some topics and is written at a time you set.'
 export const NEED_TOPIC_FIRST = 'Add a topic first: an edition is made of topics.'
 export const TOPIC_NAME_LABEL = 'Name'
-export const TOPIC_NAME_HINT = 'For example Technology or World.'
-export const TOPIC_SEARCHES_LABEL = 'What it covers'
-export const TOPIC_SEARCHES_HINT = 'One search per line, as you would type it into a news search: "AI chips", or site:reuters.com to read one publisher.'
-export const TOPIC_FEEDS_LABEL = 'Feeds'
-export const TOPIC_FEEDS_HINT = 'One feed address per line (optional). The Watches tab can look a source up.'
-export const TOPIC_CATEGORY_LABEL = 'Category'
-export const TOPIC_REGION_LABEL = 'Region'
-export const TOPIC_REGION_HINT = 'Language and country of the searches, such as en-GB. Empty uses the default.'
-export const TOPIC_IGNORE_LABEL = 'Leave out'
-export const TOPIC_IGNORE_HINT = 'Stories with one of these words are dropped. Separate with commas.'
 export const TOPIC_NEEDS_SOMETHING = 'A topic needs at least one search or one feed.'
 export const READ_NOW_LABEL = 'Read now'
 export const EDITION_NAME_LABEL = 'Name'
-export const EDITION_NAME_HINT = 'For example Morning or Evening.'
-export const EDITION_READY_LABEL = 'Ready by'
-export const EDITION_DAYS_LABEL = 'Days'
-export const EDITION_TOPICS_LABEL = 'Topics in this edition'
-export const EDITION_ON_LABEL = 'Write this edition'
-export const EDITION_EVERY_LABEL = 'Collect every'
-export const EDITION_FOR_LABEL = 'Start collecting'
-export const EDITION_FOR_HINT = 'How long before it is ready the topics start to be read.'
-export const ADVANCED_LABEL = 'Advanced'
 export const DAY_OPTIONS: { value: string; label: string }[] = [
   { value: '1', label: 'Monday' }, { value: '2', label: 'Tuesday' }, { value: '3', label: 'Wednesday' }, { value: '4', label: 'Thursday' },
   { value: '5', label: 'Friday' }, { value: '6', label: 'Saturday' }, { value: '0', label: 'Sunday' },
@@ -321,12 +302,54 @@ export const deleteEditionMessage = (name: string): string => `"${name}" is remo
 export const topicReadWords = (n: number): string => (n === 0 ? 'Read: nothing new.' : `Read: ${n} new ${n === 1 ? 'story' : 'stories'}.`)
 export const editionSummaryWords = (ready: string, topics: number): string => `Ready by ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
 
-export const MODEL_CALLS_TITLE = 'Model calls'
 export const MODEL_CALLS_LABEL = 'Model calls a day'
-export const MODEL_CALLS_HINT = (fallback: number, max: number): string => `Watches and briefs share this limit. Empty uses ${fallback}; the most is ${max}.`
 export const modelCallsProblem = (text: string, max: number): string => {
   const t = text.trim()
   if (t === '') return ''
   const n = Number(t)
   return Number.isInteger(n) && n >= 1 && n <= max ? '' : `Use a whole number from 1 to ${max}, or leave it empty.`
 }
+
+// Topic and edition forms
+export const TOPIC_NAME_HINT = 'A short name, such as Technology or World.'
+export const TOPIC_SEARCHES_LABEL = 'What should it find?'
+export const TOPIC_SEARCHES_HINT = 'Type a search and press Enter, as you would in a news search: AI chips, Ukraine, site:reuters.com for one publisher.'
+export const TOPIC_SEARCHES_PLACEHOLDER = 'AI chips…'
+export const TOPIC_FEEDS_LABEL = 'Follow a website (optional)'
+export const TOPIC_FEEDS_HINT = 'Paste the feed link (RSS) of a site you trust, one per line, and its newest stories are included too.'
+export const TOPIC_IGNORE_LABEL = 'Skip stories that mention (optional)'
+export const TOPIC_IGNORE_HINT = 'Type a word and press Enter. A story with that word is left out.'
+export const TOPIC_REGION_LABEL = 'News from'
+export const REGION_DEFAULT_LABEL = 'Default'
+export const REGION_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: REGION_DEFAULT_LABEL }, { value: 'en-GB', label: 'United Kingdom (English)' }, { value: 'en-US', label: 'United States (English)' },
+  { value: 'en-AU', label: 'Australia (English)' }, { value: 'en-CA', label: 'Canada (English)' }, { value: 'en-IE', label: 'Ireland (English)' },
+  { value: 'de-DE', label: 'Germany (German)' }, { value: 'fr-FR', label: 'France (French)' }, { value: 'es-ES', label: 'Spain (Spanish)' },
+]
+export const EDITION_NAME_HINT = 'Such as Morning or Evening.'
+export const EDITION_READY_LABEL = 'Ready at'
+export const EDITION_DAYS_LABEL = 'On these days'
+export const EDITION_TOPICS_LABEL = 'Which topics?'
+export const EDITION_ON_LABEL = 'Write this edition automatically'
+export const GATHER_BEFORE = 'Gather news every'
+export const GATHER_START = 'starting'
+export const GATHER_AFTER = 'before it is ready.'
+export const gatherWords = (every: number, from: number): string => `Gathers every ${hoursWords(every)}, from ${hoursWords(from)} before.`
+export const DAY_SHORT: Record<string, string> = { '1': 'Mon', '2': 'Tue', '3': 'Wed', '4': 'Thu', '5': 'Fri', '6': 'Sat', '0': 'Sun' }
+export const DAY_ORDER = ['1', '2', '3', '4', '5', '6', '0'] as const
+export const daysWords = (days: readonly number[]): string => {
+  const set = new Set(days.map(String))
+  if (set.size === 7) return 'Every day'
+  if (set.size === 5 && ['1', '2', '3', '4', '5'].every((d) => set.has(d))) return 'Mon–Fri'
+  return DAY_ORDER.filter((d) => set.has(d)).map((d) => DAY_SHORT[d]).join(', ')
+}
+export const editionCardWords = (ready: string, days: readonly number[]): string => `Ready at ${ready} · ${daysWords(days)}`
+export const EDITION_OFF_LABEL = 'Paused'
+export const EDITION_ON_BADGE = 'On'
+export const topicLastWords = (when: string, n: number | undefined): string => `Last read ${when}${n === undefined ? '' : ` · ${n} new`}`
+export const TOPIC_NEVER_READ = 'Not read yet'
+export const topicFollowsWords = (n: number): string => `+${n} ${n === 1 ? 'website' : 'websites'}`
+export const MODEL_LIMIT_TITLE = 'Daily AI limit'
+export const MODEL_LIMIT_HINT = (fallback: number, max: number): string => `A safety cap on how many times a day the Newsroom may ask the AI — watches and briefs share it. It does not set how often news is gathered. Empty uses ${fallback}; the most is ${max}.`
+export const READ_EDITION_READY = (ready: string, topics: number): string => `Ready at ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
+export const NO_ISSUE_HEADLINE = 'Nothing written yet'

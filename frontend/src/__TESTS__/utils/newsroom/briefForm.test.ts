@@ -19,8 +19,14 @@ describe('briefForm', () => {
     const was: BriefTopic = { id: 3, name: 'AI', queries: ['AI chips'], sources: [{ kind: 'feed', target: 'https://a.example/f' }, { kind: 'hackernews', target: 'ai' }] }
     const fields = topicFields(was)
     expect(fields.feeds).toBe('https://a.example/f')
+    expect(fields.searches).toEqual(['AI chips'])
     fields.feeds = 'https://b.example/f'
     expect(topicEdit(fields, was).sources).toEqual([{ kind: 'feed', target: 'https://b.example/f' }, { kind: 'hackernews', target: 'ai' }])
+  })
+
+  it('keeps a topic\'s own category although the form has no field for it', () => {
+    const was: BriefTopic = { id: 3, name: 'AI', category: 'Technology', queries: ['AI'] }
+    expect(topicEdit(topicFields(was), was).category).toBe('Technology')
   })
 
   it('sends an edition with durations as strings and sections in the order chosen', () => {
