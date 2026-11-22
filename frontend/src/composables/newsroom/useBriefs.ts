@@ -3,7 +3,7 @@ import { BriefService } from '../../services/newsroom/briefService'
 import { usePolling } from '../ui/usePolling'
 import { POLL_INTERVAL_MS } from '../../constants/api'
 import { BRIEFS_ACTION_FAILED, BRIEFS_LOAD_FAILED } from '../../constants/newsroom'
-import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefIssue, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
+import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefIssue, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
 
 const reasonOf = (e: unknown, fallback: string): string => (e instanceof Error && e.message ? e.message : fallback)
 
@@ -16,6 +16,7 @@ export function useBriefs() {
   const topics = ref<BriefTopic[]>([])
   const issues = ref<BriefIssue[]>([])
   const settings = ref<BriefSettings | null>(null)
+  const sources = ref<BriefSource[]>([])
   const pickedId = ref<number | null>(null)
   const loading = ref(true)
   const error = ref<string | null>(null)
@@ -29,11 +30,12 @@ export function useBriefs() {
 
   async function load() {
     try {
-      const [e, t, i, s] = await Promise.all([BriefService.editions(), BriefService.topics(), BriefService.issues(), BriefService.settings()])
+      const [e, t, i, s, l] = await Promise.all([BriefService.editions(), BriefService.topics(), BriefService.issues(), BriefService.settings(), BriefService.sources()])
       editions.value = e
       topics.value = t
       issues.value = i
       settings.value = s
+      sources.value = l
       error.value = null
     } catch (err) {
       error.value = reasonOf(err, BRIEFS_LOAD_FAILED)
@@ -76,6 +78,8 @@ export function useBriefs() {
   const createEdition = async (edit: BriefEditionEdit): Promise<boolean> => (await change(() => BriefService.createEdition(edit))).ok
   const saveEdition = async (id: number, edit: BriefEditionEdit): Promise<boolean> => (await change(() => BriefService.saveEdition(id, edit))).ok
   const removeEdition = async (id: number): Promise<boolean> => (await change(() => BriefService.removeEdition(id))).ok
+  const addSource = async (label: string, target: string): Promise<boolean> => (await change(() => BriefService.addSource(label, target))).ok
+  const removeSource = async (id: number): Promise<boolean> => (await change(() => BriefService.removeSource(id))).ok
   async function collectTopic(id: number): Promise<{ new: number; problems?: string[] } | null> {
     const done = await change(() => BriefService.collect(id))
     return done.ok ? done.value : null
@@ -85,7 +89,7 @@ export function useBriefs() {
   usePolling(load, POLL_INTERVAL_MS)
 
   return {
-    editions, topics, issues, settings, saveSettings, edition, issue, pickedId, loading, error, actionError, making, saving, load, makeNow,
+    editions, topics, issues, settings, sources, addSource, removeSource, saveSettings, edition, issue, pickedId, loading, error, actionError, making, saving, load, makeNow,
     createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition,
   }
 }

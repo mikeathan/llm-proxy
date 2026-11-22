@@ -28,6 +28,8 @@ type document struct {
 	// Issues are the editions made, kept for IssueRetention; Shown records which stories they carried, for the already-shown rule.
 	Issues []Issue `json:"issues,omitempty"`
 	Shown  []Shown `json:"shown,omitempty"`
+	// MySources is the owner's own list of sources the topic form offers beside the built-in one.
+	MySources []MySource `json:"my_sources,omitempty"`
 }
 
 // Store keeps topics, editions and the pool in one file, written atomically through the stack's DataDir. Every method is safe for concurrent use; each

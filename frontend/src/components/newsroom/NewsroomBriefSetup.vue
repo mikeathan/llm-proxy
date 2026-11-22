@@ -6,13 +6,14 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import NewsroomBriefTopicEditor from "./NewsroomBriefTopicEditor.vue"
 import NewsroomBriefEditionEditor from "./NewsroomBriefEditionEditor.vue"
 import NewsroomBriefLimit from "./NewsroomBriefLimit.vue"
+import NewsroomBriefMySources from "./NewsroomBriefMySources.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
-  EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, NEED_TOPIC_FIRST, NEW_EDITION_LABEL, NEW_TOPIC_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE, NO_TOPICS_BODY,
+  EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEED_TOPIC_FIRST, NEW_EDITION_LABEL, NEW_TOPIC_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE, NO_TOPICS_BODY,
   READ_NOW_LABEL, TOPICS_TITLE, TOPIC_NEVER_READ, editionCardWords, gatherWords, topicFollowsWords, topicLastWords,
 } from "../../constants/newsroom"
 import { hoursOf } from "../../utils/newsroom/briefForm"
-import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
+import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
 
 // Topics and editions: what is read, and what is written from it. The editing state is here; the page owns the data and does the saving, deleting and
 // reading (it asks before anything is deleted), and each action answers whether it worked so the form closes only on success.
@@ -26,11 +27,14 @@ const props = defineProps<{
   topics: BriefTopic[]
   editions: BriefEdition[]
   settings: BriefSettings | null
+  sources: BriefSource[]
   saving: boolean
   error: string
   saveTopic: (id: number | null, edit: BriefTopicEdit) => Promise<boolean>
   saveEdition: (id: number | null, edit: BriefEditionEdit) => Promise<boolean>
   saveLimit: (calls: number) => Promise<boolean>
+  addSource: (label: string, target: string) => Promise<boolean>
+  removeSource: (id: number) => Promise<boolean>
 }>()
 const emit = defineEmits<{
   (e: "delete-topic", topic: BriefTopic): void
@@ -55,6 +59,8 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
       <NewsroomBriefTopicEditor
         v-if="editingTopic === NEW"
         :topic="null"
+        :sources="sources"
+        :add-source="addSource"
         :saving="saving"
         :error="error"
         :class="topics.length ? NEW_FORM_SPACING : ''"
@@ -67,6 +73,8 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
           <NewsroomBriefTopicEditor
             v-if="editingTopic === t.id"
             :topic="t"
+            :sources="sources"
+            :add-source="addSource"
             :saving="saving"
             :error="error"
             :class="NEW_FORM_SPACING"
@@ -137,6 +145,10 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
           </div>
         </li>
       </ul>
+    </Panel>
+
+    <Panel :title="MY_SOURCES_TITLE">
+      <NewsroomBriefMySources :sources="sources" :saving="saving" :error="error" :add="addSource" :remove="removeSource" />
     </Panel>
 
     <Panel v-if="settings" :title="MODEL_LIMIT_TITLE">

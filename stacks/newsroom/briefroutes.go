@@ -30,6 +30,8 @@ const (
 	RouteBriefIssues   = "/admin/api/newsroom/briefs/issues"
 	RouteBriefIssue    = "/admin/api/newsroom/briefs/issues/{id}"
 	RouteBriefSettings = "/admin/api/newsroom/briefs/settings"
+	RouteBriefSources  = "/admin/api/newsroom/briefs/sources"
+	RouteBriefSource   = "/admin/api/newsroom/briefs/sources/{id}"
 	maxIssuesView      = 30
 	// DefaultModelCalls and MaxModelCalls mirror the core's model port (stackport.ModelDailyLimit and ModelDailyLimitMax), which holds the real limit;
 	// the app's tests keep the two in step. They are here so the screen can say what an empty setting means.
@@ -129,6 +131,8 @@ func (s *Stack) handleBriefs(ctx context.Context, req stacksdk.Request) (stacksd
 		return s.briefAction(ctx, route, id, parts)
 	case RouteBriefEditions, RouteBriefEdition:
 		return handleEditions(key, id, req, store)
+	case RouteBriefSources, RouteBriefSource:
+		return handleSourceList(key, id, req, store)
 	case RouteBriefPool:
 		return briefPool(store, req.Query)
 	case RouteBriefIssues, RouteBriefIssue:
@@ -176,6 +180,10 @@ func (s *Stack) briefAction(ctx context.Context, route string, id int64, parts b
 		return stacksdk.Response{}, ErrBriefsOff
 	}
 	if route == RouteBriefMake {
+		// Topics that have not been read lately are read first, or the edition would be written from an empty pool.
+		if _, err := parts.collector.CollectStale(ctx, id); err != nil {
+			return stacksdk.Response{}, failBrief(err)
+		}
 		is, err := parts.publisher.MakeNow(ctx, id)
 		if err != nil {
 			return stacksdk.Response{}, failBrief(err)
@@ -251,9 +259,9 @@ func handleEditions(key string, id int64, req stacksdk.Request, store *brief.Sto
 
 // The shapes of a real path under RouteBriefs, by the number of segments: the collection, then the collection and an id, then an action on one item.
 var (
-	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "settings": RouteBriefSettings}
+	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "settings": RouteBriefSettings, "sources": RouteBriefSources}
 	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake}
-	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue}
+	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue, "sources": RouteBriefSource}
 )
 
 // briefRoute names the route a real path matches by its shape, and returns the id it carries. The core passes the real path (/topics/3/collect).

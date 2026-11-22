@@ -35,6 +35,13 @@ const saved = (ok: boolean, words: string): boolean => {
 const saveTopic = async (id: number | null, edit: BriefTopicEdit): Promise<boolean> => saved(id === null ? await b.createTopic(edit) : await b.saveTopic(id, edit), "Topic saved")
 const saveEdition = async (id: number | null, edit: BriefEditionEdit): Promise<boolean> => saved(id === null ? await b.createEdition(edit) : await b.saveEdition(id, edit), "Edition saved")
 
+const addSource = async (label: string, target: string): Promise<boolean> => saved(await b.addSource(label, target), "Source added")
+const removeSource = async (id: number): Promise<boolean> => {
+  const ok = await b.removeSource(id)
+  if (!ok) toast.error(b.actionError.value)
+  return ok
+}
+
 const saveLimit = async (calls: number): Promise<boolean> => saved(await b.saveSettings(calls), "Limit saved")
 
 async function deleteTopic(t: BriefTopic) {
@@ -63,11 +70,14 @@ async function readTopic(t: BriefTopic) {
         :topics="b.topics.value"
         :editions="b.editions.value"
         :settings="b.settings.value"
+        :sources="b.sources.value"
         :saving="b.saving.value"
         :error="b.actionError.value"
         :save-topic="saveTopic"
         :save-edition="saveEdition"
         :save-limit="saveLimit"
+        :add-source="addSource"
+        :remove-source="removeSource"
         @delete-topic="deleteTopic"
         @delete-edition="deleteEdition"
         @read-topic="readTopic"

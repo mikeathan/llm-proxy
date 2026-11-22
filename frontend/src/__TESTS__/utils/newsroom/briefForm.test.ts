@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { editionEdit, fromLines, fromWords, hoursOf, topicEdit, topicFields } from '../../../utils/newsroom/briefForm'
-import type { BriefTopic } from '../../../types/newsroom'
+import { editionEdit, fromLines, fromWords, groupSources, hoursOf, topicEdit, topicFields } from '../../../utils/newsroom/briefForm'
+import type { BriefSource, BriefTopic } from '../../../types/newsroom'
 
 describe('briefForm', () => {
   it('reads one value per line and per comma, dropping blanks and repeats', () => {
@@ -18,10 +18,28 @@ describe('briefForm', () => {
   it('keeps a topic\'s other kinds of source when the form saves only searches and feeds', () => {
     const was: BriefTopic = { id: 3, name: 'AI', queries: ['AI chips'], sources: [{ kind: 'feed', target: 'https://a.example/f' }, { kind: 'hackernews', target: 'ai' }] }
     const fields = topicFields(was)
-    expect(fields.feeds).toBe('https://a.example/f')
+    expect(fields.feeds).toEqual(['https://a.example/f'])
     expect(fields.searches).toEqual(['AI chips'])
-    fields.feeds = 'https://b.example/f'
+    fields.feeds = ['https://b.example/f']
     expect(topicEdit(fields, was).sources).toEqual([{ kind: 'feed', target: 'https://b.example/f' }, { kind: 'hackernews', target: 'ai' }])
+  })
+
+  it('names a feed by the list entry it was picked from, else by the name it already had', () => {
+    const was: BriefTopic = { id: 3, name: 'AI', queries: ['AI'], sources: [{ kind: 'feed', label: 'My blog', target: 'https://a.example/f' }] }
+    const fields = topicFields(was)
+    fields.feeds = ['https://a.example/f', 'https://bbc.example/f', ' https://bbc.example/f ', 'https://plain.example/f']
+    expect(topicEdit(fields, was, { 'https://bbc.example/f': 'BBC News' }).sources).toEqual([
+      { kind: 'feed', label: 'My blog', target: 'https://a.example/f' }, { kind: 'feed', label: 'BBC News', target: 'https://bbc.example/f' }, { kind: 'feed', target: 'https://plain.example/f' },
+    ])
+  })
+
+  it('groups the sources with the group that matches the topic first and the owner\'s own last', () => {
+    const e = (category: string, label: string, builtin = true): BriefSource => ({ label, category, kind: 'feed', target: label, builtin })
+    const entries = [e('News', 'BBC'), e('Technology', 'Verge'), e('Business and finance', 'FT'), e('My sources', 'Blog', false)]
+    const order = ['News', 'Technology', 'Business and finance']
+    expect(groupSources(entries, 'Financial', order).map((g) => g.category)).toEqual(['Business and finance', 'News', 'Technology', 'My sources'])
+    expect(groupSources(entries, 'World', order).map((g) => g.category)).toEqual(['News', 'Technology', 'Business and finance', 'My sources'])
+    expect(groupSources([e('News', 'BBC')], 'Tech', order).map((g) => g.category)).toEqual(['News'])
   })
 
   it('keeps a topic\'s own category although the form has no field for it', () => {

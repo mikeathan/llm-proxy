@@ -20,6 +20,9 @@ const (
 
 var lookupKinds = map[string]bool{"feed": true, "hackernews": true, "mastodon": true, "page": true, "telegram": true, "newssearch": true}
 
+// ErrLookupOff is the refusal of a look-up while both modules are switched off.
+var ErrLookupOff = stacksdk.Errorf(stacksdk.CodeUnavailable, "Watches and Briefs are both switched off: switch one on under Stacks")
+
 const tooManyTelegram = "Too many channel look-ups just now; wait a minute and try again."
 
 // suggestion is the answer of the suggest route.
@@ -30,8 +33,9 @@ type suggestion struct {
 
 // handleSources answers the two look-up routes.
 func (s *Stack) handleSources(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
-	if s.settings(ctx).Disabled {
-		return stacksdk.Response{}, ErrOff
+	// Both modules look sources up (the watch form and the brief topic form), so only both switched off refuses.
+	if set := s.settings(ctx); set.Disabled && set.BriefsDisabled {
+		return stacksdk.Response{}, ErrLookupOff
 	}
 	q, err := url.ParseQuery(req.Query)
 	kind := q.Get("kind")

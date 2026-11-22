@@ -1,14 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+const { lookupMock } = vi.hoisted(() => ({ lookupMock: vi.fn() }))
+vi.mock('../../../services/newsroom/newsroomService', () => ({ NewsroomService: { lookup: lookupMock } }))
+
 import NewsroomBriefSetup from '../../../components/newsroom/NewsroomBriefSetup.vue'
-import type { BriefEdition, BriefTopic } from '../../../types/newsroom'
+import type { BriefEdition, BriefSource, BriefTopic } from '../../../types/newsroom'
 
 const topic: BriefTopic = { id: 1, name: 'Technology', queries: ['AI chips'] }
 const edition: BriefEdition = { id: 2, name: 'Morning', ready_by: '07:00', days: [1, 2, 3, 4, 5], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true }
 
+const catalog: BriefSource[] = [
+  { label: 'BBC News', category: 'News', kind: 'feed', target: 'https://bbc.example/rss.xml', builtin: true },
+  { label: 'Ars Technica', category: 'Technology', kind: 'feed', target: 'https://ars.example/feed', builtin: true },
+  { label: 'Reuters', category: 'Search a publisher', kind: 'newssearch', target: 'site:reuters.com', builtin: true },
+  { id: 9, label: 'My blog', category: 'My sources', kind: 'feed', target: 'https://blog.example/feed.xml', builtin: false },
+]
+
 const props = (over: Record<string, unknown> = {}) => ({
-  topics: [topic], editions: [edition], settings: { model_calls_per_day: 0, default: 200, max: 2000 }, saving: false, error: '',
-  saveTopic: vi.fn().mockResolvedValue(true), saveEdition: vi.fn().mockResolvedValue(true), saveLimit: vi.fn().mockResolvedValue(true), ...over,
+  topics: [topic], editions: [edition], settings: { model_calls_per_day: 0, default: 200, max: 2000 }, sources: catalog, saving: false, error: '',
+  saveTopic: vi.fn().mockResolvedValue(true), saveEdition: vi.fn().mockResolvedValue(true), saveLimit: vi.fn().mockResolvedValue(true),
+  addSource: vi.fn().mockResolvedValue(true), removeSource: vi.fn().mockResolvedValue(true), ...over,
 })
 
 describe('NewsroomBriefSetup', () => {
@@ -100,5 +111,114 @@ describe('NewsroomBriefSetup', () => {
     await flushPromises()
     expect(p.saveEdition).toHaveBeenCalledWith(null, expect.objectContaining({ name: 'Evening', collect_every: '2h', collect_for: '12h', sections: [{ kind: 'news', topic_id: 1 }] }))
     expect((p.saveEdition as ReturnType<typeof vi.fn>).mock.calls[0]![1].days.sort()).toEqual([0, 2, 3, 4, 5, 6])
+  })
+
+  it('follows a well-known site picked while typing, by its name, and sends the feed with that name', async () => {
+    const p = props({ topics: [], editions: [] })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    await w.get('form input[type="text"]').setValue('Tech')
+    const feeds = w.get('input[aria-label="Follow a website (optional)"]')
+    await feeds.setValue('ars')
+    expect(w.findAll('[data-test="chip-suggestions"] [role="option"]').map((o) => o.text())).toEqual(['Ars TechnicaTechnology'])
+    await w.get('[data-test="chip-suggestions"] [role="option"]').trigger('mousedown')
+    expect(w.text()).toContain('Ars Technica')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(p.saveTopic).toHaveBeenCalledWith(null, expect.objectContaining({ sources: [{ kind: 'feed', label: 'Ars Technica', target: 'https://ars.example/feed' }] }))
+  })
+
+  it('does not turn a half-typed word into a feed', async () => {
+    const p = props({ topics: [], editions: [] })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    await w.get('form input[type="text"]').setValue('Tech')
+    const feeds = w.get('input[aria-label="Follow a website (optional)"]')
+    await feeds.setValue('zzz')
+    await feeds.trigger('keydown', { key: 'Enter' })
+    expect(w.text()).toContain('Pick a site from the list')
+    expect(w.find('[data-test="topic-needs"]').exists()).toBe(true)
+  })
+
+  it('browses the well-known sources by group, the group that matches the topic first, and adds a feed or a publisher search with one press', async () => {
+    const p = props({ topics: [], editions: [] })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    await w.get('form input[type="text"]').setValue('Technology')
+    const groups = w.findAll('[data-test="source-browser"] section').map((s) => s.attributes('aria-label'))
+    expect(groups).toEqual(['Technology', 'News', 'Search a publisher', 'My sources'])
+    const press = async (name: string) => w.findAll('[data-test="source-browser"] button').find((b) => b.text().startsWith(name))!.trigger('click')
+    await press('Ars Technica')
+    await press('Reuters')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(p.saveTopic).toHaveBeenCalledWith(null, expect.objectContaining({ queries: ['site:reuters.com'], sources: [{ kind: 'feed', label: 'Ars Technica', target: 'https://ars.example/feed' }] }))
+  })
+
+  it('takes a picked source back with a second press', async () => {
+    const w = mount(NewsroomBriefSetup, { props: props({ topics: [], editions: [] }) })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    const bbc = () => w.findAll('[data-test="source-browser"] button').find((b) => b.text().startsWith('BBC News'))!
+    await bbc().trigger('click')
+    expect(bbc().attributes('aria-pressed')).toBe('true')
+    await bbc().trigger('click')
+    expect(bbc().attributes('aria-pressed')).toBe('false')
+  })
+
+  it('lists the owner\'s own sources, adds one by name and feed link and removes one', async () => {
+    const p = props()
+    const w = mount(NewsroomBriefSetup, { props: p })
+    const mine = () => w.findAll('[data-test="my-source"]')
+    expect(mine().map((m) => m.text())).toEqual(['My bloghttps://blog.example/feed.xml'])
+    await w.get('button[aria-label="Remove My blog"]').trigger('click')
+    expect(p.removeSource).toHaveBeenCalledWith(9)
+    const form = w.findAll('form').find((f) => f.text().includes('Add to my sources'))!
+    const add = form.findAll('button').find((b) => b.text() === 'Add to my sources')!
+    expect(add.attributes('disabled')).toBeDefined()
+    await form.findAll('input')[0]!.setValue('Daily Blog')
+    await form.findAll('input')[1]!.setValue('blog.example/rss')
+    expect(form.text()).toContain('starts with https://')
+    expect(add.attributes('disabled')).toBeDefined()
+    await form.findAll('input')[1]!.setValue('https://blog.example/rss')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(p.addSource).toHaveBeenCalledWith('Daily Blog', 'https://blog.example/rss')
+    expect((form.findAll('input')[0]!.element as HTMLInputElement).value).toBe('')
+  })
+
+  it('keeps what was typed and shows the server\'s reason when a source is refused', async () => {
+    const p = props({ addSource: vi.fn().mockResolvedValue(false), error: 'BBC News is already in the built-in list' })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    const form = w.findAll('form').find((f) => f.text().includes('Add to my sources'))!
+    await form.findAll('input')[0]!.setValue('Again')
+    await form.findAll('input')[1]!.setValue('https://bbc.example/rss.xml')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(form.text()).toContain('already in the built-in list')
+    expect((form.findAll('input')[1]!.element as HTMLInputElement).value).toBe('https://bbc.example/rss.xml')
+  })
+
+  it('checks a pasted feed link, shows what it gives and keeps it in My sources from the topic form', async () => {
+    lookupMock.mockResolvedValue({ found: true, title: 'Daily Blog', sample: [{ title: 'One' }], choices: [] })
+    const p = props({ topics: [], editions: [] })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    const feeds = w.get('input[aria-label="Follow a website (optional)"]')
+    await feeds.setValue('https://new.example/feed.xml')
+    await feeds.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(w.get('[data-test="custom-feed"]').text()).toContain('Reads fine: Daily Blog')
+    await w.findAll('[data-test="custom-feed"] button').find((b) => b.text() === 'Save to my sources')!.trigger('click')
+    expect(p.addSource).toHaveBeenCalledWith('Daily Blog', 'https://new.example/feed.xml')
+  })
+
+  it('does not check a feed that is in a list', async () => {
+    lookupMock.mockClear()
+    const w = mount(NewsroomBriefSetup, { props: props({ topics: [], editions: [] }) })
+    await w.findAll('button').find((b) => b.text() === 'Add a topic')!.trigger('click')
+    await w.findAll('[data-test="source-browser"] button').find((b) => b.text().startsWith('BBC News'))!.trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="custom-feed"]').exists()).toBe(false)
+    expect(lookupMock).not.toHaveBeenCalled()
   })
 })

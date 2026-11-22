@@ -12,7 +12,7 @@ vi.mock('../../services/newsroom/newsroomService', () => ({
   NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock },
 }))
 vi.mock('../../services/newsroom/briefService', () => ({
-  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: vi.fn().mockResolvedValue([]), issues: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
+  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: vi.fn().mockResolvedValue([]), issues: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../composables/models/useModels', () => ({
