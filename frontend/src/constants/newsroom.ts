@@ -5,7 +5,7 @@ import type { ChoiceOption, StatusState } from '../types/ui'
 
 export const NEWSROOM_TITLE = 'Newsroom'
 export const NEWSROOM_SUBTITLE = 'What is new about the things you care about. Set up a watch once, or ask the assistant to.'
-export const NEWSROOM_TAB_LABELS = { feed: 'Feed', watches: 'Watches', settings: 'Settings' } as const
+export const NEWSROOM_TAB_LABELS = { feed: 'Feed', briefs: 'Briefs', watches: 'Watches', settings: 'Settings' } as const
 export const NEWSROOM_LOAD_FAILED = 'The Newsroom could not be read.'
 export const NEWSROOM_ACTION_FAILED = 'The change could not be made.'
 export const NEWSROOM_RELOAD_HINT = 'Check that the service is running, then reload the page.'
@@ -53,6 +53,7 @@ export const UNREAD_LABEL = 'Unread'
 export const CARD_NO_WATCHES = 'You follow nothing yet. Ask the assistant to keep an eye on something.'
 export const CARD_HEADLINES_EMPTY = 'Nothing new yet.'
 export const CARD_FAILING_WORDS = (names: readonly string[]): string => `${names.join(', ')} cannot read a source.`
+export const UNREAD_SOURCE_LABEL = 'Source not read'
 export const NEWSROOM_CARD_RELOAD = 'It is read again in a minute.'
 
 export const WATCH_FILTER_ACTIVE = 'looking for'
@@ -94,6 +95,8 @@ export const REMOVE_SOURCE_LABEL = 'Remove source'
 export const SOURCE_KIND_LABEL = 'Kind'
 export const SOURCE_INSTANCE_LABEL = 'Server'
 export const SOURCE_INSTANCE_HINT = 'For example mastodon.social'
+export const SOURCE_REGION_LABEL = 'Region'
+export const SOURCE_REGION_HINT = 'A language and a country, such as en-GB. Empty means en-US.'
 export const RUN_NOW_LABEL = 'Check now'
 export const RUNNING_LABEL = 'Checking…'
 export const RUNNING_WORDS = 'Reading the sources and picking what matches. This can take a minute with a local model.'
@@ -136,6 +139,7 @@ export const SOURCE_KIND_INFO: Record<SourceKind, SourceKindInfo> = {
   feed: { label: 'News feed or site (RSS, Atom, GitHub releases)', targetLabel: 'Address', hint: 'For example https://go.dev/blog/feed.atom' },
   hackernews: { label: 'Hacker News search', targetLabel: 'Search words', hint: 'Stories matching these words' },
   mastodon: { label: 'Mastodon tag', targetLabel: 'Tag', hint: 'The tag without the #' },
+  newssearch: { label: 'News search (many publishers)', targetLabel: 'Search words', hint: 'Headlines from many outlets. Try inflation, or site:reuters.com when:1d' },
   page: { label: 'Web page (told when it changes)', targetLabel: 'Address', hint: 'The page is read and compared by its visible text' },
   telegram: { label: 'Telegram public channel', targetLabel: 'Channel name', hint: 'The name or the link, such as aipost or t.me/aipost. Adding it is your opt-in' },
 }
@@ -149,6 +153,7 @@ export const SOURCE_PROBLEMS = {
   tag: 'A tag is letters, digits or underscores with no spaces, such as golang.',
   instance: 'The server is a host name such as mastodon.social.',
   instanceMissing: 'Type the Mastodon server, such as mastodon.social.',
+  region: 'A region is a language and a country such as en-GB or en-US.',
 } as const
 export const HN_QUERY_MAX = 200
 
@@ -184,6 +189,17 @@ export const SOURCE_GUIDES: Record<SourceKind, SourceGuide> = {
     goodFor: 'New stories on Hacker News about words you choose.',
     steps: ['Type one to three words that describe what you care about.', 'Pick specific words. A broad word such as ai finds new stories at almost every check.'],
     example: 'rust async',
+  },
+  newssearch: {
+    name: 'News search',
+    goodFor: 'The latest headlines about anything, from many outlets at once, including Reuters and AP, which have no feed of their own.',
+    steps: [
+      'Type the words you care about, such as inflation or Ukraine ceasefire.',
+      'To read one outlet, type site:reuters.com. Add when:1d for the last day.',
+      'Pick a region such as en-GB if you want that country\'s edition.',
+    ],
+    example: 'site:reuters.com when:1d',
+    note: 'You get the headline, the outlet and the time, with no summary. The link opens a Google page that sends you on to the article. This is an unofficial service and can change.',
   },
   mastodon: {
     name: 'Mastodon tag',
@@ -227,8 +243,90 @@ export const LOOKUP_HINTS: Record<SourceKind, string> = {
   feed: 'Paste a site address and the look-up finds its feed.',
   hackernews: 'Shows the stories this search finds right now.',
   mastodon: 'Shows the latest posts of this tag on this server.',
+  newssearch: 'Shows the latest headlines this search finds.',
   page: 'Shows the title and the text that will be compared.',
   telegram: 'Checks that the channel has a public preview and shows its latest posts. A few look-ups a minute are allowed.',
 }
 export const trendingLabel = (host: string): string => `Trending on ${host}`
 export const matchingLabel = (typed: string): string => `Tags matching "${typed}"`
+
+// Briefs: editions of the news topics you choose, written once a day or so from what was collected.
+export const BRIEFS_LOAD_FAILED = 'The briefs could not be read.'
+export const BRIEFS_ACTION_FAILED = 'The change could not be made.'
+export const NO_EDITIONS_TITLE = 'No editions yet'
+export const NO_EDITIONS_BODY = 'An edition is a brief of the news topics you choose, ready at a time you set. Add a topic, then an edition that lists it.'
+export const NO_ISSUE_TITLE = 'Not written yet'
+export const NO_ISSUE_BODY = 'This edition is written shortly before its ready time. You can write it now from what has been collected.'
+export const MAKE_NOW_LABEL = 'Write it now'
+export const MAKING_LABEL = 'Writing…'
+export const TOP_STORIES_LABEL = 'Top stories'
+export const SECTION_EMPTY = 'Nothing new here since the last edition.'
+export const UPDATE_LABEL = 'Update'
+export const HEADLINE_ONLY_LABEL = 'Headline only'
+export const BRIEF_EDITION_LABEL = 'Edition'
+export const briefMadeWords = (when: string, calls: number): string => `Written ${when} · ${calls} model ${calls === 1 ? 'call' : 'calls'}`
+export const briefReportedWords = (outlets: string[]): string => `Reported by ${outlets.join(', ')}`
+export const briefAsOfWords = (when: string): string => `Collected ${when}`
+export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'story' : 'stories'}`
+export const BRIEF_PROBLEMS_LABEL = 'Could not read'
+
+// Briefs setup.
+export const BRIEFS_TAB_LABELS = { read: 'Read', setup: 'Set up' } as const
+export const BRIEFS_VIEW_LABEL = 'Briefs'
+export const TOPICS_TITLE = 'Topics'
+export const EDITIONS_TITLE = 'Editions'
+export const NEW_TOPIC_LABEL = 'Add a topic'
+export const NEW_EDITION_LABEL = 'Add an edition'
+export const NO_TOPICS_BODY = 'A topic is a news area you choose, such as Technology, read from searches and feeds.'
+export const NO_EDITIONS_SETUP_BODY = 'An edition lists some topics and is written at a time you set.'
+export const NEED_TOPIC_FIRST = 'Add a topic first: an edition is made of topics.'
+export const TOPIC_NAME_LABEL = 'Name'
+export const TOPIC_NAME_HINT = 'For example Technology or World.'
+export const TOPIC_SEARCHES_LABEL = 'What it covers'
+export const TOPIC_SEARCHES_HINT = 'One search per line, as you would type it into a news search: "AI chips", or site:reuters.com to read one publisher.'
+export const TOPIC_FEEDS_LABEL = 'Feeds'
+export const TOPIC_FEEDS_HINT = 'One feed address per line (optional). The Watches tab can look a source up.'
+export const TOPIC_CATEGORY_LABEL = 'Category'
+export const TOPIC_REGION_LABEL = 'Region'
+export const TOPIC_REGION_HINT = 'Language and country of the searches, such as en-GB. Empty uses the default.'
+export const TOPIC_IGNORE_LABEL = 'Leave out'
+export const TOPIC_IGNORE_HINT = 'Stories with one of these words are dropped. Separate with commas.'
+export const TOPIC_NEEDS_SOMETHING = 'A topic needs at least one search or one feed.'
+export const READ_NOW_LABEL = 'Read now'
+export const EDITION_NAME_LABEL = 'Name'
+export const EDITION_NAME_HINT = 'For example Morning or Evening.'
+export const EDITION_READY_LABEL = 'Ready by'
+export const EDITION_DAYS_LABEL = 'Days'
+export const EDITION_TOPICS_LABEL = 'Topics in this edition'
+export const EDITION_ON_LABEL = 'Write this edition'
+export const EDITION_EVERY_LABEL = 'Collect every'
+export const EDITION_FOR_LABEL = 'Start collecting'
+export const EDITION_FOR_HINT = 'How long before it is ready the topics start to be read.'
+export const ADVANCED_LABEL = 'Advanced'
+export const DAY_OPTIONS: { value: string; label: string }[] = [
+  { value: '1', label: 'Monday' }, { value: '2', label: 'Tuesday' }, { value: '3', label: 'Wednesday' }, { value: '4', label: 'Thursday' },
+  { value: '5', label: 'Friday' }, { value: '6', label: 'Saturday' }, { value: '0', label: 'Sunday' },
+]
+export const EVERY_HOURS = [1, 2, 3, 4, 6, 12] as const
+export const FOR_HOURS = [2, 4, 6, 12, 24] as const
+export const DEFAULT_EVERY_HOURS = 2
+export const DEFAULT_FOR_HOURS = 12
+export const DEFAULT_READY_BY = '07:00'
+export const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
+export const hoursWords = (n: number): string => `${n} ${n === 1 ? 'hour' : 'hours'}`
+export const deleteTopicTitle = 'Delete this topic?'
+export const deleteTopicMessage = (name: string): string => `"${name}" is removed. An edition that lists it must drop it first.`
+export const deleteEditionTitle = 'Delete this edition?'
+export const deleteEditionMessage = (name: string): string => `"${name}" is removed.`
+export const topicReadWords = (n: number): string => (n === 0 ? 'Read: nothing new.' : `Read: ${n} new ${n === 1 ? 'story' : 'stories'}.`)
+export const editionSummaryWords = (ready: string, topics: number): string => `Ready by ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
+
+export const MODEL_CALLS_TITLE = 'Model calls'
+export const MODEL_CALLS_LABEL = 'Model calls a day'
+export const MODEL_CALLS_HINT = (fallback: number, max: number): string => `Watches and briefs share this limit. Empty uses ${fallback}; the most is ${max}.`
+export const modelCallsProblem = (text: string, max: number): string => {
+  const t = text.trim()
+  if (t === '') return ''
+  const n = Number(t)
+  return Number.isInteger(n) && n >= 1 && n <= max ? '' : `Use a whole number from 1 to ${max}, or leave it empty.`
+}

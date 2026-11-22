@@ -148,3 +148,18 @@ func TestLookupDoesNotTouchTheReadersPolitenessFloor(t *testing.T) {
 		t.Fatalf("a look-up right after a read must still work: %+v", p)
 	}
 }
+
+func TestLookup_NewsSearchShowsTheLatestAndKeepsTheRegion(t *testing.T) {
+	f := &fakeFetch{bodies: map[string][]byte{reutersSearchURL: fixture(t, "news-search.rss")}}
+	p := Lookup(context.Background(), f, "newssearch", "site:reuters.com when:1d", "en-GB")
+	if !p.Found || p.Instance != "en-GB" || len(p.Sample) == 0 || p.Sample[0].Title != "Thousands march in Lisbon as living costs fuel anger" {
+		t.Fatalf("preview = %+v", p)
+	}
+	calls := len(f.calls)
+	if p := Lookup(context.Background(), f, "newssearch", "  ", ""); p.Problem == "" || len(f.calls) != calls {
+		t.Errorf("an empty query is a problem with no request: %+v", p)
+	}
+	if p := Lookup(context.Background(), f, "newssearch", "x", "english"); p.Problem == "" || len(f.calls) != calls {
+		t.Errorf("a bad region is a problem with no request: %+v", p)
+	}
+}

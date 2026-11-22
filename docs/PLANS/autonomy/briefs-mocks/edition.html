@@ -1,0 +1,74 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mock - Brief edition</title>
+<link rel="stylesheet" href="tokens.css"><style>
+.page{max-width:1180px;margin:0 auto;padding:20px 20px 60px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:18px}
+.mast{border-top:3px solid rgb(var(--t1));border-bottom:1px solid rgb(var(--strong));padding:18px 0 14px;margin-bottom:22px}
+.mast h1{margin:2px 0 4px;font:700 34px/1.1 Inter;letter-spacing:-.02em}
+.mast .meta{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 316px;gap:26px}
+@media(max-width:880px){.grid{grid-template-columns:minmax(0,1fr)}.mast h1{font-size:26px}}
+main,aside,.lead>*,.story,summary .grow{min-width:0}.story h4,.story p,.lead p{overflow-wrap:anywhere}
+.lead{display:grid;grid-template-columns:1fr 150px;gap:20px;padding:0 0 22px;margin-bottom:22px;border-bottom:1px solid rgb(var(--hair))}
+.lead h2{margin:6px 0 8px;font:700 28px/1.15 Inter;letter-spacing:-.015em}
+.lead .art{display:flex;align-items:center;justify-content:center;border:1px solid rgb(var(--hair));background:rgb(var(--raised));color:rgb(var(--brand))}
+@media(max-width:600px){summary .tag{display:none}.lead{grid-template-columns:minmax(0,1fr)}.lead .art{display:none}.lead h2{font-size:22px}}
+.srcs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+details.sec{border:1px solid rgb(var(--hair));margin-bottom:14px;background:rgb(var(--surface))}
+details.sec>summary{list-style:none;display:flex;align-items:center;gap:14px;padding:10px 14px;cursor:pointer;background:rgb(var(--raised));min-height:56px}
+details.sec>summary::-webkit-details-marker{display:none}
+summary .art{color:rgb(var(--brand));flex:none;border:1px solid rgb(var(--hair));background:rgb(var(--canvas));display:flex}
+summary h3{margin:0;font:600 16px Inter}
+summary .grow{flex:1;min-width:0}
+summary .chev{width:10px;height:10px;border-right:2px solid rgb(var(--t3));border-bottom:2px solid rgb(var(--t3));transform:rotate(-45deg);transition:transform .2s}
+details[open]>summary .chev{transform:rotate(45deg)}
+.story{padding:14px;border-top:1px solid rgb(var(--hair))}
+.story h4{margin:0 0 4px;font:600 15px/1.35 Inter}
+.story p{margin:0;color:rgb(var(--t2));font-size:13px}
+.story .row{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:8px;font-size:12px}
+.also{color:rgb(var(--t3))}
+.aside .panel{margin-bottom:14px}
+.aside h3{margin:0;padding:10px 14px;border-bottom:1px solid rgb(var(--hair));font:600 12px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;color:rgb(var(--t2))}
+.aside .body{padding:6px 14px 12px}
+.agenda li,.home li{list-style:none;display:flex;gap:12px;padding:8px 0;border-bottom:1px dashed rgb(var(--hair));font-size:13px}
+.agenda li:last-child,.home li:last-child{border:0}
+.agenda .t{font:500 12px 'JetBrains Mono';color:rgb(var(--brand));width:44px;flex:none;padding-top:1px}
+ul{margin:0;padding:0}
+.foot{margin-top:24px;padding-top:12px;border-top:1px solid rgb(var(--hair));font-size:12px;display:flex;flex-wrap:wrap;gap:8px 18px}
+</style></head><body><div class="page">
+<div class="bar">
+  <div class="seg" role="group" aria-label="Edition"><button aria-pressed="true">Morning</button><button aria-pressed="false">Evening</button><button aria-pressed="false">Earlier</button></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Collapse all</button><button class="btn">Print</button><button class="btn primary">Make a new edition</button></div>
+</div>
+<header class="mast"><div class="micro eyebrow">Morning edition · sample data</div><h1>The Morning Brief</h1>
+ <div class="meta muted"><span>Saturday 21 November 2026</span><span>·</span><span>Ready 07:00</span><span>·</span><span>About a 5-minute read</span><span>·</span><span>Collected from 31 sources between 19:00 and 06:40</span></div></header>
+<div class="grid"><main>
+ <article class="lead"><div><div class="micro eyebrow">Top story · World</div>
+  <h2>Ukraine says strikes on the Crimean Bridge are a "fair response" after the overnight attack on Kyiv</h2>
+  <p class="muted" style="margin:0">Moscow launched a large drone and missile barrage on Kyiv overnight; Kyiv answered with strikes on the bridge. Three outlets agree on the sequence; casualty figures differ.</p>
+  <div class="srcs"><span class="tag info">3 sources</span><span class="chip">BBC</span><span class="chip">Al Jazeera</span><span class="chip">Reuters</span><span class="faint" style="font-size:12px;align-self:center">first seen 02:10</span></div></div>
+  <div class="art" data-plate="world" data-w="130" data-h="78"></div></article>
+
+ <details class="sec" open><summary><span class="art" data-plate="economy" data-w="84" data-h="50"></span><span class="grow"><h3>Economy &amp; markets</h3><span class="micro faint">4 stories · updated 06:40</span></span><span class="tag neutral">2 new since evening</span><span class="chev"></span></summary>
+  <div class="story"><h4>Tech sell-off drags markets down as Anthropic's record IPO lands in the worst week for tech this year</h4><p>Major indexes fell for a third day. Analysts tie it to the size of the listing draining cash from other shares.</p><div class="row"><span class="chip">BBC</span><span class="chip">CNBC</span><span class="also">also: Guardian, FT</span><span class="faint">posted 05:48</span><a href="#">Open</a></div></div>
+  <div class="story"><h4>Rejoining the EU "on the table" as UK strikes new trade deals</h4><p>Ministers say a customs union is not planned, but the wording shifted this week.</p><div class="row"><span class="chip">Guardian</span><span class="faint">posted 04:15</span><a href="#">Open</a></div></div>
+  <div class="story"><h4>Thousands march in Lisbon as living costs fuel anger</h4><div class="row"><span class="chip">Reuters</span><span class="tag neutral">headline only</span><span class="faint">posted 17:39 yesterday</span><a href="#">Open</a></div></div></details>
+
+ <details class="sec" open><summary><span class="art" data-plate="tech" data-w="84" data-h="50"></span><span class="grow"><h3>Technology</h3><span class="micro faint">3 stories · updated 06:40</span></span><span class="chev"></span></summary>
+  <div class="story"><h4>FBI and USDA reportedly hacked; the White House calls it "not good"</h4><p>Both agencies are investigating a breach of a shared database. No data theft has been confirmed.</p><div class="row"><span class="chip">The Verge</span><span class="chip">TechCrunch</span><span class="faint">posted 03:30</span><a href="#">Open</a></div></div>
+  <div class="story"><h4>Can AI really help spot Black Friday deals? We put it to the test</h4><div class="row"><span class="chip">BBC</span><span class="faint">posted 00:06</span><a href="#">Open</a></div></div></details>
+
+ <details class="sec"><summary><span class="art" data-plate="politics" data-w="84" data-h="50"></span><span class="grow"><h3>UK politics</h3><span class="micro faint">5 stories · updated 06:40</span></span><span class="chev"></span></summary></details>
+ <details class="sec"><summary><span class="art" data-plate="science" data-w="84" data-h="50"></span><span class="grow"><h3>Science &amp; climate</h3><span class="micro faint">2 stories · updated 06:40</span></span><span class="chev"></span></summary></details>
+ <div class="foot muted"><span>Made from headlines your sources published. A line without a source is never shown.</span><span>Model: deepseek · 4 calls</span><a href="#">How was this made?</a></div>
+</main>
+<aside class="aside">
+ <section class="panel"><h3><span style="display:flex;gap:10px;align-items:center"><span data-plate="day" data-w="42" data-h="25" style="color:rgb(var(--brand))"></span>Your day</span><span class="faint">Sat</span></h3><div class="body"><ul class="agenda">
+  <li><span class="t">09:30</span><span>Dentist appointment <span class="muted">· reminder</span></span></li><li><span class="t">13:00</span><span>Call Mum</span></li><li><span class="t">18:00</span><span>Return the parcel <span class="tag warn">overdue 1 day</span></span></li></ul></div></section>
+ <section class="panel"><h3><span style="display:flex;gap:10px;align-items:center"><span data-plate="home" data-w="42" data-h="25" style="color:rgb(var(--brand))"></span>Home</span><span class="tag ok">quiet</span></h3><div class="body"><ul class="home">
+  <li><span class="tag info">new</span><span>An unknown phone joined the Wi-Fi at 02:14 and was heard over the air twice.</span></li>
+  <li><span class="tag neutral">gone</span><span>Kitchen speaker has not been seen for 9 hours.</span></li>
+  <li><span class="tag warn">patch</span><span>2 devices have security updates waiting.</span></li></ul><a href="#" style="font-size:12px">Open Network</a></div></section>
+ <section class="panel"><h3><span style="display:flex;gap:10px;align-items:center"><span data-plate="watch" data-w="42" data-h="25" style="color:rgb(var(--brand))"></span>Your watches</span><span class="faint">since 19:00</span></h3><div class="body"><ul class="home">
+  <li><span class="tag neutral">0 new</span><span><b>AI news</b><br><span class="muted">DeepSeek V4.1-Flash is still the latest model release it knows.</span></span></li>
+  <li><span class="tag err">source</span><span><b>AI news</b><br><span class="muted">AnthropicAI_moon has no public preview, so it cannot be read.</span> <a href="#">Fix</a></span></li></ul></div></section>
+</aside></div></div><script src="plates.js"></script></body></html>

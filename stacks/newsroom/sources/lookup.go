@@ -66,6 +66,8 @@ func Lookup(ctx context.Context, f stacksdk.Fetch, kind, target, instance string
 		return lookupFeed(ctx, f, target)
 	case "page":
 		return lookupPage(ctx, f, target)
+	case "newssearch":
+		return lookupNews(ctx, f, target, instance)
 	}
 	return Preview{Problem: "this kind of source cannot be looked up"}
 }
@@ -111,6 +113,18 @@ func lookupMastodon(ctx context.Context, f stacksdk.Fetch, target, instance stri
 		return unread("mastodon", err)
 	}
 	return Preview{Found: true, Target: tag, Instance: host, Title: "#" + tag + " on " + host, Sample: samples(items)}
+}
+
+func lookupNews(ctx context.Context, f stacksdk.Fetch, target, instance string) Preview {
+	spec := Spec{Kind: KindNews, Target: target, Instance: instance}.Canonical()
+	if err := spec.Validate(); err != nil {
+		return problem(err.Error())
+	}
+	items, err := NewsSearch{Label: spec.Target, Query: spec.Target, Locale: spec.Instance, Fetcher: f}.Fetch(ctx)
+	if err != nil {
+		return unread("newssearch", err)
+	}
+	return Preview{Found: true, Target: spec.Target, Instance: spec.Instance, Title: "News: " + spec.Target, Sample: samples(items)}
 }
 
 func lookupHN(ctx context.Context, f stacksdk.Fetch, target string) Preview {

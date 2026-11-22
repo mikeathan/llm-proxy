@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mock - Brief settings</title>
+<link rel="stylesheet" href="tokens.css"><style>
+.page{max-width:1180px;margin:0 auto;padding:20px 20px 60px}
+h1{font:700 24px Inter;margin:0}h2{font:600 16px Inter;margin:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid rgb(var(--hair));margin:16px 0 20px;overflow-x:auto}
+.tabs a{padding:10px 16px;color:rgb(var(--t3));font-weight:500;white-space:nowrap}.tabs a[aria-current]{color:rgb(var(--t1));box-shadow:inset 0 -2px 0 rgb(var(--brand))}
+.cols{display:grid;grid-template-columns:280px minmax(0,1fr);gap:22px}
+@media(max-width:880px){.cols{grid-template-columns:1fr}}
+.ed{display:block;padding:12px 14px;border:1px solid rgb(var(--hair));margin-bottom:10px;background:rgb(var(--surface));color:inherit}
+.ed[aria-current]{background:rgb(var(--raised));box-shadow:inset 3px 0 0 rgb(var(--brand))}
+.ed b{font-weight:600}.ed .sub{font-size:12px;margin-top:2px}
+.card{border:1px solid rgb(var(--hair));background:rgb(var(--raised));margin-bottom:16px}
+.card>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid rgb(var(--hair))}
+.card .body{padding:16px}
+.f{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+label.l{display:block;font:500 12px Inter;color:rgb(var(--t2));margin-bottom:4px}
+.help{font-size:12px;color:rgb(var(--t3));margin-top:4px}
+.in{width:100%;min-height:36px;padding:0 10px;border:1px solid rgb(var(--control));background:rgb(var(--canvas));color:rgb(var(--t1));font:14px Inter}
+.days{display:flex;gap:4px}.days span{width:34px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid rgb(var(--control));font:500 11px 'JetBrains Mono';color:rgb(var(--t3))}
+.days span.on{background:rgb(var(--brand));border-color:rgb(var(--brand));color:rgb(var(--onacc))}
+.sec{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid rgb(var(--hair));background:rgb(var(--surface));margin-bottom:8px;min-height:52px}
+.sec .grip{color:rgb(var(--deco));cursor:grab;font-size:16px;line-height:1}
+.sec .ico{width:46px;height:28px;color:rgb(var(--brand));flex:none}
+.sec .grow{flex:1;min-width:0}
+.sw{width:36px;height:20px;border:1px solid rgb(var(--control));position:relative;flex:none}.sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;background:rgb(var(--t3))}
+.sw.on{background:rgb(var(--ok)/.25);border-color:rgb(var(--ok))}.sw.on::after{left:18px;background:rgb(var(--ok))}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip b{font-weight:500}.chip i{font-style:normal;color:rgb(var(--t3));cursor:pointer}
+.srcgroup{margin-top:12px}.srcgroup .micro{display:block;margin-bottom:6px;color:rgb(var(--t3))}
+.src{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid rgb(var(--hair));margin-bottom:6px;background:rgb(var(--surface));font-size:13px}
+.src .grow{flex:1;min-width:0}
+.ck{width:16px;height:16px;border:1px solid rgb(var(--control));flex:none;position:relative}.ck.on{background:rgb(var(--brand));border-color:rgb(var(--brand))}.ck.on::after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid rgb(var(--onacc));border-width:0 2px 2px 0;transform:rotate(45deg)}
+.adv{border-top:1px dashed rgb(var(--strong));margin-top:16px;padding-top:12px}
+.line{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.bud{display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;font-size:12px;align-items:center}
+.meter{height:8px;background:rgb(var(--track));position:relative}.meter i{position:absolute;inset:0 auto 0 0;background:rgb(var(--ok))}
+.sticky{position:sticky;bottom:0;display:flex;gap:10px;justify-content:flex-end;padding:12px 0;background:linear-gradient(rgb(var(--canvas)/0),rgb(var(--canvas)) 30%)}
+</style></head><body><div class="page">
+<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><div><div class="micro eyebrow">Newsroom</div><h1>Briefs</h1></div><div class="seg"><button aria-pressed="true">Simple</button><button aria-pressed="false">Advanced</button></div></div>
+<nav class="tabs"><a>Feed</a><a>Watches</a><a aria-current="page">Briefs</a><a>Settings</a></nav>
+<div class="cols"><aside>
+ <div class="micro muted" style="margin-bottom:8px">Editions</div>
+ <a class="ed" aria-current="true"><b>Morning</b> <span class="tag ok" style="float:right">on</span><div class="sub muted">07:00 · every day · 5 sections</div></a>
+ <a class="ed"><b>Evening</b> <span class="tag ok" style="float:right">on</span><div class="sub muted">18:30 · Mon to Fri · 3 sections</div></a>
+ <button class="btn" style="width:100%;justify-content:center">+ New edition</button>
+ <div class="micro muted" style="margin:22px 0 8px">Last editions</div>
+ <div class="muted" style="font-size:12px;line-height:1.7">Morning · today 07:00 <span class="tag ok">made</span><br>Evening · yesterday 18:30 <span class="tag ok">made</span><br>Morning · yesterday 07:00 <span class="tag warn">2 sections late</span></div>
+</aside><main>
+ <section class="card"><header><div><h2>Morning</h2><div class="help" style="margin:0">Ready at the time you choose, built from what was collected before it.</div></div><div style="display:flex;gap:8px"><button class="btn">Preview now</button></div></header><div class="body">
+  <div class="f"><div><label class="l">Name</label><input class="in" value="Morning"></div><div><label class="l">Ready by</label><input class="in" value="07:00"></div>
+   <div><label class="l">Days</label><div class="days"><span class="on">M</span><span class="on">T</span><span class="on">W</span><span class="on">T</span><span class="on">F</span><span class="on">S</span><span class="on">S</span></div></div></div>
+  <div class="f" style="margin-top:14px"><div><label class="l">Collect headlines</label><div class="line"><span class="seg"><button aria-pressed="false">Every 1h</button><button aria-pressed="true">Every 2h</button><button aria-pressed="false">Every 4h</button></span></div><div class="help">during the <b>12 hours</b> before it is ready (19:00 to 07:00)</div></div>
+   <div><label class="l">Length</label><span class="seg"><button aria-pressed="false">Short</button><button aria-pressed="true">Normal</button><button aria-pressed="false">Long</button></span><div class="help">About a 5-minute read</div></div>
+   <div><label class="l">Send to</label><span class="seg"><button aria-pressed="true">Dashboard</button><button aria-pressed="false">+ Telegram</button></span><div class="help">Telegram gets headlines and a link</div></div></div>
+ </div></section>
+ <section class="card"><header><h2>Sections</h2><span class="muted" style="font-size:12px">Drag, or use the arrows, to reorder</span></header><div class="body">
+  <div class="sec"><span class="grip" aria-hidden="true">⋮⋮</span><span class="mvs"><button class="btn mv" aria-label="Move up">↑</button><button class="btn mv" aria-label="Move down">↓</button></span><span class="ico" data-plate="world" data-w="46" data-h="28"></span><span class="grow"><b>World</b><div class="help" style="margin:0">News topic · 6 sources · 5 stories</div></span><button class="btn">Edit</button><span class="sw on"></span></div>
+  <div class="sec"><span class="grip" aria-hidden="true">⋮⋮</span><span class="mvs"><button class="btn mv" aria-label="Move up">↑</button><button class="btn mv" aria-label="Move down">↓</button></span><span class="ico" data-plate="economy" data-w="46" data-h="28"></span><span class="grow"><b>Economy &amp; markets</b><div class="help" style="margin:0">News topic · 4 sources · 4 stories</div></span><button class="btn">Edit</button><span class="sw on"></span></div>
+  <div class="sec"><span class="grip" aria-hidden="true">⋮⋮</span><span class="mvs"><button class="btn mv" aria-label="Move up">↑</button><button class="btn mv" aria-label="Move down">↓</button></span><span class="ico" data-plate="watch" data-w="46" data-h="28"></span><span class="grow"><b>Your watches</b><div class="help" style="margin:0">What your watches found since the last edition · all watches</div></span><button class="btn">Edit</button><span class="sw on"></span></div>
+  <div class="sec"><span class="grip" aria-hidden="true">⋮⋮</span><span class="mvs"><button class="btn mv" aria-label="Move up">↑</button><button class="btn mv" aria-label="Move down">↓</button></span><span class="ico" data-plate="day" data-w="46" data-h="28"></span><span class="grow"><b>Your day</b><div class="help" style="margin:0">Reminders and agenda for today</div></span><button class="btn">Edit</button><span class="sw on"></span></div>
+  <div class="sec"><span class="grip" aria-hidden="true">⋮⋮</span><span class="mvs"><button class="btn mv" aria-label="Move up">↑</button><button class="btn mv" aria-label="Move down">↓</button></span><span class="ico" data-plate="home" data-w="46" data-h="28"></span><span class="grow"><b>Home</b><div class="help" style="margin:0">Network and Radio together · Radio is off, so only Network</div></span><button class="btn">Edit</button><span class="sw"></span></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn">+ News topic</button><button class="btn">+ Your watches</button><button class="btn">+ Your day</button><button class="btn">+ Home</button></div>
+ </div></section>
+ <section class="card"><header><div><h2>World</h2><div class="help" style="margin:0">News topic · editing</div></div><span class="tag ok">31 headlines collected</span></header><div class="body">
+  <div class="f"><div><label class="l">Name</label><input class="in" value="World"></div><div><label class="l">Stories</label><span class="seg"><button aria-pressed="false">3</button><button aria-pressed="true">5</button><button aria-pressed="false">8</button></span></div></div>
+  <div style="margin-top:14px"><label class="l">What it covers</label><div class="chips"><span class="chip"><b>world news</b><i>×</i></span><span class="chip"><b>Ukraine</b><i>×</i></span><span class="chip"><b>Middle East</b><i>×</i></span><span class="chip"><b>elections</b><i>×</i></span><button class="chip" style="cursor:pointer">+ Add a topic or search</button></div><div class="help">Each one is searched as news. Add words like "Brazil economy" or "site:reuters.com".</div></div>
+  <div class="srcgroup"><span class="micro">Sources · free, no key needed</span>
+   <div class="src"><span class="ck on"></span><span class="grow"><b>BBC</b> World, Top <span class="muted">· feed</span></span><span class="tag ok">reads</span></div>
+   <div class="src"><span class="ck on"></span><span class="grow"><b>The Guardian</b> World <span class="muted">· feed</span></span><span class="tag ok">reads</span></div>
+   <div class="src"><span class="ck on"></span><span class="grow"><b>Al Jazeera</b> <span class="muted">· feed</span></span><span class="tag ok">reads</span></div>
+   <div class="src"><span class="ck on"></span><span class="grow"><b>Reuters</b> <span class="muted">· through news search, headlines only</span></span><span class="tag neutral">headline only</span></div>
+   <div class="src"><span class="ck"></span><span class="grow"><b>The Associated Press</b> <span class="muted">· through news search, headlines only</span></span><span class="tag neutral">headline only</span></div>
+   <div class="src"><span class="ck"></span><span class="grow"><b>DW, France 24, NPR, NYT, SCMP, ABC, Sky…</b> <span class="muted">· 14 more</span></span><button class="btn">Show all</button></div></div>
+  <div class="srcgroup"><span class="micro">Sources · need your own key</span>
+   <div class="src"><span class="grow muted">News API providers you can register with. Nothing here is used until you add a key under Settings.</span><button class="btn">Add a provider</button></div></div>
+  <div class="adv"><div class="micro muted" style="margin-bottom:10px">Advanced</div>
+   <div class="f"><div><label class="l">Ignore words</label><input class="in" placeholder="celebrity, horoscope"><div class="help">Headlines with these words are dropped.</div></div><div><label class="l">Language</label><input class="in" value="English"></div><div><label class="l">Only newer than</label><input class="in" value="24 hours"></div></div>
+   <div class="line" style="margin-top:12px"><span class="ck on"></span><span style="font-size:13px">Skip stories the previous edition already showed</span></div></div>
+  <div class="sticky"><button class="btn">Cancel</button><button class="btn primary">Save section</button></div>
+ </div></section>
+ <section class="card"><header><h2>Model calls today</h2><span class="muted" style="font-size:12px">Shared with your watches</span></header><div class="body"><div class="bud"><span>Watches</span><span class="meter"><i style="width:22%"></i></span><span class="mono">44 of 200</span><span>Editions</span><span class="meter"><i style="width:6%"></i></span><span class="mono">12 of 200</span></div><div class="help">One call per section per edition, plus one for the top stories. Collecting headlines uses none.</div></div></section>
+</main></div></div><script src="plates.js"></script></body></html>

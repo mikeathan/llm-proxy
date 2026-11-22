@@ -5,7 +5,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { compactInterval } from "../../utils/newsroom/interval"
 import {
-  FEED_ONLY_WORDS, INTERVAL_OPTIONS, lastCheckedWords, lookingForWords, NEVER_CHECKED, PAUSED_LABEL, RUN_NOW_LABEL, RUNNING_LABEL, RUNNING_WORDS, sendsToWords, WATCH_STATUS_TAG,
+  FEED_ONLY_WORDS, INTERVAL_OPTIONS, lastCheckedWords, lookingForWords, NEVER_CHECKED, PAUSED_LABEL, UNREAD_SOURCE_LABEL, RUN_NOW_LABEL, RUNNING_LABEL, RUNNING_WORDS, sendsToWords, WATCH_STATUS_TAG,
 } from "../../constants/newsroom"
 import type { NewsroomWatch } from "../../types/newsroom"
 
@@ -34,6 +34,10 @@ const tag = computed(() => (props.watch.last_status ? WATCH_STATUS_TAG[props.wat
       {{ every }} · {{ watch.channel ? sendsToWords(watch.channel) : FEED_ONLY_WORDS }} ·
       {{ watch.last_run ? lastCheckedWords(formatRelativeTime(watch.last_run)) : NEVER_CHECKED }}
     </p>
+    <div v-if="watch.last_problems?.length" role="status" class="flex min-w-0 flex-col items-start gap-1" data-test="watch-problems">
+      <StatusTag state="error" :label="UNREAD_SOURCE_LABEL" />
+      <p v-for="p in watch.last_problems" :key="p" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ p }}</p>
+    </div>
     <p v-if="watch.last_detail" class="m-0 break-words text-[length:var(--text-small)] text-faint">{{ watch.last_detail }}</p>
     <p v-if="running" role="status" class="m-0 text-[length:var(--text-small)] text-secondary">{{ RUNNING_WORDS }}</p>
     <div class="flex flex-wrap gap-2">

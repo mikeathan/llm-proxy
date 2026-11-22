@@ -137,8 +137,11 @@ func stackDefinitions() []stack.Stack {
 			Layers: []stack.Layer{{ID: "remind", Title: "Remind", Purpose: "What you asked to be reminded of"}},
 		},
 		{
-			ID: stack.Newsroom, Title: "Newsroom", Purpose: "Follow watches you care about and see what is new.",
-			Layers: []stack.Layer{{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"}},
+			ID: stack.Newsroom, Title: "Newsroom", Purpose: "Follow watches you care about, and read editions of the news you choose.",
+			Layers: []stack.Layer{
+				{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"},
+				{ID: "brief", Title: "Brief", Purpose: "Editions of the news you choose, made on your schedule"},
+			},
 		},
 	}
 }
@@ -259,14 +262,16 @@ func remindersModules(d stackDeps) []stack.Module {
 	}
 }
 
-// newsroomModules is the Newsroom stack's one switch. The module reads public sources over the internet, so it is blocked while internet access is off in
-// Guardrails; it sends no message itself, so its switch needs no passphrase.
+// newsroomModules is the Newsroom stack's two switches, Watches and Briefs. Both read public sources over the internet, so both are blocked while internet
+// access is off in Guardrails; neither sends a message itself, so neither switch needs a passphrase.
 func newsroomModules(d stackDeps) []stack.Module {
 	guard := d.Guard
+	ready := func() (bool, string) { return networkReady(guard(), false, true) }
 	return []stack.Module{
 		{ID: newsroom.ModuleID, Title: "Watches", Purpose: "Read the sources of each watch you follow and keep what is new.", Stack: stack.Newsroom, Layer: "follow", Sends: stack.SendsInternet,
-			Switch: newsroomSwitch{store: d.Newsroom, host: d.NewsroomHost},
-			Ready:  func() (bool, string) { return networkReady(guard(), false, true) }},
+			Switch: newsroomSwitch{store: d.Newsroom, host: d.NewsroomHost}, Ready: ready},
+		{ID: newsroom.BriefModuleID, Title: "Briefs", Purpose: "Collect the headlines of the topics you choose through the day, for the editions you set up.", Stack: stack.Newsroom, Layer: "brief", Sends: stack.SendsInternet,
+			Switch: newsroomBriefsSwitch{store: d.Newsroom, host: d.NewsroomHost}, Ready: ready},
 	}
 }
 
@@ -284,6 +289,27 @@ func (n newsroomSwitch) Set(enabled bool) error {
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to save the newsroom switch: %w", err)
+	}
+	if n.host != nil {
+		_ = n.host.stack.ConfigChanged(context.Background())
+	}
+	return nil
+}
+
+// newsroomBriefsSwitch is the Newsroom settings' "briefs off" flag read as a switch: on while the flag is not set.
+type newsroomBriefsSwitch struct {
+	store newsroomPolicy
+	host  *stackHost
+}
+
+func (n newsroomBriefsSwitch) Enabled() bool { return !n.store.Get().BriefsDisabled }
+
+func (n newsroomBriefsSwitch) Set(enabled bool) error {
+	if err := n.store.Update(func(c *models.NewsroomConfig) error {
+		c.BriefsDisabled = !enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the briefs switch: %w", err)
 	}
 	if n.host != nil {
 		_ = n.host.stack.ConfigChanged(context.Background())
@@ -657,8 +683,12 @@ func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetc
 		Log:     stackport.Log{Stack: st.Manifest().ID},
 		DataDir: stackport.DataDir{Dir: dir, Files: files},
 		Fetch:   fetch,
-		// The owner's configured model answers one tool-free question, while the Watches module is on (ADR-0071).
-		Model: s.stackModelPort(st.Manifest().ID, func() bool { return !policy.Get().Disabled }),
+		// The Brief module reads an edition's ready time through the service's one cron grammar, as the Reminders stack does (ADR-0068).
+		Schedule: stackport.Schedule{Parse: func(expr string) (interface{ Next(time.Time) time.Time }, error) { return automation.ParseCron(expr) }},
+		// The owner's configured model answers one tool-free question, while either module is on (ADR-0071), up to the daily limit they set; watches and
+		// briefs share it.
+		Model: s.stackModelPort(st.Manifest().ID, func() bool { c := policy.Get(); return !c.Disabled || !c.BriefsDisabled },
+			func() int { return policy.Get().ModelCallsPerDay }),
 		// The core words a watch's notice and sends it to the connector the watch names, if the owner enabled it (ADR-0036).
 		Notice: stackport.Notice{Notify: s.notifyPort()},
 	})
@@ -666,7 +696,7 @@ func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetc
 		return nil, err
 	}
 	// The stack holds its watches in memory and would write them back, so it forgets them first and the file is removed after.
-	s.AppCtx.AfterFactoryReset("The watches you follow", func() error {
+	s.AppCtx.AfterFactoryReset("The watches you follow and your briefs", func() error {
 		if nr, ok := h.stack.(*newsroom.Stack); ok {
 			if err := nr.EraseAll(); err != nil {
 				return err

@@ -1,13 +1,13 @@
 // The Newsroom as /admin/api/newsroom/* reports it (stacks/newsroom: watches, the watch view and the feed view model).
 
-export const SOURCE_KINDS = ['feed', 'hackernews', 'mastodon', 'page', 'telegram'] as const
+export const SOURCE_KINDS = ['feed', 'hackernews', 'mastodon', 'newssearch', 'page', 'telegram'] as const
 export type SourceKind = (typeof SOURCE_KINDS)[number]
 
 export interface NewsroomSource {
   kind: SourceKind
   target: string
   label?: string
-  /** A Mastodon source's server, such as mastodon.social. */
+  /** A Mastodon source's server, such as mastodon.social; a news search's region, such as en-GB. */
   instance?: string
 }
 
@@ -40,6 +40,8 @@ export interface NewsroomWatch {
   last_run?: string
   last_status?: WatchStatus
   last_detail?: string
+  /** One sentence per source the last check could not read; kept while the check itself answered from the others. */
+  last_problems?: string[]
   last_new?: number
 }
 
@@ -167,4 +169,101 @@ export interface SourceGuide {
   steps: readonly string[]
   example: string
   note?: string
+}
+
+// The Briefs module as /admin/api/newsroom/briefs/* reports it (stacks/newsroom/brief: editions, topics and the editions already made).
+
+/** One story of an edition. Everything but the headline and summary is the collected story's own data. */
+export interface BriefStory {
+  pool_id: number
+  headline: string
+  /** Empty for a story with no source text: nothing was written about it. */
+  summary?: string
+  link?: string
+  posted?: string
+  /** Each outlet that reported it. */
+  outlets: string[]
+  headline_only?: boolean
+  /** Shown before, and more outlets report it now. */
+  update?: boolean
+}
+
+export interface BriefSection {
+  kind: 'news'
+  topic_id: number
+  name: string
+  category?: string
+  stories: BriefStory[]
+  /** When the topic was last collected. */
+  as_of?: string
+  /** What the reader should know: stale, never collected, or not written by the model. */
+  note?: string
+  /** One sentence per source that could not be read. */
+  problems?: string[]
+}
+
+/** An edition as it was made; reading one asks nothing of the model. */
+export interface BriefIssue {
+  id: number
+  edition_id: number
+  name: string
+  made_at: string
+  top?: BriefStory[]
+  sections: BriefSection[]
+  model_calls: number
+}
+
+export interface BriefEdition {
+  id: number
+  name: string
+  /** A time of day such as "07:00", read in the stack's timezone. */
+  ready_by: string
+  /** Weekdays it is made on, 0 is Sunday. */
+  days: number[]
+  /** Durations such as "2h0m0s". */
+  collect_every: string
+  collect_for: string
+  sections: { kind: 'news'; topic_id: number }[]
+  enabled: boolean
+}
+
+export interface BriefTopic {
+  id: number
+  name: string
+  category?: string
+  queries?: string[]
+  region?: string
+  sources?: NewsroomSource[]
+  ignore?: string[]
+  last_collected?: string
+  last_new?: number
+  last_problems?: string[]
+}
+
+/** The stack's daily limit of model calls (watches and briefs together): the owner's setting, 0 meaning the default, and the bounds. */
+export interface BriefSettings {
+  model_calls_per_day: number
+  default: number
+  max: number
+}
+
+/** What a topic create or save sends. */
+export interface BriefTopicEdit {
+  name: string
+  category: string
+  queries: string[]
+  region: string
+  sources: NewsroomSource[]
+  ignore: string[]
+}
+
+/** What an edition create or save sends. The durations are strings such as "2h". */
+export interface BriefEditionEdit {
+  name: string
+  ready_by: string
+  days: number[]
+  enabled: boolean
+  collect_every: string
+  collect_for: string
+  sections: { kind: 'news'; topic_id: number }[]
 }

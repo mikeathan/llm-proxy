@@ -24,5 +24,10 @@ describe('failingWatches', () => {
     const list = [watch({ id: 1, last_status: 'failing' }), watch({ id: 2, last_status: 'failing', enabled: false }), watch({ id: 3, last_status: 'in_feed' })]
     expect(failingWatches(list).map((t) => t.id)).toEqual([1])
   })
+
+  it('also names a watch whose last check answered but left a source unread', () => {
+    const list = [watch({ id: 1, last_status: 'nothing_new', last_problems: ['x: no preview'] }), watch({ id: 2, last_status: 'nothing_new', last_problems: [] }), watch({ id: 3, last_status: 'sent' })]
+    expect(failingWatches(list).map((t) => t.id)).toEqual([1])
+  })
 })
 

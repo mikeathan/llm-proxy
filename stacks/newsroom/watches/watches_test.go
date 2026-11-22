@@ -71,7 +71,7 @@ var t0 = time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
 const feedURL = "https://news.example/feed"
 
 func feedWatch() Watch {
-	return Watch{Name: "LLMs", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindFeed, Label: "Example", Target: feedURL}}}
+	return Watch{Name: "LLMs", Enabled: true, Channel: "telegram", Sources: []sources.Spec{{Kind: sources.KindFeed, Label: "Example", Target: feedURL}}}
 }
 
 // harness builds a store with one watch, a runner over a controllable clock and fetcher, and a notifier that records what it was given.
@@ -97,7 +97,7 @@ func newHarness(t *testing.T, watch Watch) *harness {
 		t.Fatal(err)
 	}
 	h.id = made.ID
-	h.run = &Runner{Store: store, Fetch: h.fetch, Now: func() time.Time { return h.now }, Notify: func(_ context.Context, _ Watch, n Notice) error {
+	h.run = &Runner{Store: store, Readers: &sources.Registry{Fetch: h.fetch}, Now: func() time.Time { return h.now }, Notify: func(_ context.Context, _ Watch, n Notice) error {
 		if h.fail != nil {
 			return h.fail
 		}
@@ -134,18 +134,18 @@ func TestNormalize(t *testing.T) {
 	bad := map[string]func(*Watch){
 		"no name":          func(x *Watch) { x.Name = "  " },
 		"no sources":       func(x *Watch) { x.Sources = nil },
-		"too many sources": func(x *Watch) { x.Sources = make([]SourceSpec, MaxSources+1) },
+		"too many sources": func(x *Watch) { x.Sources = make([]sources.Spec, MaxSources+1) },
 		"http feed":        func(x *Watch) { x.Sources[0].Target = "http://news.example/feed" },
 		"unknown kind":     func(x *Watch) { x.Sources[0].Kind = "rumour" },
-		"mastodon no host": func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindMastodon, Target: "llm"} },
-		"bad channel":      func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindTelegram, Target: "ab"} },
+		"mastodon no host": func(x *Watch) { x.Sources[0] = sources.Spec{Kind: sources.KindMastodon, Target: "llm"} },
+		"bad channel":      func(x *Watch) { x.Sources[0] = sources.Spec{Kind: sources.KindTelegram, Target: "ab"} },
 		"tag with space": func(x *Watch) {
-			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social", Target: "go lang"}
+			x.Sources[0] = sources.Spec{Kind: sources.KindMastodon, Instance: "mastodon.social", Target: "go lang"}
 		},
 		"bad instance": func(x *Watch) {
-			x.Sources[0] = SourceSpec{Kind: KindMastodon, Instance: "mastodon.social:8080/x", Target: "go"}
+			x.Sources[0] = sources.Spec{Kind: sources.KindMastodon, Instance: "mastodon.social:8080/x", Target: "go"}
 		},
-		"empty search":      func(x *Watch) { x.Sources[0] = SourceSpec{Kind: KindHN, Target: "  "} },
+		"empty search":      func(x *Watch) { x.Sources[0] = sources.Spec{Kind: sources.KindHN, Target: "  "} },
 		"feed no host":      func(x *Watch) { x.Sources[0].Target = "https:///feed" },
 		"under the floor":   func(x *Watch) { x.Interval = time.Minute },
 		"look for too long": func(x *Watch) { x.LookFor = strings.Repeat("a", MaxLookForRunes+1) },
@@ -165,7 +165,7 @@ func TestNormalize(t *testing.T) {
 		t.Errorf("the floor itself must be allowed: %v", err)
 	}
 	y := feedWatch()
-	y.Sources = []SourceSpec{{Kind: KindTelegram, Target: "https://t.me/s/aipost"}, {Kind: KindMastodon, Instance: "https://Mastodon.social/", Target: "#golang"}}
+	y.Sources = []sources.Spec{{Kind: sources.KindTelegram, Target: "https://t.me/s/aipost"}, {Kind: sources.KindMastodon, Instance: "https://Mastodon.social/", Target: "#golang"}}
 	got, err := Normalize(y)
 	if err != nil || got.Sources[0].Target != "aipost" || got.Sources[1].Target != "golang" || got.Sources[1].Instance != "mastodon.social" {
 		t.Errorf("pasted forms must reduce to bare names: %+v, %v", got.Sources, err)
@@ -265,14 +265,15 @@ func TestUnreadableSourceIsFailingNotNothingNew(t *testing.T) {
 
 func TestOneFailingSourceDoesNotHideTheOther(t *testing.T) {
 	watch := feedWatch()
-	watch.Sources = append(watch.Sources, SourceSpec{Kind: KindFeed, Label: "Broken", Target: "https://broken.example/feed"})
+	watch.Sources = append(watch.Sources, sources.Spec{Kind: sources.KindFeed, Label: "Broken", Target: "https://broken.example/feed"})
 	h := newHarness(t, watch)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.tick(t, 0)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"}, [2]string{"Two", "https://e.example/2"})
 	o := h.tick(t, time.Hour)
-	if o[0].Status != StatusSent || !strings.Contains(o[0].Detail, "Broken") || len(h.sent) != 1 {
-		t.Fatalf("the working source must still deliver and the failure must be shown: %+v", o)
+	got, _ := h.store.Get(h.id)
+	if o[0].Status != StatusSent || len(got.LastProblems) != 1 || !strings.Contains(got.LastProblems[0], "Broken") || len(h.sent) != 1 {
+		t.Fatalf("the working source must still deliver and the failure must be kept on the watch: %+v / %v", o, got.LastProblems)
 	}
 }
 
@@ -288,7 +289,7 @@ func TestSameEventUnderNewURLIsSentAgain(t *testing.T) {
 }
 
 func TestWatchedPageChangeIsNew(t *testing.T) {
-	watch := Watch{Name: "Status", Enabled: true, Channel: "telegram", Sources: []SourceSpec{{Kind: KindPage, Label: "Status page", Target: "https://status.example/"}}}
+	watch := Watch{Name: "Status", Enabled: true, Channel: "telegram", Sources: []sources.Spec{{Kind: sources.KindPage, Label: "Status page", Target: "https://status.example/"}}}
 	h := newHarness(t, watch)
 	h.fetch.bodies["https://status.example/"] = "<html><body><h1>All good</h1><script>x=1</script></body></html>"
 	h.tick(t, 0)
@@ -302,12 +303,46 @@ func TestWatchedPageChangeIsNew(t *testing.T) {
 	}
 }
 
+// One source of two cannot be read: the run still answers from the other, but the watch must keep saying which source is unread (once, by its own
+// name) until a later run reads it, so "nothing new" never hides a dead source.
+func TestUnreadSourceIsKeptOnTheWatchWhileOthersAnswer(t *testing.T) {
+	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []sources.Spec{{Kind: sources.KindTelegram, Target: "nopreview"}, {Kind: sources.KindFeed, Target: feedURL}}}
+	h := newHarness(t, watch)
+	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
+	h.fetch.bodies["https://t.me/s/nopreview"] = "<html></html>"
+	h.run.Readers.Reader(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
+	h.tick(t, 0)
+	o := h.tick(t, time.Hour)
+	got, _ := h.store.Get(h.id)
+	if o[0].Status == StatusFailing || len(got.LastProblems) != 1 || strings.Count(got.LastProblems[0], "nopreview") != 1 || !strings.Contains(got.LastProblems[0], "no public preview") {
+		t.Fatalf("the unread source must be listed once, in words: %+v / %+v", o, got.LastProblems)
+	}
+	if strings.Contains(got.LastDetail, "no public preview") {
+		t.Errorf("the problem must not also be repeated in the detail: %q", got.LastDetail)
+	}
+	h.fetch.bodies["https://t.me/s/nopreview"] = `<div class="tgme_widget_message_wrap"><div data-post="nopreview/5"><div class="tgme_widget_message_text">Hello</div><time datetime="2026-11-21T10:00:00+00:00"></time></div></div>`
+	h.tick(t, time.Hour)
+	if got, _ = h.store.Get(h.id); len(got.LastProblems) != 0 {
+		t.Errorf("a source that reads again must clear its problem: %v", got.LastProblems)
+	}
+}
+
+func TestWatchAcceptsANewsSearchSource(t *testing.T) {
+	w, err := Normalize(Watch{Name: "Economy", Sources: []sources.Spec{{Kind: sources.KindNews, Target: "  inflation OR rates "}}})
+	if err != nil || w.Sources[0].Target != "inflation OR rates" || w.Sources[0].Instance != sources.DefaultNewsLocale {
+		t.Fatalf("a news search is a source a watch can follow, with the default region: %+v, %v", w.Sources, err)
+	}
+	if _, err := Normalize(Watch{Name: "Economy", Sources: []sources.Spec{{Kind: sources.KindNews, Target: "x", Instance: "uk"}}}); err == nil {
+		t.Error("a bad region must be refused")
+	}
+}
+
 func TestTelegramFloorIsNotAFailure(t *testing.T) {
-	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []SourceSpec{{Kind: KindTelegram, Target: "telegram"}, {Kind: KindFeed, Target: feedURL}}}
+	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []sources.Spec{{Kind: sources.KindTelegram, Target: "telegram"}, {Kind: sources.KindFeed, Target: feedURL}}}
 	h := newHarness(t, watch)
 	h.fetch.bodies[feedURL] = rss([2]string{"One", "https://e.example/1"})
 	h.fetch.bodies["https://t.me/s/telegram"] = "<html></html>"
-	h.run.source(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
+	h.run.Readers.Reader(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
 	h.tick(t, 0) // telegram page has no messages: failing source, feed answers
 	o := h.tick(t, MinInterval)
 	if o[0].Status == StatusFailing || strings.Contains(o[0].Detail, "too recently") {
@@ -318,14 +353,14 @@ func TestTelegramFloorIsNotAFailure(t *testing.T) {
 // A manual "Check now" soon after another read of a Telegram-only watch finds the source waiting out its floor. That is not a failed check: the
 // watch's last result must stay what it was, and the answer says when to ask again.
 func TestWaitingOutTheFloorIsNeitherFailingNorRecorded(t *testing.T) {
-	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []SourceSpec{{Kind: KindTelegram, Target: "telegram"}}}
+	watch := Watch{Name: "Chan", Enabled: true, Interval: MinInterval, Sources: []sources.Spec{{Kind: sources.KindTelegram, Target: "telegram"}}}
 	h := newHarness(t, watch)
 	body, err := os.ReadFile("../sources/testdata/telegram-channel.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.fetch.bodies["https://t.me/s/telegram"] = string(body)
-	h.run.source(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
+	h.run.Readers.Reader(watch.Sources[0]).(*sources.TelegramChannel).Now = func() time.Time { return h.now }
 	first := h.run.Run(context.Background(), h.store.List()[0])
 	if first.Status == StatusFailing {
 		t.Fatalf("the first read must answer: %+v", first)

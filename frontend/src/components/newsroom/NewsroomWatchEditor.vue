@@ -8,9 +8,9 @@ import SelectInput from "../common/forms/SelectInput.vue"
 import NewsroomSourceGuide from "./NewsroomSourceGuide.vue"
 import NewsroomSourceLookup from "./NewsroomSourceLookup.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
-import { sourceProblem } from "../../utils/newsroom/sourceCheck"
+import { regionProblem, sourceProblem } from "../../utils/newsroom/sourceCheck"
 import {
-  ADD_SOURCE_LABEL, NEW_SOURCE_WORDS, DEFAULT_INTERVAL, DEFAULT_MAX_AGE, MAX_AGE_OPTIONS, WATCH_MAX_AGE_HINT, WATCH_MAX_AGE_LABEL, WATCH_KEYWORDS_HINT, WATCH_KEYWORDS_LABEL, WATCH_LOOK_FOR_HINT, WATCH_LOOK_FOR_LABEL, WATCH_LOOK_FOR_MAX, WATCH_SKIP_HINT, WATCH_SKIP_LABEL, WATCH_SUGGESTIONS_LABEL, WATCH_TEMPLATES, GUIDE_SHOW_LABEL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
+  ADD_SOURCE_LABEL, NEW_SOURCE_WORDS, DEFAULT_INTERVAL, DEFAULT_MAX_AGE, MAX_AGE_OPTIONS, WATCH_MAX_AGE_HINT, WATCH_MAX_AGE_LABEL, WATCH_KEYWORDS_HINT, WATCH_KEYWORDS_LABEL, WATCH_LOOK_FOR_HINT, WATCH_LOOK_FOR_LABEL, WATCH_LOOK_FOR_MAX, WATCH_SKIP_HINT, WATCH_SKIP_LABEL, WATCH_SUGGESTIONS_LABEL, WATCH_TEMPLATES, GUIDE_SHOW_LABEL, INTERVAL_OPTIONS, MAX_SOURCES, REMOVE_SOURCE_LABEL, SOURCE_INSTANCE_HINT, SOURCE_REGION_HINT, SOURCE_REGION_LABEL, SOURCE_INSTANCE_LABEL, SOURCE_KIND_INFO,
   SOURCE_KIND_LABEL, SOURCE_KIND_OPTIONS, SOURCE_TARGET_MAX, WATCH_CHANNEL_HINT, WATCH_CHANNEL_LABEL, WATCH_INTERVAL_LABEL, WATCH_NAME_LABEL, WATCH_NAME_HINT, WATCH_FORM_INTRO, WATCH_NAME_MAX,
   WATCH_ON_LABEL, WATCH_SOURCES_LABEL,
 } from "../../constants/newsroom"
@@ -70,7 +70,7 @@ function applyPick(source: NewsroomSource, picked: { target: string; instance?: 
 
 function setKind(source: NewsroomSource, kind: string) {
   source.kind = kind as SourceKind
-  if (source.kind !== "mastodon") delete source.instance
+  if (source.kind !== "mastodon" && source.kind !== "newssearch") delete source.instance
 }
 
 // A suggestion fills in what to look for, and the name when none was typed yet; both stay editable.
@@ -123,7 +123,7 @@ function submit() {
         <div class="flex flex-wrap items-end gap-2">
           <SelectInput :model-value="source.kind" :options="SOURCE_KIND_OPTIONS" :label="SOURCE_KIND_LABEL" @update:model-value="setKind(source, $event)" />
         </div>
-        <FormField :label="SOURCE_KIND_INFO[source.kind].targetLabel" :hint="SOURCE_KIND_INFO[source.kind].hint" :error="source.kind === 'mastodon' ? '' : problems[i]">
+        <FormField :label="SOURCE_KIND_INFO[source.kind].targetLabel" :hint="SOURCE_KIND_INFO[source.kind].hint" :error="source.kind === 'mastodon' || (source.kind === 'newssearch' && regionProblem(source)) ? '' : problems[i]">
           <template #default="{ id, describedBy, invalid }">
             <input :id="id" v-model="source.target" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" :maxlength="SOURCE_TARGET_MAX" class="form-control" />
           </template>
@@ -135,6 +135,11 @@ function submit() {
         <FormField v-if="source.kind === 'mastodon'" :label="SOURCE_INSTANCE_LABEL" :hint="SOURCE_INSTANCE_HINT" :error="problems[i]">
           <template #default="{ id, describedBy, invalid }">
             <input :id="id" v-model="source.instance" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" class="form-control" />
+          </template>
+        </FormField>
+        <FormField v-if="source.kind === 'newssearch'" :label="SOURCE_REGION_LABEL" :hint="SOURCE_REGION_HINT" :error="regionProblem(source)">
+          <template #default="{ id, describedBy, invalid }">
+            <input :id="id" v-model="source.instance" :aria-describedby="describedBy" :aria-invalid="invalid" type="text" maxlength="5" placeholder="en-US" class="form-control" />
           </template>
         </FormField>
         <NewsroomSourceLookup :source="source" @pick="applyPick(source, $event)" />

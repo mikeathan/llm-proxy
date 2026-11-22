@@ -21,10 +21,10 @@ const (
 )
 
 // stackModelPort builds the Model port a stack with the given id is handed: the owner's configured model answers one tool-free question, while the
-// module's switch is on. Only a stack whose manifest requires PortModel is given it (checkPorts).
-func (s *AppServices) stackModelPort(stackID string, enabled func() bool) *stackport.Model {
+// module's switch is on, up to the daily limit the owner set (limit; nil means the default). Only a stack whose manifest requires PortModel is given it (checkPorts).
+func (s *AppServices) stackModelPort(stackID string, enabled func() bool, limit func() int) *stackport.Model {
 	return &stackport.Model{
-		Stack: stackID, Enabled: enabled, Ask: s.stackModelAsk,
+		Stack: stackID, Enabled: enabled, Limit: limit, Ask: s.stackModelAsk,
 		// The call's own time (stackport.ModelTimeout) starts after a cold local model has loaded, so the outer bound allows for that wait too.
 		Timeout: models.ModelStartWaitTimeout + stackport.ModelTimeout,
 		Log:     func(msg string, fields ...string) { logging.Info(msg, stringsToAny(fields)...) },

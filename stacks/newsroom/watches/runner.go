@@ -32,16 +32,15 @@ type Outcome struct {
 // Runner reads the watches that are due and hands each one's new items to Notify. Tick does one pass and returns; a loop in the stack's Start
 // (a later phase, in the one lifecycle place) calls it on a timer. It owns no goroutine.
 type Runner struct {
-	Store  *Store
-	Fetch  stacksdk.Fetch
-	Notify Notifier
+	Store *Store
+	// Readers hands out the one reader of each source, so a reader's politeness floor holds however many callers share the registry.
+	Readers *sources.Registry
+	Notify  Notifier
 	// Analyzer is the model step; nil means every unseen item is announced as new with no comparison (and no model call).
 	Analyzer Analyzer
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]sources.Source
 	// running serialises Run: the read, record and deliver sequence of one watch is not atomic, so two runs at once (the timer's pass and a manual
 	// run from the screen) could both find the same items unseen and, with a notice, send them twice.
 	running sync.Mutex
@@ -83,14 +82,16 @@ func (r *Runner) Run(ctx context.Context, t Watch) Outcome {
 	}
 	at := r.now()
 	items, failures, answered, waiting := r.read(ctx, t)
-	detail := strings.Join(failures, "; ")
 	if answered == 0 && len(failures) == 0 && waiting > 0 {
 		// Every source is only waiting out its politeness floor: nothing was read, so nothing is recorded and the last result stands.
 		return Outcome{WatchID: t.ID, Status: StatusWaiting, Detail: "this was read a moment ago; try again in a few minutes"}
 	}
 	if answered == 0 {
-		return r.finish(t, at, StatusFailing, firstNonEmpty(detail, "no source could be read"), 0, false)
+		r.keepProblems(t.ID, nil) // every source failed: the run's own detail says so
+		return r.finish(t, at, StatusFailing, firstNonEmpty(strings.Join(failures, "; "), "no source could be read"), 0, false)
 	}
+	r.keepProblems(t.ID, failures)
+	detail := ""
 	recent, stale := t.Fresh(r.Store.Unseen(t.ID, items, at), at)
 	fresh, skipped := t.Gate(recent)
 	skipped = append(skipped, stale...)
@@ -105,6 +106,12 @@ func (r *Runner) Run(ctx context.Context, t Watch) Outcome {
 		return r.finish(t, at, StatusNothingNew, detail, 0, false)
 	}
 	return r.deliver(ctx, t, at, fresh, detail)
+}
+
+// keepProblems stores which sources this run could not read (none clears the list). A failed save (or a watch deleted meanwhile) is not the run's
+// failure: the list is a warning and the next run writes it again.
+func (r *Runner) keepProblems(id int64, problems []string) {
+	_ = r.Store.SetProblems(id, problems)
 }
 
 func (r *Runner) baseline(ctx context.Context, t Watch, at time.Time, fresh []sources.Item, detail string) Outcome {
@@ -360,12 +367,12 @@ func joinDetail(a, b string) string {
 // only waiting out its politeness floor is neither failing nor answered; it is counted in waiting.
 func (r *Runner) read(ctx context.Context, t Watch) (items []sources.Item, failures []string, answered, waiting int) {
 	for _, spec := range t.Sources {
-		got, err := r.source(spec).Fetch(ctx)
+		got, err := r.Readers.Reader(spec).Fetch(ctx)
 		switch {
 		case errors.Is(err, sources.ErrTooSoon):
 			waiting++
 		case err != nil:
-			failures = append(failures, spec.Name()+": "+err.Error())
+			failures = append(failures, err.Error()) // every reader already names itself in its error
 		default:
 			answered++
 			items = append(items, got...)
@@ -379,47 +386,6 @@ func (r *Runner) finish(t Watch, at time.Time, status Status, detail string, n i
 		detail = firstNonEmpty(detail, "") + " (the result could not be saved: " + err.Error() + ")"
 	}
 	return Outcome{WatchID: t.ID, Status: status, Detail: detail, New: n}
-}
-
-// source returns the reader for a spec, building it once: a Telegram reader remembers when it last read so its politeness floor holds across ticks.
-func (r *Runner) source(spec SourceSpec) sources.Source {
-	key := fmt.Sprintf("%s|%s|%s|%s", spec.Kind, spec.Label, spec.Instance, spec.Target)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.cache[key]; ok {
-		return s
-	}
-	if r.cache == nil {
-		r.cache = map[string]sources.Source{}
-	}
-	s := Build(spec, r.Fetch)
-	r.cache[key] = s
-	return s
-}
-
-// Build makes the reader for one spec. The spec was validated by Normalize; an unknown kind reads as a source that always fails.
-func Build(spec SourceSpec, f stacksdk.Fetch) sources.Source {
-	name := spec.Name()
-	switch spec.Kind {
-	case KindFeed:
-		return sources.Feed{Label: name, URL: spec.Target, Fetcher: f}
-	case KindHN:
-		return sources.HackerNews{Label: name, Query: spec.Target, Fetcher: f}
-	case KindMastodon:
-		return sources.MastodonTag{Label: name, Instance: spec.Instance, Tag: spec.Target, Fetcher: f}
-	case KindPage:
-		return sources.Page{Label: name, URL: spec.Target, Fetcher: f}
-	case KindTelegram:
-		return &sources.TelegramChannel{Label: name, Channel: sources.ChannelName(spec.Target), Fetcher: f}
-	}
-	return failing{name: name, kind: string(spec.Kind)}
-}
-
-type failing struct{ name, kind string }
-
-func (f failing) Name() string { return f.name }
-func (f failing) Fetch(context.Context) ([]sources.Item, error) {
-	return nil, fmt.Errorf("unknown source kind %q", f.kind)
 }
 
 func firstNonEmpty(a, b string) string {

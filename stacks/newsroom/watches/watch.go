@@ -43,39 +43,11 @@ var ErrInvalid = errors.New("invalid watch")
 // ErrNotFound is returned for a watch id that does not exist.
 var ErrNotFound = errors.New("watch not found")
 
-// Kind names a source type a watch can read.
-type Kind string
-
-const (
-	KindFeed     Kind = "feed"
-	KindHN       Kind = "hackernews"
-	KindMastodon Kind = "mastodon"
-	KindPage     Kind = "page"
-	KindTelegram Kind = "telegram"
-)
-
-// SourceSpec is one source of a watch, as plain data. Param meaning by kind: feed and page: Target is the URL; hackernews: Target is the query;
-// mastodon: Instance is the host and Target the hashtag (no #); telegram: Target is the channel name (no @).
-type SourceSpec struct {
-	Kind     Kind   `json:"kind"`
-	Label    string `json:"label,omitempty"`
-	Target   string `json:"target"`
-	Instance string `json:"instance,omitempty"`
-}
-
-// Name is the label the owner sees: the Label, or the kind and target when there is none.
-func (s SourceSpec) Name() string {
-	if s.Label != "" {
-		return s.Label
-	}
-	return string(s.Kind) + " " + s.Target
-}
-
 // Watch is one thing the owner follows.
 type Watch struct {
-	ID      int64        `json:"id"`
-	Name    string       `json:"name"`
-	Sources []SourceSpec `json:"sources"`
+	ID      int64          `json:"id"`
+	Name    string         `json:"name"`
+	Sources []sources.Spec `json:"sources"`
 	// Interval is the time between reads; zero in a request means DefaultInterval.
 	Interval time.Duration `json:"interval"`
 	// MaxAge is how old a post may be and still be news; zero (a watch saved before this existed) means DefaultMaxAge. A post with no date is kept.
@@ -99,7 +71,10 @@ type Watch struct {
 	LastStatus Status    `json:"last_status,omitempty"`
 	LastDetail string    `json:"last_detail,omitempty"`
 	LastNew    int       `json:"last_new,omitempty"`
-	CreatedAt  time.Time `json:"created_at,omitzero"`
+	// LastProblems names each source the last run could not read and why, one sentence each. It is kept apart from LastStatus because a run can
+	// answer from the other sources and still have one dead: the row must go on saying so until that source reads again.
+	LastProblems []string  `json:"last_problems,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitzero"`
 }
 
 // Status is the outcome of a watch's last run, in words the row can show.
@@ -137,11 +112,11 @@ func Normalize(t Watch) (Watch, error) {
 	if n := len(t.Sources); n == 0 || n > MaxSources {
 		return Watch{}, fmt.Errorf("%w: a watch needs 1 to %d sources", ErrInvalid, MaxSources)
 	}
-	t.Sources = append([]SourceSpec(nil), t.Sources...)
+	t.Sources = append([]sources.Spec(nil), t.Sources...)
 	for i, s := range t.Sources {
-		s = s.canonical()
+		s = s.Canonical()
 		t.Sources[i] = s
-		if err := s.validate(); err != nil {
+		if err := s.Validate(); err != nil {
 			return Watch{}, fmt.Errorf("%w: source %d: %v", ErrInvalid, i+1, err)
 		}
 	}
@@ -254,41 +229,6 @@ func containsAny(hay string, words []string) bool {
 }
 
 // canonical reduces what the owner typed to the form the source reads: a bare channel name, a bare tag, a bare host, no stray spaces.
-func (s SourceSpec) canonical() SourceSpec {
-	s.Target = strings.TrimSpace(s.Target)
-	switch s.Kind {
-	case KindTelegram:
-		s.Target = sources.ChannelName(s.Target)
-	case KindMastodon:
-		s.Target = sources.TagName(s.Target)
-		s.Instance = sources.InstanceName(s.Instance)
-	}
-	return s
-}
-
-func (s SourceSpec) validate() error {
-	if s.Target == "" {
-		return errors.New("a target is needed")
-	}
-	switch s.Kind {
-	case KindFeed, KindPage:
-		return sources.CheckAddress(s.Target)
-	case KindHN:
-		return sources.CheckQuery(s.Target)
-	case KindTelegram:
-		return sources.CheckChannel(s.Target)
-	case KindMastodon:
-		if s.Instance == "" {
-			return errors.New("a Mastodon source needs a server")
-		}
-		if err := sources.CheckInstance(s.Instance); err != nil {
-			return err
-		}
-		return sources.CheckTag(s.Target)
-	}
-	return fmt.Errorf("unknown source kind %q", s.Kind)
-}
-
 // Due reports whether a watch should be read at now: enabled, and never read or read at least one interval ago.
 func (t Watch) Due(now time.Time) bool {
 	if !t.Enabled {

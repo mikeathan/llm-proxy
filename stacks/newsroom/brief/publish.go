@@ -1,0 +1,105 @@
+package brief
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+)
+
+// Timings of making an edition.
+const (
+	// PublishLead is how long before an edition's ready time it is written, so a slow or cold model cannot make it late.
+	PublishLead = 20 * time.Minute
+	// PublishCatchUp is how long after its ready time an edition that was not made (the service was stopped) is still made.
+	PublishCatchUp = 3 * time.Hour
+)
+
+// Publisher writes each edition once for every ready time: the stack's loop calls Tick, and the owner's "make it now" calls MakeNow. It owns no goroutine.
+type Publisher struct {
+	Timing
+	Store *Store
+	// Model may be nil: an edition is then made from the pool alone.
+	Model Model
+
+	// mu keeps two editions from being written at once, so the loop and a manual request take turns and do not both write the same edition.
+	mu sync.Mutex
+}
+
+// Made is what one pass of the publisher did for one edition, for the caller to log.
+type Made struct {
+	EditionID  int64
+	IssueID    int64
+	ModelCalls int
+}
+
+// Tick writes every enabled edition that is due: its ready time is no more than PublishLead ahead, or no more than PublishCatchUp behind, and it was not
+// already written for that time. A cancelled context stops before the next edition.
+func (p *Publisher) Tick(ctx context.Context) ([]Made, error) {
+	now := p.now()
+	var out []Made
+	for _, e := range p.Store.Editions() {
+		if ctx.Err() != nil {
+			break
+		}
+		if !e.Enabled {
+			continue
+		}
+		slot, err := p.dueSlot(e, now)
+		if err != nil || slot.IsZero() || p.Store.Made(e.ID, slot) {
+			if err != nil {
+				return out, err
+			}
+			continue
+		}
+		is, err := p.make(ctx, e.ID, slot)
+		if errors.Is(err, ErrNotFound) {
+			continue // the owner deleted the edition while this pass ran
+		}
+		if err != nil {
+			return out, err
+		}
+		out = append(out, Made{EditionID: e.ID, IssueID: is.ID, ModelCalls: is.ModelCalls})
+	}
+	return out, nil
+}
+
+// dueSlot is the latest ready time of the edition that is within the lead ahead of now or the catch-up behind it; the zero time when there is none.
+func (p *Publisher) dueSlot(e Edition, now time.Time) (time.Time, error) {
+	var due time.Time
+	at := now.Add(-PublishCatchUp)
+	// A weekly edition has at most one slot in the window, a daily one a few; the bound only guards a schedule that never advances.
+	for range 16 {
+		slot, err := p.NextReady(e, at)
+		if err != nil || slot.IsZero() || slot.After(now.Add(PublishLead)) {
+			return due, err
+		}
+		due, at = slot, slot
+	}
+	return due, nil
+}
+
+// MakeNow writes the edition now, whatever the schedule says, and stores it with no ready time, so it never stands in for a scheduled one.
+func (p *Publisher) MakeNow(ctx context.Context, editionID int64) (Issue, error) {
+	return p.make(ctx, editionID, time.Time{})
+}
+
+// make writes and stores one edition for a ready time (the zero time for a manual one).
+func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Time) (Issue, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	snap := p.Store.Snapshot()
+	var edition *Edition
+	for i := range snap.Editions {
+		if snap.Editions[i].ID == editionID {
+			edition = &snap.Editions[i]
+		}
+	}
+	if edition == nil {
+		return Issue{}, ErrNotFound
+	}
+	now := p.now()
+	is := Compose(ctx, ComposeInput{Edition: *edition, Topics: snap.Topics, Pool: snap.Pool, Shown: snap.Shown, Model: p.Model, Now: now})
+	is.ReadyFor = readyFor.UTC()
+	return p.Store.SaveIssue(is, now)
+}

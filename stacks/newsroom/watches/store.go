@@ -218,6 +218,18 @@ func (s *Store) SetRun(id int64, at time.Time, status Status, detail string, new
 	return s.saveLocked()
 }
 
+// SetProblems records which sources the last run could not read (nil clears it). It is its own write because it holds whatever else the run ends in.
+func (s *Store) SetProblems(id int64, problems []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := s.index(id)
+	if i < 0 {
+		return ErrNotFound
+	}
+	s.doc.Watches[i].LastProblems = problems
+	return s.saveLocked()
+}
+
 // Recent returns the titles of the n most recently reported items, newest first. Entries with no title are skipped. The model step shows them to the
 // model, numbered, so a repeat can cite what it repeats.
 func (s *Store) Recent(id int64, n int) []string {

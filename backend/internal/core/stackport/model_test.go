@@ -175,7 +175,8 @@ func TestModel_OnlyOneCallRunsAtATime(t *testing.T) {
 
 func TestModel_TheDailyLimitIsSpentThenFreedTomorrow(t *testing.T) {
 	r := newModelRig()
-	r.m.Limit = 2
+	limit := 2
+	r.m.Limit = func() int { return limit }
 	for range 2 {
 		if _, err := ask(r.m, "q"); err != nil {
 			t.Fatal(err)
@@ -187,5 +188,28 @@ func TestModel_TheDailyLimitIsSpentThenFreedTomorrow(t *testing.T) {
 	r.now = r.now.Add(24 * time.Hour)
 	if _, err := ask(r.m, "q"); err != nil {
 		t.Errorf("a new day has a new limit, got %v", err)
+	}
+}
+
+// The owner's setting is read at every call: raising it frees a spent day at once, and nothing they type can pass the ceiling or fall below the default.
+func TestModel_TheLimitIsReadAtEveryCallAndHeldToItsBounds(t *testing.T) {
+	r := newModelRig()
+	limit := 1
+	r.m.Limit = func() int { return limit }
+	if _, err := ask(r.m, "q"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ask(r.m, "q"); stacksdk.CodeOf(err) != stacksdk.CodeDenied {
+		t.Fatalf("the second call is over a limit of 1, got %v", err)
+	}
+	limit = 3
+	if _, err := ask(r.m, "q"); err != nil {
+		t.Errorf("raising the limit frees the day, got %v", err)
+	}
+	for in, want := range map[int]int{0: ModelDailyLimit, -5: ModelDailyLimit, 7: 7, ModelDailyLimitMax + 1: ModelDailyLimitMax} {
+		limit = in
+		if got := r.m.dailyLimit(); got != want {
+			t.Errorf("limit %d is held to %d, got %d", in, want, got)
+		}
 	}
 }
