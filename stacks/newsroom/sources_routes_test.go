@@ -58,9 +58,19 @@ func TestLookupRouteAnswersAPreview(t *testing.T) {
 	}
 }
 
-func TestLookupFollowsTheSwitchAndFetchesNothingWhileOff(t *testing.T) {
+// The brief topic form checks a pasted feed too, so Watches alone being off must not stop a look-up.
+func TestLookupStillWorksWhileOnlyWatchesIsOff(t *testing.T) {
 	f := &pageFetch{body: channelPage}
 	s := start(t, `{"disabled":true}`, f)
+	got, err := s.Handle(context.Background(), lookupReq("kind=telegram&target=%40aipost"))
+	if err != nil || !strings.Contains(string(got.Body), `"found":true`) {
+		t.Fatalf("with Watches off and Briefs on: %s (%v)", got.Body, err)
+	}
+}
+
+func TestLookupFollowsTheSwitchAndFetchesNothingWhileOff(t *testing.T) {
+	f := &pageFetch{body: channelPage}
+	s := start(t, `{"disabled":true,"briefs_disabled":true}`, f)
 	for _, path := range []string{RouteSourceLookup, RouteSourceSuggest} {
 		_, err := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: path, Query: "kind=mastodon&instance=mastodon.social&target=go"})
 		if stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {

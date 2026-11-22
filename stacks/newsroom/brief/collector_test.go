@@ -258,6 +258,30 @@ func TestCollector_CollectNowIgnoresTheSchedule(t *testing.T) {
 	}
 }
 
+func TestCollector_CollectStaleReadsOnlyTopicsNotReadWithinTheInterval(t *testing.T) {
+	r := newRig(t, nil)
+	eds := r.store.Editions()
+	// Outside the collection window, and never collected: write-now must still read it.
+	out, err := r.col.CollectStale(context.Background(), eds[0].ID)
+	if err != nil || len(out) != 1 || out[0].New != 1 {
+		t.Fatalf("never-collected topic: %+v, err %v", out, err)
+	}
+	// Collected a moment ago (inside the edition's interval): left alone.
+	calls := r.fetch.calls
+	out, err = r.col.CollectStale(context.Background(), eds[0].ID)
+	if err != nil || len(out) != 0 || r.fetch.calls != calls {
+		t.Fatalf("fresh topic was read again: %+v, err %v", out, err)
+	}
+	// Past the interval: read again.
+	r.now = r.now.Add(eds[0].CollectEvery + time.Minute)
+	if out, err = r.col.CollectStale(context.Background(), eds[0].ID); err != nil || len(out) != 1 {
+		t.Fatalf("stale topic: %+v, err %v", out, err)
+	}
+	if _, err := r.col.CollectStale(context.Background(), 999); err == nil {
+		t.Error("an unknown edition is an error")
+	}
+}
+
 func TestCollector_EverySourceFailingIsRecordedWithItsProblems(t *testing.T) {
 	store, _ := newStore(t)
 	topic, _ := store.CreateTopic(Topic{Name: "Down", Sources: []sources.Spec{{Kind: sources.KindFeed, Label: "x", Target: bbcURL}}}, t0)

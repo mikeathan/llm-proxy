@@ -30,10 +30,16 @@ describe('NewsroomEdition', () => {
   })
 
   it('says why a section is thin: its note and each source that could not be read', () => {
-    const w = mount(NewsroomEdition, { props: { issue: issue({ sections: [section({ stories: [], note: 'last collected 9 hours ago', problems: ['Feed X: could not be read'] })] }) } })
+    const w = mount(NewsroomEdition, { props: { issue: issue({ sections: [section({ stories: [], as_of: '2026-11-22T00:00:00Z', note: 'last collected 9 hours ago', problems: ['Feed X: could not be read'] })] }) } })
     expect(w.get('[data-test="section-note"]').text()).toBe('last collected 9 hours ago')
     expect(w.get('[data-test="section-problems"]').text()).toContain('Feed X: could not be read')
     expect(w.text()).toContain('Nothing new here since the last edition.')
+  })
+
+  it('does not say "nothing new" about a topic that was never read', () => {
+    const w = mount(NewsroomEdition, { props: { issue: issue({ sections: [section({ stories: [], as_of: undefined, note: 'not collected yet' })] }) } })
+    expect(w.text()).toContain('Nothing has been read for this topic yet')
+    expect(w.text()).not.toContain('Nothing new here')
   })
 
   it('tags a headline-only story and an update, and shows no summary it was not given', () => {

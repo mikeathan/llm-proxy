@@ -1,4 +1,4 @@
-import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefSettings, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
+import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
 import { apiFetch } from '../httpClient'
 import { failureReason } from '../failureReason'
 
@@ -44,6 +44,24 @@ export class BriefService {
     const res = await apiFetch(`${BASE}/settings`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ model_calls_per_day: modelCallsPerDay }) })
     if (!res.ok) throw await failureReason(res, 'save the settings')
     return res.json()
+  }
+
+  /** The sources the topic form offers: the built-in list, then the owner's own. */
+  static async sources(): Promise<BriefSource[]> {
+    const res = await apiFetch(`${BASE}/sources`)
+    if (!res.ok) throw await failureReason(res, 'list the sources')
+    return (await res.json()) ?? []
+  }
+
+  static async addSource(label: string, target: string): Promise<BriefSource> {
+    const res = await apiFetch(`${BASE}/sources`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ label, kind: 'feed', target }) })
+    if (!res.ok) throw await failureReason(res, 'add the source')
+    return res.json()
+  }
+
+  static async removeSource(id: number): Promise<void> {
+    const res = await apiFetch(`${BASE}/sources/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw await failureReason(res, 'remove the source')
   }
 
   static async createTopic(edit: BriefTopicEdit): Promise<BriefTopic> {

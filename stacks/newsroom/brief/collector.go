@@ -96,6 +96,41 @@ func (c *Collector) CollectNow(ctx context.Context, id int64) (Outcome, error) {
 	return c.collect(ctx, t, c.now())
 }
 
+// CollectStale collects the topics of an edition that were never collected or not within its CollectEvery, so "write it now" does not write from an empty
+// pool. A topic that was collected recently is left alone. It returns what each collected topic did.
+func (c *Collector) CollectStale(ctx context.Context, editionID int64) ([]Outcome, error) {
+	e, err := c.Store.Edition(editionID)
+	if err != nil {
+		return nil, err
+	}
+	now := c.now()
+	var out []Outcome
+	for _, s := range e.Sections {
+		t, err := c.Store.Topic(s.TopicID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return out, err
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if !t.LastCollected.IsZero() && now.Before(t.LastCollected.Add(e.CollectEvery)) {
+			continue
+		}
+		o, err := c.collect(ctx, t, now)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return out, err
+		}
+		out = append(out, o)
+	}
+	return out, nil
+}
+
 // collect reads every source of the topic and stores what they answered. A source that fails is named in the outcome and in the topic's record; the
 // others still count. Every source failing is recorded too, so the owner sees why a section is empty, and the topic is read again at its next interval.
 func (c *Collector) collect(ctx context.Context, t Topic, now time.Time) (Outcome, error) {

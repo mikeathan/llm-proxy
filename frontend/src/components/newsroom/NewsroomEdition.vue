@@ -3,7 +3,7 @@ import { ref } from "vue"
 import Icon from "../icons/Icon.vue"
 import NewsroomBriefStory from "./NewsroomBriefStory.vue"
 import { formatRelativeTime } from "../../utils/format/time"
-import { BRIEF_PROBLEMS_LABEL, SECTION_EMPTY, TOP_STORIES_LABEL, briefAsOfWords, briefMadeWords, briefStoryCountWords } from "../../constants/newsroom"
+import { BRIEF_PROBLEMS_LABEL, SECTION_EMPTY, SECTION_NEVER_READ, TOP_STORIES_LABEL, briefAsOfWords, briefMadeWords, briefStoryCountWords } from "../../constants/newsroom"
 import type { BriefIssue } from "../../types/newsroom"
 
 // One edition as it was made: the top stories, then a foldable section for each topic. The first two sections are open. A section says what the reader
@@ -51,7 +51,7 @@ const toggle = (topicId: number, index: number) => (toggled.value = { ...toggled
         <ul v-if="sec.stories.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
           <li v-for="s in sec.stories" :key="s.pool_id"><NewsroomBriefStory :story="s" /></li>
         </ul>
-        <p v-else class="m-0 py-3 text-muted">{{ SECTION_EMPTY }}</p>
+        <p v-else class="m-0 py-3 text-muted">{{ sec.as_of ? SECTION_EMPTY : SECTION_NEVER_READ }}</p>
       </template>
     </section>
   </div>

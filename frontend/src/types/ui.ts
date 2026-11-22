@@ -88,3 +88,10 @@ export interface PersistedStateOptions<T> {
   migrate?: (fromVersion: number, data: unknown) => T | null
   storage?: Storage
 }
+
+/** One suggestion a chip box lists while the owner types: the value a pick adds, its name and an optional note beside it. */
+export interface ChipSuggestion {
+  value: string
+  label: string
+  note?: string
+}

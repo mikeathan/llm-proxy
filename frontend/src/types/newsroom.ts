@@ -240,6 +240,16 @@ export interface BriefTopic {
   last_problems?: string[]
 }
 
+/** One source the topic form offers: the built-in list (builtin) and the owner's own (an id, so it can be removed). A feed target is an address; a news search's is the search. */
+export interface BriefSource {
+  id?: number
+  label: string
+  category: string
+  kind: 'feed' | 'newssearch'
+  target: string
+  builtin: boolean
+}
+
 /** The stack's daily limit of model calls (watches and briefs together): the owner's setting, 0 meaning the default, and the bounds. */
 export interface BriefSettings {
   model_calls_per_day: number
