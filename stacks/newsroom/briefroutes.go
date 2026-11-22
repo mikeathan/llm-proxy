@@ -32,6 +32,7 @@ const (
 	RouteBriefSettings = "/admin/api/newsroom/briefs/settings"
 	RouteBriefSources  = "/admin/api/newsroom/briefs/sources"
 	RouteBriefSource   = "/admin/api/newsroom/briefs/sources/{id}"
+	RouteBriefAll      = "/admin/api/newsroom/briefs/all"
 	maxIssuesView      = 30
 	// DefaultModelCalls and MaxModelCalls mirror the core's model port (stackport.ModelDailyLimit and ModelDailyLimitMax), which holds the real limit;
 	// the app's tests keep the two in step. They are here so the screen can say what an empty setting means.
@@ -133,6 +134,8 @@ func (s *Stack) handleBriefs(ctx context.Context, req stacksdk.Request) (stacksd
 		return handleEditions(key, id, req, store)
 	case RouteBriefSources, RouteBriefSource:
 		return handleSourceList(key, id, req, store)
+	case RouteBriefAll:
+		return handleEraseBriefs(key, req, store)
 	case RouteBriefPool:
 		return briefPool(store, req.Query)
 	case RouteBriefIssues, RouteBriefIssue:
@@ -259,7 +262,7 @@ func handleEditions(key string, id int64, req stacksdk.Request, store *brief.Sto
 
 // The shapes of a real path under RouteBriefs, by the number of segments: the collection, then the collection and an id, then an action on one item.
 var (
-	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "settings": RouteBriefSettings, "sources": RouteBriefSources}
+	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "settings": RouteBriefSettings, "sources": RouteBriefSources, "all": RouteBriefAll}
 	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake}
 	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue, "sources": RouteBriefSource}
 )
@@ -289,6 +292,15 @@ func briefRoute(req stacksdk.Request) (string, int64, error) {
 		return briefActions[parts[0]+"/"+parts[2]], id, nil
 	}
 	return "", 0, noRoute
+}
+
+// handleEraseBriefs forgets every topic, edition, collected story, written edition and the owner's own sources in one call. The daily model-call limit is a
+// setting of the stack, not of the briefs, so it stays.
+func handleEraseBriefs(key string, req stacksdk.Request, store *brief.Store) (stacksdk.Response, error) {
+	if key != "DELETE "+RouteBriefAll {
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
+	}
+	return noContent(store.Erase())
 }
 
 // nonNil makes an empty list read as [] rather than null.

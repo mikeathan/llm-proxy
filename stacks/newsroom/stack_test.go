@@ -94,6 +94,30 @@ func TestManifestIsValidAndRoutesAreAdminOnly(t *testing.T) {
 	}
 }
 
+// A route the handler answers but the manifest does not declare is a 404 from the core: the screen failed that way for the sources routes.
+func TestManifestDeclaresEveryBriefRoute(t *testing.T) {
+	declared := map[string]bool{}
+	for _, r := range New().Manifest().Routes {
+		declared[r.Method+" "+r.Path] = true
+	}
+	for _, c := range []string{"GET", "POST"} {
+		if !declared[c+" "+RouteBriefSources] {
+			t.Errorf("%s %s is not declared", c, RouteBriefSources)
+		}
+	}
+	if !declared["DELETE "+RouteBriefSource] {
+		t.Errorf("DELETE %s is not declared", RouteBriefSource)
+	}
+	if !declared["DELETE "+RouteBriefAll] {
+		t.Errorf("DELETE %s is not declared", RouteBriefAll)
+	}
+	for _, p := range briefCollections {
+		if p != RouteBriefAll && !declared["GET "+p] {
+			t.Errorf("GET %s is not declared", p)
+		}
+	}
+}
+
 func TestNotRunningRefusesEveryCall(t *testing.T) {
 	s := New()
 	if _, err := s.Handle(context.Background(), stacksdk.Request{Method: "GET", Path: RouteWatches}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
