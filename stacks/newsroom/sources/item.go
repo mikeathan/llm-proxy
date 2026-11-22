@@ -29,10 +29,12 @@ const (
 // when it has one (a tag, a post id) and is used only when an item has no link.
 type Item struct {
 	Source string `json:"source"`
-	Key    string `json:"key,omitempty"`
-	Title  string `json:"title"`
-	Link   string `json:"link,omitempty"`
-	Text   string `json:"text,omitempty"`
+	// Publisher is who published the item when the source says so apart from its own name (a news search reports many outlets under one source).
+	Publisher string `json:"publisher,omitempty"`
+	Key       string `json:"key,omitempty"`
+	Title     string `json:"title"`
+	Link      string `json:"link,omitempty"`
+	Text      string `json:"text,omitempty"`
 	// Version changes when the content behind the same Link changed (a watched page's text hash); empty for a post or an article, whose identity
 	// is its Link alone.
 	Version string    `json:"version,omitempty"`
@@ -146,4 +148,33 @@ func parseTime(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// JSONObject finds the first balanced {...} in s, so an answer wrapped in a code fence or a sentence still parses.
+func JSONObject(s string) (string, bool) {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return "", false
+	}
+	depth, inStr, esc := 0, false, false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case esc:
+			esc = false
+		case inStr && c == '\\':
+			esc = true
+		case c == '"':
+			inStr = !inStr
+		case inStr:
+		case c == '{':
+			depth++
+		case c == '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1], true
+			}
+		}
+	}
+	return "", false
 }

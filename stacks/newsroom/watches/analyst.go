@@ -161,7 +161,7 @@ type rawAnalysis struct {
 // new. A relevance judgement is the one thing that can hide an item, and only when the model gave one: an answer with no "verdicts" keeps every item, and the
 // items it did not call relevant are named in the watch's row (unmatchedDetail), so nothing it removed disappears unseen.
 func parseAnalysis(raw string, items, recent int, asked bool) (Analysis, error) {
-	obj, ok := jsonObject(raw)
+	obj, ok := sources.JSONObject(raw)
 	if !ok {
 		return Analysis{}, ErrUnusableAnswer
 	}
@@ -273,35 +273,6 @@ func keptByVerdicts(in []verdict, items int) map[int]string {
 
 // inRange reports whether n names one of the 1..count things the model was shown.
 func inRange(n, count int) bool { return n >= 1 && n <= count }
-
-// jsonObject finds the first balanced {...} in s, so an answer wrapped in a code fence or a sentence still parses.
-func jsonObject(s string) (string, bool) {
-	start := strings.IndexByte(s, '{')
-	if start < 0 {
-		return "", false
-	}
-	depth, inStr, esc := 0, false, false
-	for i := start; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case esc:
-			esc = false
-		case inStr && c == '\\':
-			esc = true
-		case c == '"':
-			inStr = !inStr
-		case inStr:
-		case c == '{':
-			depth++
-		case c == '}':
-			depth--
-			if depth == 0 {
-				return s[start : i+1], true
-			}
-		}
-	}
-	return "", false
-}
 
 // Notice is what the runner hands the delivery hook: the items to tell the owner about and any changed facts, as data. The core words the message.
 type Notice struct {

@@ -219,8 +219,8 @@ func TestLoopReadsDueWatchesOnlyWhileTheModuleIsOn(t *testing.T) {
 			t.Errorf("config %q: read = %v, want %v", tc.cfg, got, tc.want)
 		}
 		st, _ := s.Status(context.Background())
-		if len(st) != 1 || st[0].Enabled == (tc.cfg != "") {
-			t.Errorf("config %q: status = %+v", tc.cfg, st)
+		if len(st) != 2 || st[0].ID != ModuleID || st[0].Enabled == (tc.cfg != "") || st[1].ID != BriefModuleID || !st[1].Enabled {
+			t.Errorf("config %q: the Watches switch must not move the Briefs one: status = %+v", tc.cfg, st)
 		}
 	}
 }

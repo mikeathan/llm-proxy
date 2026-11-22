@@ -16,7 +16,8 @@ import (
 // a watch makes the service read its sources from then on, and an unattended automation may be steered by content it read. They are offered only while
 // the Watches module is on, so the model is never shown a tool that can only refuse. The stack answers with the watch as JSON, or refuses in its own words.
 func newsroomToolModule(h *stackHost) toolregistry.Module {
-	// The stack's tool names are the core's (models.ToolNewsroom*); a test pins that the stack declares exactly these. The module is the stack's one.
+	// The stack's tool names are the core's (models.ToolNewsroom*); a test pins that the stack declares exactly these. The tools belong to the Watches
+	// module, the first of the stack's modules.
 	moduleID := h.stack.Manifest().Modules[0].ID
 	available := func(ctx context.Context) bool {
 		if models.IsUnattendedRun(ctx) {

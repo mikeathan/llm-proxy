@@ -11,6 +11,9 @@ const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, 
 vi.mock('../../services/newsroom/newsroomService', () => ({
   NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock },
 }))
+vi.mock('../../services/newsroom/briefService', () => ({
+  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: vi.fn().mockResolvedValue([]), issues: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
+}))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../composables/models/useModels', () => ({
   useModels: () => ({ state: ref({ config: { communication: { connectors: { 'my-telegram': { type: 'telegram', enabled: true, settings: {} } } } } }) }),
@@ -30,7 +33,7 @@ const day = (): NewsroomDay => ({
 async function mountView(path = '/newsroom', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()]) {
   watchesMock.mockResolvedValue(watches)
   feedMock.mockResolvedValue(feed)
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(watches|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(briefs|watches|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
   await router.push(path)
   const w = mount(NewsroomView, { global: { plugins: [router], stubs: { Icon: true, BrandMark: true, StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' } } } })
   await flushPromises()
@@ -47,11 +50,18 @@ beforeEach(() => {
 })
 
 describe('NewsroomView', () => {
-  it('is a stack page: Feed, Watches and a Settings tab that shows the stack switchboard', async () => {
+  it('is a stack page: Feed, Briefs, Watches and a Settings tab that shows the stack switchboard', async () => {
     const { w } = await mountView()
-    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Watches', 'Settings'])
+    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Briefs', 'Watches', 'Settings'])
     const m = await mountView('/newsroom/settings')
     expect(m.w.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('newsroom')
+  })
+
+  it('has a Briefs tab that says there are no editions yet and offers the setup', async () => {
+    const { w } = await mountView('/newsroom/briefs')
+    expect(w.text()).toContain('No editions yet')
+    await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
+    expect(w.text()).toContain('Add a topic')
   })
 
   it("asks for the feed in the reader's zone, and shows the day's findings as one list, newest first", async () => {

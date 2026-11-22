@@ -16,16 +16,20 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy-stacks/newsroom/brief"
+	"llm-proxy-stacks/newsroom/sources"
 	"llm-proxy-stacks/newsroom/watches"
 	"llm-proxy-stacks/sdk"
 )
 
-// The ids of the stack, its Watches module, its settings document and its one file.
+// The ids of the stack, its two modules, its settings document and its files.
 const (
-	ID          = "newsroom"
-	ModuleID    = "watches"
-	SettingsKey = "newsroom"
-	WatchesFile = "watches.json"
+	ID            = "newsroom"
+	ModuleID      = "watches"
+	BriefModuleID = "briefs"
+	SettingsKey   = "newsroom"
+	WatchesFile   = "watches.json"
+	BriefsFile    = brief.FileName
 )
 
 // The routes the Newsroom screen reads, and the tools the assistant calls.
@@ -47,21 +51,30 @@ const TickEvery = time.Minute
 // feedDays is how many days one feed answer carries.
 const feedDays = 30
 
-// Settings is the stack's settings document. Disabled is the module's switch, stored as an "off" flag so a fresh install is on.
+// Settings is the stack's settings document. Disabled is the Watches module's switch and BriefsDisabled the Briefs module's, each stored as an "off" flag
+// so a fresh install is on.
 type Settings struct {
-	Timezone string `json:"timezone,omitempty"`
-	Disabled bool   `json:"disabled,omitempty"`
+	Timezone       string `json:"timezone,omitempty"`
+	Disabled       bool   `json:"disabled,omitempty"`
+	BriefsDisabled bool   `json:"briefs_disabled,omitempty"`
+	// ModelCallsPerDay is the stack's daily limit of model calls, watches and briefs together; zero means DefaultModelCalls.
+	ModelCallsPerDay int `json:"model_calls_per_day,omitempty"`
 }
 
 // Stack is the Newsroom stack.
 type Stack struct {
-	mu      sync.Mutex
-	h       stacksdk.Host
-	store   *watches.Store
-	runner  *watches.Runner
-	cancel  context.CancelFunc
-	done    chan struct{}
-	lastRun time.Time
+	mu     sync.Mutex
+	h      stacksdk.Host
+	store  *watches.Store
+	runner *watches.Runner
+	// briefs and collector are the Brief module; the collector is nil when the core gave no schedule port.
+	briefs      *brief.Store
+	collector   *brief.Collector
+	publisher   *brief.Publisher
+	cancel      context.CancelFunc
+	done        chan struct{}
+	lastRun     time.Time
+	lastCollect time.Time
 	// lookups remembers recent look-up answers and keeps them polite (sourceroutes.go).
 	lookups *lookupCache
 	// tick is the loop's period; a test shortens it.
@@ -74,14 +87,25 @@ func New() *Stack { return &Stack{tick: TickEvery, lookups: newLookupCache()} }
 // Manifest declares the stack as data.
 func (s *Stack) Manifest() stacksdk.Manifest {
 	return stacksdk.Manifest{
-		ID: ID, Title: "Newsroom", Purpose: "Follow watches you care about and see what is new.",
-		Layers: []stacksdk.Layer{{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"}},
+		ID: ID, Title: "Newsroom", Purpose: "Follow watches you care about, and read editions of the news you choose.",
+		Layers: []stacksdk.Layer{
+			{ID: "follow", Title: "Follow", Purpose: "What you follow and what changed"},
+			{ID: "brief", Title: "Brief", Purpose: "Editions of the news you choose, made on your schedule"},
+		},
 		Modules: []stacksdk.ModuleSpec{{
 			ID: ModuleID, Title: "Watches", Purpose: "Read the sources of each watch you follow and keep what is new.", Layer: "follow", Sends: stacksdk.SendsInternet,
 			About: stacksdk.About{
 				Watches:  "The feeds, pages and channels you add to a watch, on the interval you chose.",
 				Never:    "It does not send a message itself, and it does not announce what was already there when you added a watch.",
 				ShowsUp:  "In the Newsroom feed and, for a watch with a channel, as a message the core words and sends.",
+				Settings: true,
+			},
+		}, {
+			ID: BriefModuleID, Title: "Briefs", Purpose: "Collect the headlines of the topics you choose through the day, for the editions you set up.", Layer: "brief", Sends: stacksdk.SendsInternet,
+			About: stacksdk.About{
+				Watches:  "The feeds and news searches of each topic you define, every few hours before an edition is due.",
+				Never:    "It does not send a message itself, and it asks no model to write anything while it collects.",
+				ShowsUp:  "In the Briefs tab of the Newsroom, as the headlines collected for each topic.",
 				Settings: true,
 			},
 		}},
@@ -100,15 +124,30 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: RouteClear},
 			{Method: http.MethodGet, Path: RouteSourceLookup},
 			{Method: http.MethodGet, Path: RouteSourceSuggest},
+			{Method: http.MethodGet, Path: RouteBriefTopics},
+			{Method: http.MethodPost, Path: RouteBriefTopics},
+			{Method: http.MethodPut, Path: RouteBriefTopic},
+			{Method: http.MethodDelete, Path: RouteBriefTopic},
+			{Method: http.MethodPost, Path: RouteBriefCollect},
+			{Method: http.MethodGet, Path: RouteBriefEditions},
+			{Method: http.MethodPost, Path: RouteBriefEditions},
+			{Method: http.MethodPut, Path: RouteBriefEdition},
+			{Method: http.MethodDelete, Path: RouteBriefEdition},
+			{Method: http.MethodGet, Path: RouteBriefPool},
+			{Method: http.MethodPost, Path: RouteBriefMake},
+			{Method: http.MethodGet, Path: RouteBriefIssues},
+			{Method: http.MethodGet, Path: RouteBriefIssue},
+			{Method: http.MethodGet, Path: RouteBriefSettings},
+			{Method: http.MethodPut, Path: RouteBriefSettings},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Storage:  []string{WatchesFile},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice},
+		Storage:  []string{WatchesFile, BriefsFile},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule},
 	}
 }
 
 // followSchema is the argument schema of ToolFollow.
-const followSchema = `{"type":"object","properties":{"name":{"type":"string"},"interval":{"type":"string","description":"for example 1h"},"look_for":{"type":"string","description":"what the owner wants to know about, in their words"},"keywords":{"type":"array","items":{"type":"string"}},"skip":{"type":"array","items":{"type":"string"}},"sources":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["feed","hackernews","mastodon","page","telegram"]},"target":{"type":"string"},"instance":{"type":"string"},"label":{"type":"string"}},"required":["kind","target"]}}},"required":["name","sources"]}`
+const followSchema = `{"type":"object","properties":{"name":{"type":"string"},"interval":{"type":"string","description":"for example 1h"},"look_for":{"type":"string","description":"what the owner wants to know about, in their words"},"keywords":{"type":"array","items":{"type":"string"}},"skip":{"type":"array","items":{"type":"string"}},"sources":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["feed","hackernews","mastodon","newssearch","page","telegram"]},"target":{"type":"string"},"instance":{"type":"string"},"label":{"type":"string"}},"required":["kind","target"]}}},"required":["name","sources"]}`
 
 func (s *Stack) settings(ctx context.Context) Settings {
 	var set Settings
@@ -121,7 +160,7 @@ func (s *Stack) settings(ctx context.Context) Settings {
 	return set
 }
 
-// Start opens the watches file and runs the timer loop under ctx until ctx ends or Stop is called.
+// Start opens the stack's files and runs the timer loop under ctx until ctx ends or Stop is called.
 func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,15 +171,29 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	if err != nil {
 		return err
 	}
-	s.h, s.store = h, store
-	// A watch with a channel hands its notice to the core, which words and sends it; the feed records every change either way.
-	s.runner = &watches.Runner{Store: store, Fetch: h.Fetch, Notify: noticeSender(h.Notice)}
-	if h.Model != nil {
-		s.runner.Analyzer = watches.Analyst{Model: modelAdapter{h.Model}}
+	briefs, err := brief.NewStore(h.DataDir)
+	if err != nil {
+		return err
 	}
 	run, cancel := context.WithCancel(ctx)
+	s.h, s.store, s.briefs = h, store, briefs
+	// One registry of readers for the whole stack: a reader's politeness floor holds however many modules read through it.
+	readers := &sources.Registry{Fetch: h.Fetch}
+	// A watch with a channel hands its notice to the core, which words and sends it; the feed records every change either way.
+	s.runner = &watches.Runner{Store: store, Readers: readers, Notify: noticeSender(h.Notice)}
+	// One gate for every model call of the stack: a watch and an edition take turns instead of one being refused.
+	var model brief.Model
+	if h.Model != nil {
+		model = modelAdapter{newModelGate(h.Model)}
+		s.runner.Analyzer = watches.Analyst{Model: model}
+	}
+	if h.Schedule != nil {
+		timing := brief.Timing{Schedule: h.Schedule, Location: func() *time.Location { return s.feedZone(run, "") }}
+		s.collector = &brief.Collector{Timing: timing, Store: briefs, Readers: readers}
+		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model}
+	}
 	s.cancel, s.done = cancel, make(chan struct{})
-	go s.loop(run, s.runner, s.done)
+	go s.loop(run, s.runner, s.collector, s.publisher, s.done)
 	return nil
 }
 
@@ -166,8 +219,9 @@ func noticeSender(p stacksdk.Notice) watches.Notifier {
 	}
 }
 
-// loop calls Runner.Tick on a timer while the module is on. It is the one place the stack runs in the background.
-func (s *Stack) loop(ctx context.Context, r *watches.Runner, done chan struct{}) {
+// loop is the one place the stack runs in the background: on each pass it ticks the watches while the Watches module is on, and the brief collector while
+// the Briefs module is on.
+func (s *Stack) loop(ctx context.Context, r *watches.Runner, c *brief.Collector, p *brief.Publisher, done chan struct{}) {
 	defer close(done)
 	t := time.NewTicker(s.tick)
 	defer t.Stop()
@@ -176,16 +230,45 @@ func (s *Stack) loop(ctx context.Context, r *watches.Runner, done chan struct{})
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if s.settings(ctx).Disabled {
-				continue
+			set := s.settings(ctx)
+			if !set.Disabled {
+				for _, o := range r.Tick(ctx) {
+					s.logLine(stacksdk.LevelInfo, "watch read", "watch", strconv.FormatInt(o.WatchID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
+				}
+				s.mu.Lock()
+				s.lastRun = time.Now().UTC()
+				s.mu.Unlock()
 			}
-			for _, o := range r.Tick(ctx) {
-				s.logLine(stacksdk.LevelInfo, "watch read", "watch", strconv.FormatInt(o.WatchID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
+			if c != nil && !set.BriefsDisabled {
+				s.collect(ctx, c)
+				s.publish(ctx, p)
 			}
-			s.mu.Lock()
-			s.lastRun = time.Now().UTC()
-			s.mu.Unlock()
 		}
+	}
+}
+
+// collect runs one pass of the brief collector and logs what each topic did (the fact of a collection, never a headline).
+func (s *Stack) collect(ctx context.Context, c *brief.Collector) {
+	outcomes, err := c.Tick(ctx)
+	if err != nil {
+		s.logLine(stacksdk.LevelWarn, "brief collection failed", "error", err.Error())
+	}
+	for _, o := range outcomes {
+		s.logLine(stacksdk.LevelInfo, "topic collected", "topic", strconv.FormatInt(o.TopicID, 10), "new", strconv.Itoa(o.New), "problems", strconv.Itoa(len(o.Problems)))
+	}
+	s.mu.Lock()
+	s.lastCollect = time.Now().UTC()
+	s.mu.Unlock()
+}
+
+// publish writes the editions that are due and logs what each took (the fact of an edition, never its text).
+func (s *Stack) publish(ctx context.Context, p *brief.Publisher) {
+	made, err := p.Tick(ctx)
+	if err != nil {
+		s.logLine(stacksdk.LevelWarn, "edition failed", "error", err.Error())
+	}
+	for _, m := range made {
+		s.logLine(stacksdk.LevelInfo, "edition made", "edition", strconv.FormatInt(m.EditionID, 10), "model_calls", strconv.Itoa(m.ModelCalls))
 	}
 }
 
@@ -193,7 +276,7 @@ func (s *Stack) loop(ctx context.Context, r *watches.Runner, done chan struct{})
 func (s *Stack) Stop(context.Context) error {
 	s.mu.Lock()
 	cancel, done := s.cancel, s.done
-	s.cancel, s.done, s.store, s.runner = nil, nil, nil, nil
+	s.cancel, s.done, s.store, s.runner, s.briefs, s.collector, s.publisher = nil, nil, nil, nil, nil, nil, nil
 	s.mu.Unlock()
 	if cancel == nil {
 		return nil
@@ -203,16 +286,19 @@ func (s *Stack) Stop(context.Context) error {
 	return nil
 }
 
-// EraseAll removes every watch and the feed, for a factory reset. It works whether or not the stack is running: a stack that is not running holds
+// EraseAll removes every watch, the feed, and every topic, edition and collected headline, for a factory reset. It works whether or not the stack is running: a stack that is not running holds
 // nothing in memory, and its file is removed by the core.
 func (s *Stack) EraseAll() error {
 	s.mu.Lock()
-	store := s.store
+	store, briefs := s.store, s.briefs
 	s.mu.Unlock()
 	if store == nil {
 		return nil
 	}
-	return store.Erase()
+	if err := store.Erase(); err != nil {
+		return err
+	}
+	return briefs.Erase()
 }
 
 // ErrOff is the refusal of a manual read while the module is switched off: a run reads the internet, so it follows the switch.
@@ -224,12 +310,16 @@ func (s *Stack) ConfigChanged(context.Context) error { return nil }
 // Status reports whether the module is on and when the loop last ran.
 func (s *Stack) Status(ctx context.Context) ([]stacksdk.ModuleStatus, error) {
 	s.mu.Lock()
-	running, last := s.runner != nil, s.lastRun
+	running, last, lastCollect := s.runner != nil, s.lastRun, s.lastCollect
 	s.mu.Unlock()
 	if !running {
 		return nil, nil
 	}
-	return []stacksdk.ModuleStatus{{ID: ModuleID, Enabled: !s.settings(ctx).Disabled, Every: s.tick, LastRun: last}}, nil
+	set := s.settings(ctx)
+	return []stacksdk.ModuleStatus{
+		{ID: ModuleID, Enabled: !set.Disabled, Every: s.tick, LastRun: last},
+		{ID: BriefModuleID, Enabled: !set.BriefsDisabled, Every: s.tick, LastRun: lastCollect},
+	}, nil
 }
 
 // Findings: the stack offers nothing to the nightly report.
@@ -354,6 +444,9 @@ func (s *Stack) CallTool(_ context.Context, name string, args json.RawMessage) (
 
 // Handle answers the routes the Newsroom screen reads.
 func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+	if strings.HasPrefix(req.Path, RouteBriefs) {
+		return s.handleBriefs(ctx, req)
+	}
 	store, runner, err := s.running()
 	if err != nil {
 		return stacksdk.Response{}, err

@@ -144,6 +144,12 @@ var moduleAbout = map[string]stack.About{
 		ShowsUp:  "In the Newsroom feed and, for a watch with a channel, as a message the core words and sends.",
 		Settings: true,
 	},
+	"briefs": {
+		Watches:  "The feeds and news searches of each topic you define, every few hours before an edition is due.",
+		Never:    "It does not send a message itself, and it asks no model to write anything while it collects.",
+		ShowsUp:  "In the Briefs tab of the Newsroom, as the headlines collected for each topic.",
+		Settings: true,
+	},
 	"secrets_pass": {
 		Watches: "Workspace files, each night, for credentials left in them.",
 		Never:   "It never shows a secret, only the file and the kind.",

@@ -35,6 +35,14 @@ function mastodonProblem(source: NewsroomSource): string {
   return TAG.test(target.replace(/^#/, '')) ? '' : SOURCE_PROBLEMS.tag
 }
 
+const REGION = /^[a-z]{2}-[A-Z]{2}$/
+
+/** The problem with a news search's region, or '' when it is fine or empty (empty means the default). */
+export function regionProblem(source: NewsroomSource): string {
+  const region = (source.instance ?? '').trim()
+  return region === '' || REGION.test(region) ? '' : SOURCE_PROBLEMS.region
+}
+
 const addressProblem = (t: string): string => (isHttps(t) ? '' : SOURCE_PROBLEMS.address)
 const queryProblem = (t: string): string => ([...t].length <= HN_QUERY_MAX ? '' : SOURCE_PROBLEMS.query)
 const channelProblem = (t: string): string => (CHANNEL.test(channelName(t)) ? '' : SOURCE_PROBLEMS.channel)
@@ -45,6 +53,7 @@ export function sourceProblem(source: NewsroomSource): string {
   const target = source.target.trim()
   if (target === '') return ''
   if (source.kind === 'hackernews') return queryProblem(target)
+  if (source.kind === 'newssearch') return queryProblem(target) || regionProblem(source)
   if (source.kind === 'telegram') return channelProblem(target)
   return addressProblem(target)
 }

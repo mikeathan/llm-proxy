@@ -9,6 +9,7 @@ import EmptyState from "../components/common/feedback/EmptyState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
+import NewsroomBriefs from "../components/newsroom/NewsroomBriefs.vue"
 import NewsroomFeed from "../components/newsroom/NewsroomFeed.vue"
 import NewsroomWatchEditor from "../components/newsroom/NewsroomWatchEditor.vue"
 import NewsroomWatchRow from "../components/newsroom/NewsroomWatchRow.vue"
@@ -29,12 +30,13 @@ import type { NewsroomWatch, NewsroomWatchEdit } from "../types/newsroom"
 // cards only show). Everything on the page comes from one composable that refreshes while the page is open.
 const route = useRoute()
 const router = useRouter()
-const tab = computed<"feed" | "watches" | "settings">(() => {
+const tab = computed<"feed" | "briefs" | "watches" | "settings">(() => {
   const asked = route.params.tab
-  return asked === "watches" || asked === "settings" ? asked : "feed"
+  return asked === "briefs" || asked === "watches" || asked === "settings" ? asked : "feed"
 })
 const tabs: readonly StackTabItem[] = [
   { id: "feed", label: NEWSROOM_TAB_LABELS.feed, to: toNewsroom() },
+  { id: "briefs", label: NEWSROOM_TAB_LABELS.briefs, to: toNewsroom("briefs") },
   { id: "watches", label: NEWSROOM_TAB_LABELS.watches, to: toNewsroom("watches") },
   { id: "settings", label: NEWSROOM_TAB_LABELS.settings, to: toNewsroom("settings") },
 ]
@@ -104,12 +106,13 @@ async function check(t: NewsroomWatch) {
 <template>
   <div class="flex flex-col gap-4">
     <PageHeader eyebrow="Stacks" :title="NEWSROOM_TITLE" :subtitle="NEWSROOM_SUBTITLE">
-      <template v-if="tab !== 'settings'" #actions>
+      <template v-if="tab === 'feed' || tab === 'watches'" #actions>
         <BaseButton size="sm" icon="plus" :disabled="editing === NEW" @click="startNew">{{ NEW_WATCH_LABEL }}</BaseButton>
       </template>
     </PageHeader>
     <StackTabs label="Newsroom" :tabs="tabs" :active="tab" />
     <StackModules v-if="tab === 'settings'" stack="newsroom" />
+    <NewsroomBriefs v-else-if="tab === 'briefs'" />
 
     <template v-else>
       <LoadingState v-if="loading" label="Loading the Newsroom" :rows="3" />

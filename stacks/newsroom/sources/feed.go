@@ -40,6 +40,7 @@ type rssDoc struct {
 		GUID        string `xml:"guid"`
 		PubDate     string `xml:"pubDate"`
 		Description string `xml:"description"`
+		Publisher   string `xml:"source"`
 	} `xml:"channel>item"`
 }
 
@@ -91,7 +92,7 @@ func parseRSS(source string, body []byte) ([]Item, error) {
 	for _, it := range doc.Items {
 		out = append(out, Item{
 			Source: source, Key: Line(it.GUID, 200), Title: Line(it.Title, MaxTitleRune), Link: CanonicalLink(it.Link),
-			Text: Plain(it.Description, MaxTextRune), At: parseTime(it.PubDate),
+			Text: Plain(it.Description, MaxTextRune), At: parseTime(it.PubDate), Publisher: Line(it.Publisher, MaxTitleRune),
 		})
 	}
 	return bound(out), nil

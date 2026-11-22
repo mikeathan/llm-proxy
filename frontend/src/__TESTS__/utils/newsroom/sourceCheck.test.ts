@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { channelName, sourceProblem } from '../../../utils/newsroom/sourceCheck'
+import { channelName, regionProblem, sourceProblem } from '../../../utils/newsroom/sourceCheck'
 import type { NewsroomSource } from '../../../types/newsroom'
 
 const p = (s: NewsroomSource) => sourceProblem(s)
@@ -19,6 +19,14 @@ describe('sourceProblem', () => {
     expect(p({ kind: 'mastodon', target: 'go lang', instance: 'mastodon.social' })).not.toBe('')
     expect(p({ kind: 'mastodon', target: 'golang', instance: 'nothost' })).not.toBe('')
     expect(p({ kind: 'mastodon', target: 'golang' })).not.toBe('')
+  })
+  it('accepts a news search with no region or a language-COUNTRY region, and refuses another form', () => {
+    expect(p({ kind: 'newssearch', target: 'site:reuters.com when:1d' })).toBe('')
+    expect(p({ kind: 'newssearch', target: 'inflation', instance: 'en-GB' })).toBe('')
+    expect(p({ kind: 'newssearch', target: 'inflation', instance: 'english' })).not.toBe('')
+    expect(p({ kind: 'newssearch', target: 'x'.repeat(201) })).not.toBe('')
+    expect(regionProblem({ kind: 'newssearch', target: 'x', instance: 'en-gb' })).not.toBe('')
+    expect(regionProblem({ kind: 'newssearch', target: 'x' })).toBe('')
   })
   it('says nothing about an empty field', () => {
     expect(p({ kind: 'feed', target: '' })).toBe('')

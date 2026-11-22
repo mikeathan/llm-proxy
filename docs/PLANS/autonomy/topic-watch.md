@@ -36,6 +36,7 @@ returning under a new source URL slips past the URL ledger. It also delivered no
 | Search use | A setting per topic: web search **every run**, or fetch only, or search a **limited number of times**. |
 | Reddit, Reddit RSS, Bluesky | Wanted. |
 | Morning paper | Topics also drive the paper (see `morning-paper.md`); one topic list serves both. |
+| (2026-11-21) | **Superseded:** briefs have their own topics, editions and store, separate from watches; they share the source readers and the model gate. See `morning-paper.md` (now "Briefs"). |
 
 How sources and connectors are added, and what the owner must provide for each, is in [`sources-and-more-connectors.md`](../cross-cutting/sources-and-more-connectors.md).
 

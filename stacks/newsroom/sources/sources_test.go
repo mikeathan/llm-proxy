@@ -267,8 +267,11 @@ func TestTelegram_PageWithoutMessagesIsShapeError(t *testing.T) {
 	// A channel with no public preview redirects to its profile page, which has no message markup.
 	f := &fakeFetch{bodies: map[string][]byte{"https://t.me/s/private_one": []byte("<html><body>You can view and join this channel</body></html>")}}
 	_, err := (&TelegramChannel{Label: "x", Channel: "private_one", Fetcher: f}).Fetch(context.Background())
-	if !errors.Is(err, ErrShape) {
-		t.Errorf("err = %v, want ErrShape", err)
+	if !errors.Is(err, ErrShape) || !errors.Is(err, ErrNoPreview) {
+		t.Errorf("err = %v, want ErrNoPreview (which is also ErrShape)", err)
+	}
+	if want := "x: this channel has no public preview"; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("the sentence must say what is wrong, once, after the label: %v", err)
 	}
 }
 

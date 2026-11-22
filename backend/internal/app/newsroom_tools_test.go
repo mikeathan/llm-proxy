@@ -6,9 +6,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	stacksdk "llm-proxy-stacks/sdk"
 
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/stackport"
 	"llm-proxy/internal/core/toolregistry"
@@ -32,12 +34,13 @@ func newNewsroomToolsRig(t *testing.T) (*toolregistry.LocalToolRegistry, *memNew
 	st := newsroomStack()
 	policy := &memNewsroom{}
 	host, err := newStackHost(st, stacksdk.Host{
-		Config:  stackport.Config[models.NewsroomConfig]{Store: policy},
-		Log:     stackport.Log{Stack: "newsroom"},
-		DataDir: stackport.DataDir{Dir: t.TempDir(), Files: st.Manifest().Storage},
-		Fetch:   noFetch{},
-		Model:   noModel{},
-		Notice:  stackport.Notice{},
+		Config:   stackport.Config[models.NewsroomConfig]{Store: policy},
+		Log:      stackport.Log{Stack: "newsroom"},
+		DataDir:  stackport.DataDir{Dir: t.TempDir(), Files: st.Manifest().Storage},
+		Fetch:    noFetch{},
+		Model:    noModel{},
+		Notice:   stackport.Notice{},
+		Schedule: stackport.Schedule{Parse: func(expr string) (interface{ Next(time.Time) time.Time }, error) { return automation.ParseCron(expr) }},
 	})
 	if err != nil {
 		t.Fatal(err)

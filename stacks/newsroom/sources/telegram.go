@@ -36,6 +36,17 @@ func ChannelName(s string) string {
 	return strings.TrimPrefix(s, "@")
 }
 
+// ErrNoPreview is a channel page with no message markup at all: the channel exists or not, but it does not offer a public web preview, so it cannot be
+// read without a login. It is an ErrShape too, so every caller that treats "the shape is wrong" as a failing source keeps doing so.
+var ErrNoPreview error = noPreview{}
+
+type noPreview struct{}
+
+func (noPreview) Error() string {
+	return "this channel has no public preview, so it cannot be watched; remove it or use a channel that shows its posts on t.me/s/"
+}
+func (noPreview) Is(target error) bool { return target == ErrShape }
+
 // TelegramChannel reads the public web preview of one channel (https://t.me/s/<channel>). No login, no Bot API: only a channel that has a public
 // preview works, and one without it answers ErrShape.
 type TelegramChannel struct {
@@ -93,11 +104,11 @@ func (t *TelegramChannel) reserve() error {
 }
 
 // ParseTelegram reads a channel preview page, newest message last as the page lists them, and returns them newest first. Only messages of the named
-// channel count (a preview can show a forwarded post). A page with no message is ErrShape. A message with no text (a photo alone) is skipped.
+// channel count (a preview can show a forwarded post). A page with no message markup is ErrNoPreview (also an ErrShape); one whose messages are all unreadable is ErrShape. A message with no text (a photo alone) is skipped.
 func ParseTelegram(source, channel string, body []byte) ([]Item, error) {
 	parts := strings.Split(string(body), "tgme_widget_message_wrap")
 	if len(parts) < 2 {
-		return nil, ErrShape
+		return nil, ErrNoPreview
 	}
 	var out []Item
 	for _, part := range parts[1:] {

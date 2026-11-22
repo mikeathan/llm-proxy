@@ -62,6 +62,25 @@ func CheckQuery(q string) error {
 	return nil
 }
 
+// CheckNewsQuery says whether q is a usable news search: words, or Google operators such as site:reuters.com and when:1d.
+func CheckNewsQuery(q string) error {
+	q = strings.TrimSpace(q)
+	if q == "" || len([]rune(q)) > MaxQueryRunes {
+		return errors.New("a news search is 1 to 200 characters of words, such as inflation or site:reuters.com")
+	}
+	return nil
+}
+
+var localeRe = regexp.MustCompile(`^[a-z]{2}-[A-Z]{2}$`)
+
+// CheckLocale says whether s is a language and country such as en-GB, which picks the edition of Google News a search reads.
+func CheckLocale(s string) error {
+	if !localeRe.MatchString(s) {
+		return errors.New("the region is a language and a country such as en-GB or en-US")
+	}
+	return nil
+}
+
 // CheckAddress says whether addr is an https address with a host, for a feed or a page.
 func CheckAddress(addr string) error {
 	u, err := url.Parse(addr)

@@ -18,7 +18,7 @@ const (
 	RouteSourceSuggest = "/admin/api/newsroom/sources/suggest"
 )
 
-var lookupKinds = map[string]bool{"feed": true, "hackernews": true, "mastodon": true, "page": true, "telegram": true}
+var lookupKinds = map[string]bool{"feed": true, "hackernews": true, "mastodon": true, "page": true, "telegram": true, "newssearch": true}
 
 const tooManyTelegram = "Too many channel look-ups just now; wait a minute and try again."
 
@@ -36,7 +36,7 @@ func (s *Stack) handleSources(ctx context.Context, req stacksdk.Request) (stacks
 	q, err := url.ParseQuery(req.Query)
 	kind := q.Get("kind")
 	if err != nil || !lookupKinds[kind] {
-		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "kind must be one of feed, hackernews, mastodon, page or telegram")
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "kind must be one of feed, hackernews, mastodon, newssearch, page or telegram")
 	}
 	target, instance := strings.TrimSpace(q.Get("target")), strings.TrimSpace(q.Get("instance"))
 	if req.Path == RouteSourceSuggest {

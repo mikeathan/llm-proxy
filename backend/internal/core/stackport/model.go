@@ -24,11 +24,13 @@ const (
 	msgModelTimedOut = "the model ran out of time"
 )
 
-// Bounds of the model port (ADR-0071). The daily limit is a fixed default until the owner can set one.
+// Bounds of the model port (ADR-0071). The daily limit is the owner's setting, kept between 1 and ModelDailyLimitMax; ModelDailyLimit is what it is
+// until they set one.
 const (
-	ModelTimeout     = 120 * time.Second
-	ModelDailyLimit  = 200
-	modelLogCallDone = "stack model call"
+	ModelTimeout       = 120 * time.Second
+	ModelDailyLimit    = 200
+	ModelDailyLimitMax = 2000
+	modelLogCallDone   = "stack model call"
 )
 
 // ModelAnswer is what the core's own completion gives back: the text, and whether the model that wrote it runs on this computer.
@@ -53,8 +55,9 @@ type Model struct {
 	Now func() time.Time
 	// Timeout bounds one call from start to answer; zero means ModelTimeout. A core whose Ask also waits for a cold model to load adds that wait.
 	Timeout time.Duration
-	// Limit is the daily limit of calls; zero means ModelDailyLimit.
-	Limit int
+	// Limit gives the daily limit of calls, read at every call so a change the owner makes applies at once; nil, or an answer of zero or less, means
+	// ModelDailyLimit, and an answer above ModelDailyLimitMax is held to it.
+	Limit func() int
 
 	mu     sync.Mutex
 	busy   bool
@@ -83,16 +86,28 @@ func (m *Model) admit() error {
 	if today != m.day {
 		m.day, m.called = today, 0
 	}
-	limit := m.Limit
-	if limit <= 0 {
-		limit = ModelDailyLimit
-	}
+	limit := m.dailyLimit()
 	if m.called >= limit {
 		return stacksdk.Errorf(stacksdk.CodeDenied, msgModelCap)
 	}
 	m.busy = true
 	m.called++
 	return nil
+}
+
+// dailyLimit is today's limit of calls: the owner's setting held to the bounds, or the default.
+func (m *Model) dailyLimit() int {
+	limit := 0
+	if m.Limit != nil {
+		limit = m.Limit()
+	}
+	switch {
+	case limit <= 0:
+		return ModelDailyLimit
+	case limit > ModelDailyLimitMax:
+		return ModelDailyLimitMax
+	}
+	return limit
 }
 
 func (m *Model) release() {
