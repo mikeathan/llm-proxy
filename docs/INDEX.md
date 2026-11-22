@@ -86,6 +86,7 @@ do not keep a second copy here. How the pieces fit: [ADR-0002](decisions/ADR-000
 | `docs/services/llm-proxy.service` | systemd service unit (hardened: dedicated user, single root) | Operational |
 | `docs/guides/loop-strategy.md` | Loop Strategy — operator guide (which archetype to pick) | Operators |
 | `docs/guides/automation-digest.md` | Automation Digest — deliver a recurring research run to Telegram without repeats | Operators |
+| `docs/guides/skill-eval.md` | Skill evaluation — run a skill with and without it on past tasks, with any agent and model | Maintainers |
 | `docs/guides/memory-testing.md` | Memory — verify it works (store then recall runs) and the optional live A/B comparison on a small local model | Operators |
 
 Guides in `docs/guides/` are operator how-tos and non-normative; SPECs stay authoritative.
