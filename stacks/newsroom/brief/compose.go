@@ -64,6 +64,15 @@ type IssueSection struct {
 	Problems []string  `json:"problems,omitempty"`
 }
 
+// MarshalJSON writes an empty section as "stories": [] — never null, also for an edition stored before — so a reader can count the stories.
+func (s IssueSection) MarshalJSON() ([]byte, error) {
+	type plain IssueSection
+	if s.Stories == nil {
+		s.Stories = []Story{}
+	}
+	return json.Marshal(plain(s))
+}
+
 // Issue is one edition as it was made: stored, so reading it later asks nothing of the model.
 type Issue struct {
 	ID        int64     `json:"id"`

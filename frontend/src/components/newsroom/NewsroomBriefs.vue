@@ -11,7 +11,7 @@ import { useBriefs } from "../../composables/newsroom/useBriefs"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
-  BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_TITLE,
+  BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
   deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -76,7 +76,7 @@ async function readTopic(t: BriefTopic) {
         <template #action><BaseButton size="sm" @click="mode = 'setup'">{{ BRIEFS_TAB_LABELS.setup }}</BaseButton></template>
       </EmptyState>
       <template v-else-if="b.edition.value">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-md)] bg-surface-raised p-4" data-test="edition-header">
           <SegmentedControl
             v-if="b.editions.value.length > 1"
             :model-value="String(b.edition.value.id)"
@@ -85,11 +85,16 @@ async function readTopic(t: BriefTopic) {
             variant="compact"
             @update:model-value="b.pickedId.value = Number($event)"
           />
-          <h2 v-else class="m-0 text-[length:var(--text-body)] font-medium text-primary">{{ b.edition.value.name }}</h2>
+          <div v-else class="flex min-w-0 flex-col">
+            <h2 class="m-0 text-[length:var(--text-h3,1.25rem)] font-semibold text-primary">{{ b.edition.value.name }}</h2>
+            <span class="text-[length:var(--text-small)] text-faint">{{ READ_EDITION_READY(b.edition.value.ready_by, b.edition.value.sections.length) }}</span>
+          </div>
           <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton>
         </div>
         <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" />
-        <EmptyState v-else :title="NO_ISSUE_TITLE" :body="NO_ISSUE_BODY" />
+        <EmptyState v-else :title="NO_ISSUE_HEADLINE" :body="NO_ISSUE_BODY">
+          <template #action><BaseButton size="sm" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton></template>
+        </EmptyState>
       </template>
     </template>
   </div>
