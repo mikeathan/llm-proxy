@@ -7,6 +7,8 @@ metadata:
 
 # LLM Provider Integration
 
+**Skip:** llama.cpp server tuning (`llamacpp-setup`); search providers and communication connectors.
+
 ## Trace before changing
 
 Follow the affected path through `backend/internal/core/llm/providers/`, runtime manager, and `backend/internal/core/proxy/`. Start with an existing provider of the same archetype; reuse its factory and manifest mechanism before adding an adapter. Registration alone does not establish request/response compatibility.

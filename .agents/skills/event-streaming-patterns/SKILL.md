@@ -7,6 +7,8 @@ metadata:
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
 
+**Skip:** chat message rendering (`assistant-ui-chat`); phase definitions (`lifecycle-events`).
+
 **Source docs:** `SPEC-006`, `internal/core/assistant/agent_events.go`, `frontend/src/composables/assistant/useAssistantSSE.ts`, `frontend/src/composables/automation/useLiveConsole.ts`
 
 ---

@@ -7,6 +7,8 @@ metadata:
 
 # Session Lifecycle Events
 
+**Skip:** SSE composable wiring (`event-streaming-patterns`).
+
 **Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/core/chat/` (publishing: `service.go` for the turn lifecycle, `conversation_service.go` for the session phases)
 
 ---

@@ -68,6 +68,8 @@ for f in .agents/skills/*/SKILL.md; do
   fi
   lines=$(wc -l < "$f" | tr -d ' ')
   [ "$lines" -le "$SKILL_MAX_LINES" ] || fail "$f: $lines lines > $SKILL_MAX_LINES — move detail into references/"
+  # A skill says when NOT to use it: the model does more than it is asked, so the boundary is part of the contract.
+  grep -qiE '^(\*\*)?skip(:\*\*|\*\*:|:)' "$f" || fail "$f: no 'Skip:' line — say when this skill does not apply"
   grep -q '^when_to_use:' "$f" && fail "$f: deprecated 'when_to_use' field — fold the trigger into description"
   if [ -d "$dir/references" ]; then
     for r in "$dir"/references/*; do

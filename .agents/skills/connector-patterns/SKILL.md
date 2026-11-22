@@ -7,6 +7,8 @@ metadata:
 
 # Communication Connector Implementation Guide
 
+**Skip:** inference providers (`provider-integration`); automation scheduling (`automation`).
+
 **Source docs:** SPEC-009, `docs/PLANS/ARCHIVE/cross-cutting/connector-system.md`, `docs/PLANS/ARCHIVE/cross-cutting/connector-inbound-webhook.md`
 
 ---

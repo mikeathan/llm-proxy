@@ -7,6 +7,8 @@ metadata:
 
 # Assistant UI Chat Patterns
 
+**Skip:** message and segment rendering or SSE timing (`assistant-ui-chat`).
+
 **Source docs:** SPEC-003, `docs/PLANS/assistant-ui/`, `.agents/skills/event-streaming-patterns/SKILL.md`
 
 ---

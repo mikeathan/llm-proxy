@@ -2,10 +2,12 @@
 name: documentation-stewardship
 description: "Post-change documentation pass: route what you changed or learned to the right home (SPEC, architecture, ADR, plan, learnings ledger, subsystem hub, skill), harvest and archive finished plans, then verify with the harness check. Use after finishing any code change, merging a plan phase, or running an eval or investigation."
 metadata:
-  last_reviewed: "2026-11-08"
+  last_reviewed: "2026-11-22"
 ---
 
 # Documentation Stewardship — Post-Change Pass
+
+**Skip:** a change that does not work yet; private personal preferences (they stay in the harness's own memory).
 
 **Trigger:** you finished a change, merged a plan phase, or learned something from a run, eval or
 investigation. Docs are the repo's shared memory and part of the deliverable.
@@ -35,6 +37,7 @@ investigation. Docs are the repo's shared memory and part of the deliverable.
 | A run, eval, audit or failed attempt taught something | One line in `docs/learnings/<subsystem>.md` (format in its README) with an evidence link; a long write-up goes to `docs/audits/` with the frontmatter in `docs/learnings/README.md`. |
 | Phased work started | `docs/PLANS/<folder>/<kebab-name>.md` (front page ≤ ~15 KB: status, phases with acceptance, Remaining Work), a row in `docs/PLANS/README.md`, a link in the hub. |
 | Work stops with more left to do | One handoff plan per topic (`docs/PLANS/<folder>/<topic>-handoff-<date>.md`, `status: partial`, a tracker row): branch and commit state, built vs not, checks run and not run, what is left in order with what each needs from the owner, traps, where to start. Replace the earlier one; delete it when done (`AGENTS.md` → Execution Protocol). |
+| The owner corrected an agent's output or an instruction did not change what it did | One line in `docs/learnings/agent-harness.md`: what the agent got wrong, which instruction (if any) it ignored, and whether the fix belongs in `AGENTS.md`, a rule, a skill, or nowhere because the model gets it right unaided. A skill line with no such entry behind it is a candidate for removal at its next review. |
 | A plan phase merged | **Harvest** it: as-built → SPEC/architecture; decisions → ADR; lessons → ledger; update the plan's status and Remaining Work and its tracker row. |
 | A plan is complete or superseded | Harvest, `git mv` it to `docs/PLANS/ARCHIVE/<folder>/`, move its row to `docs/PLANS/ARCHIVE/README.md`, drop it from the hub's open plans. Leftover follow-ups go under "Follow-ups left by archived plans". |
 | An architectural invariant | `CONSTITUTION.md` (security review first). |
