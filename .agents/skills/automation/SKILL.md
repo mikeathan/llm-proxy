@@ -7,6 +7,8 @@ metadata:
 
 # Automation System — Dispatcher, Executor & Task Lifecycle
 
+**Skip:** the agent loop's own behavior (`agent-loop`); connector delivery (`connector-patterns`).
+
 **Source docs:** SPEC-007 (the dispatcher + run-scheduler/model-residency contract), `docs/architecture/map.md` (package layout), `docs/architecture/pitfalls.md` #34–#36
 
 ---

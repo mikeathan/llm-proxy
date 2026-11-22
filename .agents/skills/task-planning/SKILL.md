@@ -2,7 +2,7 @@
 name: task-planning
 description: "Plan and execute non-trivial changes: classify, find the governing SPEC, trace the existing code path, scope, decompose into verifiable steps, record a plan, and resume safely. Use before multi-file/multi-subsystem or ambiguous work, and to understand a subsystem before changing it."
 metadata:
-  last_reviewed: "2026-10-26"
+  last_reviewed: "2026-11-22"
 ---
 
 # Task Planning — Recon, Scope, Decompose, Verify
@@ -80,7 +80,7 @@ verify: <exact command>  → expected: <PASS / specific output>
 ## Phase 5 — Execute incrementally
 
 - One step at a time; run that step's verify command before moving on.
-- Behavior changes: TDD (`tdd-guide`). Structural gates: `go build ./...`, `go vet ./...`, `go run ./tools/check-complexity/`, `npm run build`.
+- Behavior changes: TDD (`tdd-guide`). Structural gates: the build and complexity commands in `AGENTS.md` → Workflow, plus `go vet ./...`.
 - Keep edits scoped. Do not fix or reformat unrelated code you pass through.
 
 ## Phase 6 — Close out

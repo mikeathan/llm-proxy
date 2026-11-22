@@ -7,6 +7,8 @@ metadata:
 
 # Memory System — Architecture, Decisions & Patterns
 
+**Skip:** automation run history and journals (`automation`).
+
 **Source docs:** SPEC-004, `docs/PLANS/ARCHIVE/memory/memory-three-tier-redesign.md`, `docs/PLANS/ARCHIVE/memory/memory-tags-system.md`, `docs/audits/memory-injection-investigation.md`
 
 ---

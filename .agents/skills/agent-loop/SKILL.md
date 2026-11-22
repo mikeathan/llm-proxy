@@ -7,6 +7,8 @@ metadata:
 
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
 
+**Skip:** UI rendering or SSE client work (`assistant-ui-chat`, `event-streaming-patterns`); a failing run before you have its error (`debugging` first).
+
 **Source docs:** SPEC-001, `docs/PLANS/ARCHIVE/agent-loop/refactor-assistant-clean-code.md`, `docs/audits/agent-stability-report.md`
 
 > Debugging workflow: [`debugging`](../debugging/SKILL.md). Planning a loop change: [`task-planning`](../task-planning/SKILL.md).

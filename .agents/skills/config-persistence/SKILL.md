@@ -7,6 +7,8 @@ metadata:
 
 # Configuration and Persistence
 
+**Skip:** values that are never persisted; provider manifests and credentials (`provider-integration`).
+
 ## Establish ownership
 
 Read Constitution III and `docs/data-layout.md`; follow the affected contract through `docs/SPECS/README.md`. Trace one existing sibling field from shared model through request validation, persistence, load/defaults, runtime application, response mapping, and frontend when exposed. Use `docs/architecture.md` → File Change Checklist for the affected change type.

@@ -7,6 +7,8 @@ metadata:
 
 # PR and Commit Text
 
+**Skip:** staging, committing or pushing: this skill writes text only, git stays with the owner.
+
 Draft ready-to-copy text for a reviewer without conversation context. Derive the problem, solution, and observable outcome from the implementation and user objective, not commit subjects, file counts, diff size, or the latest fix.
 
 ## Scope and evidence

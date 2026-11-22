@@ -7,6 +7,8 @@ metadata:
 
 # Clean Code — Language-Agnostic Practices
 
+**Skip:** Go or Vue mechanics already in `engineering-practices` and `.agents/rules/`; code you are not changing.
+
 **Source:** distilled from *Clean Code* (Robert C. Martin) plus this repo's existing
 rules. Principles are paraphrased and generalized; language-specific mechanics live
 in [`.agents/rules/`](../../rules/) and [`.agents/skills/engineering-practices`](../engineering-practices/SKILL.md).

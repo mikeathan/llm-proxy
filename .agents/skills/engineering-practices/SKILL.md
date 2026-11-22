@@ -7,6 +7,8 @@ metadata:
 
 # Engineering Practices — Go Patterns, Code Style & Architecture
 
+**Skip:** docs-only changes; general naming or smell questions (`clean-code`).
+
 **Source docs:** `docs/architecture/map.md` (package layout), `docs/architecture/contracts.md`, `docs/architecture/checklists.md`, `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`
 
 > Language-agnostic principles (naming, functions, comments, dependency boundaries,

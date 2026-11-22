@@ -2,7 +2,7 @@
 name: tdd-guide
 description: "TDD with agents: Red/Green/Refactor flow, test grouping, and keeping the suite fast. Use when implementing a feature or fix test-first."
 metadata:
-  last_reviewed: "2026-09-12"
+  last_reviewed: "2026-11-22"
 ---
 
 # TDD Guide — Intelligent Test-Driven Development
@@ -67,10 +67,7 @@ internal helpers during the refactor step.
 
 ### 4. Verify — Full suite once (not per-edit)
 
-Run once at the end:
-```bash
-cd backend && go build ./... && go test ./... && go run ./tools/check-complexity/
-```
+Run once at the end: the backend gate in `AGENTS.md` → Workflow → Before finishing (the single source for the commands).
 
 ## Edge Cases
 

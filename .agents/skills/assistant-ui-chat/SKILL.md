@@ -7,6 +7,8 @@ metadata:
 
 # Assistant UI Chat Architecture
 
+**Skip:** backend event contracts (`lifecycle-events`); shell, layout and drawer work (`assistant-ui-patterns`).
+
 **Source files:** `frontend/src/components/AgentIde/assistant/AssistantChat.vue`, `frontend/src/utils/message/messageBuilder.ts`, `frontend/src/utils/message/turnGrouper.ts`
 
 **Related docs:** `.agents/skills/event-streaming-patterns/SKILL.md` (event flow, SSE composables, dedup)

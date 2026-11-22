@@ -7,6 +7,8 @@ metadata:
 
 # llama.cpp Server — Setup, Args & Tuning
 
+**Skip:** cloud providers (`provider-integration`); proxy code changes.
+
 **Source docs:** `docs/services/llm-proxy.service`, `docs/audits/gpu-performance-audit.md`, `docs/PLANS/gpu-performance.md`
 
 ---

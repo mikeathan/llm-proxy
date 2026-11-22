@@ -7,6 +7,8 @@ metadata:
 
 # Testing — Patterns, Tools & Strategies
 
+**Skip:** a failing test or run (`debugging` first); deciding what deserves a test (`tdd-guide`).
+
 **Source docs:** `docs/PLANS/ARCHIVE/cross-cutting/record-replay-test-framework.md`, `backend/data/templates/`, `docs/architecture/conventions.md` → Test Patterns
 
 > A failing test or run? Start with [`debugging`](../debugging/SKILL.md). This skill is for authoring/running tests and reading run artifacts.
