@@ -4,13 +4,13 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import NewsroomBriefTopicEditor from "./NewsroomBriefTopicEditor.vue"
+import NewsroomBriefStarterGallery from "./NewsroomBriefStarterGallery.vue"
 import NewsroomBriefEditionEditor from "./NewsroomBriefEditionEditor.vue"
 import NewsroomBriefLimit from "./NewsroomBriefLimit.vue"
 import NewsroomBriefMySources from "./NewsroomBriefMySources.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
-  EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEED_TOPIC_FIRST, NEW_EDITION_LABEL, NEW_TOPIC_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE, NO_TOPICS_BODY,
-  READ_NOW_LABEL, TOPICS_TITLE, TOPIC_NEVER_READ, editionCardWords, gatherWords, topicFollowsWords, topicLastWords,
+  EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEED_TOPIC_FIRST, NEW_EDITION_LABEL, NEW_TOPIC_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE,   READ_NOW_LABEL, TOPICS_TITLE, TOPIC_NEVER_READ, editionCardWords, gatherWords, topicFollowsWords, topicLastWords,
 } from "../../constants/newsroom"
 import { hoursOf } from "../../utils/newsroom/briefForm"
 import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -49,6 +49,10 @@ const categories = computed(() => [...new Set(props.topics.map((t) => t.category
 const topicName = (id: number): string => props.topics.find((t) => t.id === id)?.name ?? "Removed topic"
 const feedsOf = (t: BriefTopic): number => (t.sources ?? []).length
 const gather = (e: BriefEdition): string => gatherWords(hoursOf(e.collect_every) ?? 0, hoursOf(e.collect_for) ?? 0)
+// The starters picked on an empty page are saved one after another, and the first refusal stops the rest (the page shows why).
+async function addStarters(edits: BriefTopicEdit[]) {
+  for (const edit of edits) if (!(await props.saveTopic(null, edit))) return
+}
 const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
 </script>
 
@@ -70,7 +74,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
         @save="async (edit) => { if (await saveTopic(null, edit)) editingTopic = null }"
         @cancel="editingTopic = null"
       />
-      <p v-else-if="!topics.length" class="m-0 text-muted">{{ NO_TOPICS_BODY }}</p>
+      <NewsroomBriefStarterGallery v-else-if="!topics.length" :sources="sources" :saving="saving" @add="addStarters" @own="editingTopic = NEW" />
       <ul v-if="topics.length" class="m-0 grid list-none gap-3 p-0 md:grid-cols-2" aria-label="Topics">
         <li v-for="t in topics" :key="t.id" :class="editingTopic === t.id ? 'md:col-span-2' : ''">
           <NewsroomBriefTopicEditor

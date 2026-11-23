@@ -1,4 +1,4 @@
-import type { BriefEdition, BriefEditionEdit, BriefSource, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
+import type { BriefEdition, BriefEditionEdit, BriefSource, BriefStarter, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
 
 /** One value per line, trimmed, blanks and repeats dropped. */
 export const fromLines = (text: string): string[] => [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
@@ -74,3 +74,39 @@ export function editionEdit(f: { name: string; readyBy: string; days: number[]; 
 }
 
 export const editionTopicIds = (e: BriefEdition | null): number[] => (e?.sections ?? []).map((s) => s.topic_id)
+
+/** The built-in feeds a starter names, in its order; a name the list does not hold (the list not loaded yet, or changed) is left out. */
+export function starterFeeds(s: BriefStarter, sources: readonly BriefSource[]): BriefSource[] {
+  return s.sites.map((label) => sources.find((x) => x.kind === 'feed' && x.label === label)).filter((x): x is BriefSource => x !== undefined)
+}
+
+/** The starters that can be read now: each has a search or a site found in the list. */
+export const usableStarters = (all: readonly BriefStarter[], sources: readonly BriefSource[]): BriefStarter[] =>
+  all.filter((s) => s.queries.length > 0 || starterFeeds(s, sources).length > 0)
+
+/** What a starter saves as a topic, its sites copied in with their names like any site the owner picked. */
+export const starterEdit = (s: BriefStarter, sources: readonly BriefSource[]): BriefTopicEdit => ({
+  name: s.name,
+  category: s.section,
+  queries: [...s.queries],
+  region: '',
+  sources: starterFeeds(s, sources).map((x) => feedSource(x.target, x.label)),
+  ignore: [],
+})
+
+const upperFirst = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1)
+const hostOf = (address: string): string => {
+  try {
+    return new URL(address).hostname.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+/** The name a topic gets when none is typed: its first search (not a publisher search), else its first site by name or host. */
+export function topicNameFrom(searches: readonly string[], feeds: readonly string[], labels: Readonly<Record<string, string>>): string {
+  const search = searches.map((s) => s.trim()).find((s) => s !== '' && !/^site:/i.test(s))
+  if (search) return upperFirst(search)
+  const feed = feeds.map((x) => labels[x] ?? hostOf(x)).find((x) => x !== '')
+  return feed ?? ''
+}
