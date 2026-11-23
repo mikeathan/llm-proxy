@@ -233,3 +233,39 @@ func TestCompose_AStoryInTwoTopicsAppearsOnce(t *testing.T) {
 		t.Errorf("the second section keeps only its own story: %+v", st)
 	}
 }
+
+// Topics that share a category (however it is spelled) are one section: a story found by any of them is in it, once, and the section is as stale as its
+// oldest topic.
+func TestCompose_TopicsOfOneCategoryAreOneSection(t *testing.T) {
+	both := poolStory(1, "Chip maker shares jump", "Shares rose.", 2, 7, time.Hour)
+	both.Topics = []int64{7, 8}
+	in := oneSection(both, poolStory(2, "New phone announced", "A phone.", 1, 8, 2*time.Hour), poolStory(3, "Election result", "A vote.", 1, 9, time.Hour))
+	in.Edition.Sections = []Section{{Kind: SectionNews, TopicID: 7}, {Kind: SectionNews, TopicID: 9}, {Kind: SectionNews, TopicID: 8}}
+	in.Topics = []Topic{
+		{ID: 7, Name: "AI", Category: "Technology", LastCollected: composeNow.Add(-time.Hour), LastProblems: []string{"Feed X: could not be read"}},
+		{ID: 8, Name: "Phones", Category: " technology ", LastCollected: composeNow.Add(-5 * time.Hour)},
+		{ID: 9, Name: "UK", Category: "News", LastCollected: composeNow.Add(-time.Hour)},
+	}
+	got := Compose(context.Background(), in)
+	if len(got.Sections) != 2 || got.Sections[0].Name != "Technology" || got.Sections[1].Name != "News" {
+		t.Fatalf("one section a category, in first-seen order: %+v", got.Sections)
+	}
+	tech := got.Sections[0]
+	if len(tech.Stories) != 2 {
+		t.Errorf("both topics' stories, the shared one once: %+v", tech.Stories)
+	}
+	if !tech.AsOf.Equal(composeNow.Add(-5*time.Hour)) || len(tech.Problems) != 1 || !strings.HasPrefix(tech.Problems[0], "AI: ") {
+		t.Errorf("oldest read and a problem named by its topic: %v %v", tech.AsOf, tech.Problems)
+	}
+}
+
+// A topic with no category is its own section, named as the topic.
+func TestTopic_NoCategoryMeansItsOwnNameAndNormalizeFillsIt(t *testing.T) {
+	if g := (Topic{Name: " Markets "}).Group(); g != "Markets" {
+		t.Errorf("group: %q", g)
+	}
+	n, err := (Topic{Name: "Markets", Queries: []string{"markets"}}).Normalize()
+	if err != nil || n.Category != "Markets" {
+		t.Errorf("normalize: %+v %v", n, err)
+	}
+}

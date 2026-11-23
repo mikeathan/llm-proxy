@@ -15,9 +15,10 @@ export function hoursOf(duration: string): number | null {
 export const hoursToDuration = (hours: number): string => `${hours}h`
 
 /** The topic as the form edits it: searches, feed addresses and skip words as lists. */
-export function topicFields(t: BriefTopic | null): { name: string; searches: string[]; region: string; feeds: string[]; ignore: string[] } {
+export function topicFields(t: BriefTopic | null): { name: string; category: string; searches: string[]; region: string; feeds: string[]; ignore: string[] } {
   return {
     name: t?.name ?? '',
+    category: t?.category ?? '',
     searches: [...(t?.queries ?? [])],
     region: t?.region ?? '',
     feeds: (t?.sources ?? []).filter((s) => s.kind === 'feed').map((s) => s.target),
@@ -34,8 +35,7 @@ export function topicEdit(f: ReturnType<typeof topicFields>, was: BriefTopic | n
   const wasLabel = new Map((was?.sources ?? []).filter((s) => s.label).map((s) => [s.target, s.label as string]))
   return {
     name: f.name.trim(),
-    // The form has no category field; a topic's own is kept as it was.
-    category: was?.category ?? '',
+    category: f.category.trim(),
     queries: [...new Set(f.searches.map((s) => s.trim()).filter((s) => s !== ''))],
     region: f.region.trim(),
     // A feed keeps the name the owner picked it by (the list's, else the one it already had), so the screen can say "BBC News" and not an address.

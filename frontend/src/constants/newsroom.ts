@@ -277,6 +277,8 @@ export const showMoreWords = (n: number): string => `Show ${n} more`
 export const SHOW_FEWER_LABEL = 'Show fewer'
 export const LEAD_STORY_LABEL = 'Top story'
 export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'story' : 'stories'}`
+/** A section's count: what the model wrote for it, and how many of those the top stories already show. */
+export const briefSectionCountWords = (total: number, inTop: number): string => (inTop > 0 ? `${briefStoryCountWords(total)} · ${inTop} in ${TOP_STORIES_LABEL}` : briefStoryCountWords(total))
 export const BRIEF_PROBLEMS_LABEL = 'Could not read'
 
 // Briefs setup.
@@ -324,7 +326,11 @@ export const modelCallsProblem = (text: string, max: number): string => {
 }
 
 // Topic and edition forms
-export const TOPIC_NAME_HINT = 'A short name, such as Technology or World.'
+export const TOPIC_NAME_HINT = 'A short name for what this topic follows, such as AI chips.'
+export const TOPIC_CATEGORY_LABEL = 'Section'
+export const TOPIC_CATEGORY_HINT = 'Topics with the same section are read together under one heading in the brief. Pick one or type your own; left empty, this topic is a section of its own.'
+/** The sections offered first: the built-in source list's groups, so a pick lines up with the sources under it. */
+export const BRIEF_CATEGORIES = ['News', 'Technology', 'Business and finance', 'Science and health', 'Sport'] as const
 export const TOPIC_SEARCHES_LABEL = 'What should it find?'
 export const TOPIC_SEARCHES_HINT = 'Type a search and press Enter, as you would in a news search: AI chips, Ukraine, site:reuters.com for one publisher.'
 export const TOPIC_SEARCHES_PLACEHOLDER = 'AI chips…'

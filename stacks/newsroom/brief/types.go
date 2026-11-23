@@ -49,7 +49,8 @@ var topicKinds = map[sources.Kind]bool{sources.KindFeed: true, sources.KindHN: t
 type Topic struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
-	// Category is a free label such as Technology or World that the brief shows with the section.
+	// Category is the section the topic's stories go in: topics of one edition with the same category (compared by CategoryKey) are one section. It
+	// defaults to the topic's name.
 	Category string `json:"category,omitempty"`
 	// Queries are news searches (words, or site:reuters.com); Region is their language and country, such as en-GB (empty means the default).
 	Queries []string `json:"queries,omitempty"`
@@ -130,6 +131,17 @@ func atoi(s string) int {
 	return n
 }
 
+// Group is the section the topic's stories go in: its category, or its own name when it has none (a topic saved before categories were the sections).
+func (t Topic) Group() string {
+	if c := strings.TrimSpace(t.Category); c != "" {
+		return c
+	}
+	return strings.TrimSpace(t.Name)
+}
+
+// CategoryKey is what two category spellings are compared by: lower case, words joined by one space.
+func CategoryKey(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+
 // Normalize validates a topic the owner described and returns a cleaned copy; ID and the collection record are the store's.
 func (t Topic) Normalize() (Topic, error) {
 	t.Name, t.Category = strings.TrimSpace(t.Name), strings.TrimSpace(t.Category)
@@ -138,6 +150,9 @@ func (t Topic) Normalize() (Topic, error) {
 	}
 	if len([]rune(t.Category)) > MaxNameRunes {
 		return Topic{}, fmt.Errorf("%w: the category is at most %d characters", ErrInvalid, MaxNameRunes)
+	}
+	if t.Category == "" {
+		t.Category = t.Name
 	}
 	var err error
 	if t.Queries, t.Region, err = cleanSearches(t.Queries, t.Region); err != nil {

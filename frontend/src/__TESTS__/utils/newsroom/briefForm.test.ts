@@ -42,9 +42,11 @@ describe('briefForm', () => {
     expect(groupSources([e('News', 'BBC')], 'Tech', order).map((g) => g.category)).toEqual(['News'])
   })
 
-  it('keeps a topic\'s own category although the form has no field for it', () => {
+  it('edits the section a topic belongs to, trimmed', () => {
     const was: BriefTopic = { id: 3, name: 'AI', category: 'Technology', queries: ['AI'] }
-    expect(topicEdit(topicFields(was), was).category).toBe('Technology')
+    const fields = topicFields(was)
+    expect(fields.category).toBe('Technology')
+    expect(topicEdit({ ...fields, category: '  Sport ' }, was).category).toBe('Sport')
   })
 
   it('sends an edition with durations as strings and sections in the order chosen', () => {
