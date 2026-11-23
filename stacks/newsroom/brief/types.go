@@ -224,7 +224,7 @@ func (e Edition) Normalize(topics func(id int64) bool) (Edition, error) {
 	if e.CollectEvery, e.CollectFor, err = collectWindow(e.CollectEvery, e.CollectFor); err != nil {
 		return Edition{}, err
 	}
-	if e.Sections, err = cleanSections(e.Sections, topics); err != nil {
+	if e.Sections, err = cleanSections(e.Sections, topics, e.Watches || e.Home); err != nil {
 		return Edition{}, err
 	}
 	return e, nil
@@ -247,10 +247,14 @@ func collectWindow(every, forDur time.Duration) (time.Duration, time.Duration, e
 	return every, forDur, nil
 }
 
-// cleanSections checks an edition's sections: how many, and that each is a news section of a topic that exists.
-func cleanSections(in []Section, topics func(id int64) bool) ([]Section, error) {
+// cleanSections checks an edition's sections: how many, and that each is a news section of a topic that exists. An edition may have none when it
+// carries the owner's watches or home (own), so a brief can be only those; the list is then empty, never nil.
+func cleanSections(in []Section, topics func(id int64) bool, own bool) ([]Section, error) {
+	if len(in) == 0 && own {
+		return []Section{}, nil
+	}
 	if len(in) == 0 || len(in) > MaxSections {
-		return nil, fmt.Errorf("%w: an edition has 1 to %d sections", ErrInvalid, MaxSections)
+		return nil, fmt.Errorf("%w: an edition has 1 to %d sections, or none when it has watches or home", ErrInvalid, MaxSections)
 	}
 	for i, s := range in {
 		if s.Kind != SectionNews || !topics(s.TopicID) {

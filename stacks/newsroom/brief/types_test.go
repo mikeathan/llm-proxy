@@ -78,6 +78,25 @@ func TestEditionNormalize(t *testing.T) {
 	}
 }
 
+// A brief can be only the owner's own things: with watches or home on, it needs no news section; with neither it still needs one.
+func TestEditionWithoutNewsNeedsWatchesOrHome(t *testing.T) {
+	for name, e := range map[string]Edition{
+		"home only":    {Name: "Home", ReadyBy: "07:00", Home: true},
+		"watches only": {Name: "Feeds", ReadyBy: "07:00", Watches: true},
+	} {
+		got, err := e.Normalize(exists(1))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got.Sections == nil || len(got.Sections) != 0 {
+			t.Errorf("%s: sections must be an empty list, got %#v", name, got.Sections)
+		}
+	}
+	if _, err := (Edition{Name: "x", ReadyBy: "07:00"}).Normalize(exists(1)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("no news, no watches, no home must be refused, got %v", err)
+	}
+}
+
 func TestEditionCronMeansReadyByOnTheChosenDays(t *testing.T) {
 	e := Edition{ReadyBy: "07:05", Days: []int{1, 2, 3, 4, 5}}
 	if got := e.Cron(); got != "5 7 * * 1,2,3,4,5" {

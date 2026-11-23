@@ -3,19 +3,15 @@ import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
-import NewsroomBriefTopicEditor from "./NewsroomBriefTopicEditor.vue"
-import NewsroomBriefStarterGallery from "./NewsroomBriefStarterGallery.vue"
+import NewsroomBriefTopics from "./NewsroomBriefTopics.vue"
 import NewsroomBriefEditionEditor from "./NewsroomBriefEditionEditor.vue"
 import NewsroomBriefLimit from "./NewsroomBriefLimit.vue"
 import NewsroomBriefMySources from "./NewsroomBriefMySources.vue"
-import { formatRelativeTime } from "../../utils/format/time"
-import {
-  EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEED_TOPIC_FIRST, NEW_EDITION_LABEL, NEW_TOPIC_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE,   READ_NOW_LABEL, TOPICS_TITLE, TOPIC_NEVER_READ, editionCardWords, gatherWords, topicFollowsWords, topicLastWords,
-} from "../../constants/newsroom"
-import { hoursOf } from "../../utils/newsroom/briefForm"
+import { EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEW_EDITION_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE, editionCardWords, gatherWords } from "../../constants/newsroom"
+import { editionBlocks, hoursOf, sectionGroups } from "../../utils/newsroom/briefForm"
 import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
 
-// Topics and editions: what is read, and what is written from it. The editing state is here; the page owns the data and does the saving, deleting and
+// Topics and editions: what is read (the Topics panel), and what is written from it. The edition editing state is here; the page owns the data and does the saving, deleting and
 // reading (it asks before anything is deleted), and each action answers whether it worked so the form closes only on success.
 const NEW = "new" as const
 // A new form sits above the list, so it is set apart from the first row.
@@ -42,79 +38,28 @@ const emit = defineEmits<{
   (e: "read-topic", topic: BriefTopic): void
 }>()
 
-const editingTopic = ref<Target>(null)
 const editingEdition = ref<Target>(null)
-// The sections the owner's topics already use, offered again when a topic is edited.
-const categories = computed(() => [...new Set(props.topics.map((t) => t.category?.trim()).filter((c): c is string => !!c))])
-const topicName = (id: number): string => props.topics.find((t) => t.id === id)?.name ?? "Removed topic"
-const feedsOf = (t: BriefTopic): number => (t.sources ?? []).length
+const groups = computed(() => sectionGroups(props.topics))
 const gather = (e: BriefEdition): string => gatherWords(hoursOf(e.collect_every) ?? 0, hoursOf(e.collect_for) ?? 0)
-// The starters picked on an empty page are saved one after another, and the first refusal stops the rest (the page shows why).
-async function addStarters(edits: BriefTopicEdit[]) {
-  for (const edit of edits) if (!(await props.saveTopic(null, edit))) return
-}
 const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
-    <Panel :title="TOPICS_TITLE">
-      <template #actions>
-        <BaseButton size="sm" icon="plus" :disabled="editingTopic === NEW" @click="editingTopic = NEW">{{ NEW_TOPIC_LABEL }}</BaseButton>
-      </template>
-      <NewsroomBriefTopicEditor
-        v-if="editingTopic === NEW"
-        :topic="null"
-        :sources="sources"
-        :categories="categories"
-        :add-source="addSource"
-        :saving="saving"
-        :error="error"
-        :class="topics.length ? NEW_FORM_SPACING : ''"
-        @save="async (edit) => { if (await saveTopic(null, edit)) editingTopic = null }"
-        @cancel="editingTopic = null"
-      />
-      <NewsroomBriefStarterGallery v-else-if="!topics.length" :sources="sources" :saving="saving" @add="addStarters" @own="editingTopic = NEW" />
-      <ul v-if="topics.length" class="m-0 grid list-none gap-3 p-0 md:grid-cols-2" aria-label="Topics">
-        <li v-for="t in topics" :key="t.id" :class="editingTopic === t.id ? 'md:col-span-2' : ''">
-          <NewsroomBriefTopicEditor
-            v-if="editingTopic === t.id"
-            :topic="t"
-            :sources="sources"
-            :categories="categories"
-            :add-source="addSource"
-            :saving="saving"
-            :error="error"
-            :class="NEW_FORM_SPACING"
-            @save="async (edit) => { if (await saveTopic(t.id, edit)) editingTopic = null }"
-            @cancel="editingTopic = null"
-          />
-          <div v-else :class="CARD" data-test="topic-card">
-            <div class="flex items-start gap-2">
-              <span class="min-w-0 flex-1 break-words text-[length:var(--text-body)] font-medium text-primary">{{ t.name }}</span>
-              <span v-if="t.category && t.category !== t.name" :class="[CHIP, 'text-accent-brand']" data-test="topic-section-chip">{{ t.category }}</span>
-              <BaseButton variant="ghost" size="sm" icon="edit" icon-only :label="`Edit ${t.name}`" @click="editingTopic = t.id" />
-              <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${t.name}`" @click="emit('delete-topic', t)" />
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              <span v-for="q in t.queries ?? []" :key="q" :class="CHIP"><span class="truncate">{{ q }}</span></span>
-              <span v-if="feedsOf(t)" :class="[CHIP, 'text-accent-brand']">{{ topicFollowsWords(feedsOf(t)) }}</span>
-            </div>
-            <ul v-if="t.last_problems?.length" class="m-0 list-none p-0 text-[length:var(--text-small)] text-state-error" role="status">
-              <li v-for="p in t.last_problems" :key="p" class="break-words">{{ p }}</li>
-            </ul>
-            <div class="mt-1 flex flex-wrap items-center gap-2">
-              <span class="min-w-0 flex-1 text-[length:var(--text-small)] text-faint">{{ t.last_collected ? topicLastWords(formatRelativeTime(t.last_collected), t.last_new) : TOPIC_NEVER_READ }}</span>
-              <BaseButton variant="secondary" size="sm" :disabled="saving" @click="emit('read-topic', t)">{{ READ_NOW_LABEL }}</BaseButton>
-            </div>
-          </div>
-        </li>
-      </ul>
-    </Panel>
+    <NewsroomBriefTopics
+      :topics="topics"
+      :sources="sources"
+      :saving="saving"
+      :error="error"
+      :save-topic="saveTopic"
+      :add-source="addSource"
+      @delete-topic="(t) => emit('delete-topic', t)"
+      @read-topic="(t) => emit('read-topic', t)"
+    />
 
     <Panel :title="EDITIONS_TITLE">
       <template #actions>
-        <BaseButton size="sm" icon="plus" :disabled="editingEdition === NEW || !topics.length" @click="editingEdition = NEW">{{ NEW_EDITION_LABEL }}</BaseButton>
+        <BaseButton size="sm" icon="plus" :disabled="editingEdition === NEW" @click="editingEdition = NEW">{{ NEW_EDITION_LABEL }}</BaseButton>
       </template>
       <NewsroomBriefEditionEditor
         v-if="editingEdition === NEW"
@@ -126,7 +71,6 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
         @save="async (edit) => { if (await saveEdition(null, edit)) editingEdition = null }"
         @cancel="editingEdition = null"
       />
-      <p v-else-if="!topics.length" class="m-0 text-muted">{{ NEED_TOPIC_FIRST }}</p>
       <EmptyState v-else-if="!editions.length" :title="NO_EDITIONS_TITLE" :body="NO_EDITIONS_SETUP_BODY" />
       <ul v-if="editions.length" class="m-0 grid list-none gap-3 p-0" aria-label="Editions">
         <li v-for="e in editions" :key="e.id">
@@ -149,7 +93,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
               <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${e.name}`" @click="emit('delete-edition', e)" />
             </div>
             <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ editionCardWords(e.ready_by, e.days) }}</p>
-            <div class="flex flex-wrap gap-1.5"><span v-for="s in e.sections" :key="s.topic_id" :class="CHIP">{{ topicName(s.topic_id) }}</span></div>
+            <div class="flex flex-wrap gap-1.5"><span v-for="b in editionBlocks(e, groups)" :key="b" :class="CHIP">{{ b }}</span></div>
             <p class="m-0 text-[length:var(--text-small)] text-faint">{{ gather(e) }}</p>
           </div>
         </li>

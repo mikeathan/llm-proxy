@@ -316,3 +316,11 @@ export interface BriefEditionEdit {
   collect_for: string
   sections: { kind: 'news'; topic_id: number }[]
 }
+
+/** A section of the brief as the owner sees it: the topics that share a section name, or one topic that has none (its own name is its section). */
+export interface SectionGroup {
+  key: string
+  label: string
+  topics: BriefTopic[]
+  own: boolean
+}

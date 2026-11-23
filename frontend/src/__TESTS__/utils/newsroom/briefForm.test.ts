@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { editionEdit, fromLines, fromWords, groupSources, hoursOf, topicEdit, topicFields } from '../../../utils/newsroom/briefForm'
-import type { BriefSource, BriefTopic } from '../../../types/newsroom'
+import { editionEdit, fromLines, fromWords, groupSources, hoursOf, topicEdit, topicFields, editionBlocks, editionJoining, editionSectionKeys, quickTopic, sectionGroups, topicIdsOf, topicReads } from '../../../utils/newsroom/briefForm'
+import type { BriefSource, BriefTopic, BriefEdition } from '../../../types/newsroom'
 
 describe('briefForm', () => {
   it('reads one value per line and per comma, dropping blanks and repeats', () => {
@@ -53,6 +53,37 @@ describe('briefForm', () => {
     expect(editionEdit({ name: ' Morning ', readyBy: '07:00', days: [1, 2], topics: [5, 4], enabled: true, every: 2, forHours: 12, watches: true, home: true })).toEqual({
       name: 'Morning', ready_by: '07:00', days: [1, 2], enabled: true, watches: true, home: true, collect_every: '2h', collect_for: '12h',
       sections: [{ kind: 'news', topic_id: 5 }, { kind: 'news', topic_id: 4 }],
+    })
+  })
+
+  describe('sections', () => {
+    const t = (id: number, name: string, category?: string): BriefTopic => ({ id, name, category, queries: [name] })
+    const topics = [t(1, 'UK', 'News'), t(2, 'AI', 'Technology'), t(3, 'Greece', ' news '), t(4, 'Loner')]
+
+    it('groups topics by section, spacing and case ignored, a topic with none being a section of its own', () => {
+      const g = sectionGroups(topics)
+      expect(g.map((x) => [x.label, x.topics.map((y) => y.id), x.own])).toEqual([['News', [1, 3], false], ['Technology', [2], false], ['Loner', [4], true]])
+    })
+
+    it('says which sections an edition reads, and turns picked sections back into topic ids in section order', () => {
+      const g = sectionGroups(topics)
+      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 2 }, { kind: 'news', topic_id: 1 }], enabled: true, home: true }
+      expect(editionSectionKeys(e, g)).toEqual([g[0]!.key, g[1]!.key])
+      expect(topicIdsOf([g[1]!.key, g[0]!.key], g)).toEqual([1, 3, 2])
+      expect(editionBlocks(e, g)).toEqual(['News', 'Technology', 'Home'])
+    })
+
+    it('adds a topic to an edition that already reads its section, and to no other', () => {
+      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true }
+      expect(editionJoining(e, topics, t(5, 'World', 'News'))?.sections).toEqual([{ kind: 'news', topic_id: 1 }, { kind: 'news', topic_id: 5 }])
+      expect(editionJoining(e, topics, t(6, 'Chips', 'Technology'))).toBeNull()
+      expect(editionJoining(e, topics, t(7, 'Alone'))).toBeNull()
+      expect(editionJoining({ ...e, sections: Array.from({ length: 12 }, (_, i) => ({ kind: 'news' as const, topic_id: i + 100 })) }, [...topics, t(100, 'X', 'News')], t(5, 'World', 'News'))).toBeNull()
+    })
+
+    it('makes a topic from one typed word in a section, and lists what it reads in plain words', () => {
+      expect(quickTopic(' Greece ', 'News')).toEqual({ name: 'Greece', category: 'News', queries: ['Greece'], region: '', sources: [], ignore: [] })
+      expect(topicReads({ id: 1, name: 'x', sources: [{ kind: 'feed', label: 'BBC UK', target: 'https://b.example/f' }, { kind: 'hackernews', target: 'rust' }] })).toEqual(['BBC UK', 'rust'])
     })
   })
 })
