@@ -1,4 +1,5 @@
-import type { BriefEdition, BriefEditionEdit, BriefSource, BriefStarter, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
+import { MAX_EDITION_TOPICS } from '../../constants/newsroom'
+import type { SectionGroup, BriefEdition, BriefEditionEdit, BriefSource, BriefStarter, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
 
 /** One value per line, trimmed, blanks and repeats dropped. */
 export const fromLines = (text: string): string[] => [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
@@ -109,4 +110,66 @@ export function topicNameFrom(searches: readonly string[], feeds: readonly strin
   if (search) return upperFirst(search)
   const feed = feeds.map((x) => labels[x] ?? hostOf(x)).find((x) => x !== '')
   return feed ?? ''
+}
+
+// The server matches a section without regard to case or extra spaces (brief.CategoryKey); the form does the same so the two never disagree.
+const categoryKey = (c: string): string => c.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/** The sections of a list of topics, in the order each first appears; the first topic's spelling names the section. */
+export function sectionGroups(topics: readonly BriefTopic[]): SectionGroup[] {
+  const out: SectionGroup[] = []
+  for (const t of topics) {
+    const category = t.category?.trim() ?? ''
+    const key = category === '' ? `topic:${t.id}` : `section:${categoryKey(category)}`
+    const seen = out.find((g) => g.key === key)
+    if (seen) seen.topics.push(t)
+    else out.push({ key, label: category === '' ? t.name : category.replace(/\s+/g, ' '), topics: [t], own: category === '' })
+  }
+  return out
+}
+
+/** The sections an edition reads: those with at least one of its topics. */
+export function editionSectionKeys(e: BriefEdition | null, groups: readonly SectionGroup[]): string[] {
+  const ids = new Set(editionTopicIds(e))
+  return groups.filter((g) => g.topics.some((t) => ids.has(t.id))).map((g) => g.key)
+}
+
+/** The topic ids of the picked sections, in the order the sections are listed. */
+export const topicIdsOf = (keys: readonly string[], groups: readonly SectionGroup[]): number[] => groups.filter((g) => keys.includes(g.key)).flatMap((g) => g.topics.map((t) => t.id))
+
+/** What an edition reads, in the order the brief is written: its news sections, then watches, then home. */
+export const editionBlocks = (e: BriefEdition, groups: readonly SectionGroup[]): string[] => [
+  ...groups.filter((g) => editionSectionKeys(e, groups).includes(g.key)).map((g) => g.label),
+  ...(e.watches ? ['Watches'] : []),
+  ...(e.home ? ['Home'] : []),
+]
+
+/**
+ * The edit that adds a new topic to an edition that already reads the topic's section, so a topic added to News shows up in the briefs that carry News. Null
+ * when the edition reads no other topic of that section, the topic has none, or the edition is at the server's limit of topics.
+ */
+export function editionJoining(e: BriefEdition, topics: readonly BriefTopic[], added: BriefTopic): BriefEditionEdit | null {
+  const category = added.category?.trim() ?? ''
+  if (category === '' || e.sections.length >= MAX_EDITION_TOPICS) return null
+  const ids = new Set(e.sections.map((s) => s.topic_id))
+  const reads = topics.some((t) => ids.has(t.id) && t.category && categoryKey(t.category) === categoryKey(category))
+  if (!reads || ids.has(added.id)) return null
+  return {
+    name: e.name, ready_by: e.ready_by, days: e.days, enabled: e.enabled, watches: !!e.watches, home: !!e.home,
+    collect_every: e.collect_every, collect_for: e.collect_for,
+    sections: [...e.sections, { kind: 'news', topic_id: added.id }],
+  }
+}
+
+/** A topic made from one typed word inside a section: the word is its name and its search. */
+export const quickTopic = (word: string, section: string): BriefTopicEdit => ({ name: word.trim(), category: section.trim(), queries: [word.trim()], region: '', sources: [], ignore: [] })
+
+/** What a topic reads besides its searches, by the names it was picked by. */
+export const topicReads = (t: BriefTopic): string[] => (t.sources ?? []).map((s) => s.label || s.target)
+
+/** A topic that is one short word and nothing else brings a flood of loosely related stories. */
+export const isThinTopic = (t: BriefTopic): boolean => {
+  const q = t.queries ?? []
+  const word = q[0]?.trim() ?? ''
+  return q.length === 1 && !/\s/.test(word) && word.length < 9 && (t.sources ?? []).length === 0
 }

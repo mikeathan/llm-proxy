@@ -7,6 +7,7 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import NewsroomEdition from "./NewsroomEdition.vue"
 import NewsroomBriefSetup from "./NewsroomBriefSetup.vue"
+import { editionJoining } from "../../utils/newsroom/briefForm"
 import { useBriefs } from "../../composables/newsroom/useBriefs"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
@@ -32,7 +33,22 @@ const saved = (ok: boolean, words: string): boolean => {
   if (ok) toast.success(words)
   return ok
 }
-const saveTopic = async (id: number | null, edit: BriefTopicEdit): Promise<boolean> => saved(id === null ? await b.createTopic(edit) : await b.saveTopic(id, edit), "Topic saved")
+// A topic made in a section joins the editions that already read that section, so adding Greece to News puts it in every brief that has News.
+async function joinEditions(known: ReadonlySet<number>) {
+  const added = b.topics.value.find((t) => !known.has(t.id))
+  if (!added) return
+  for (const e of b.editions.value) {
+    const join = editionJoining(e, b.topics.value, added)
+    if (join && !(await b.saveEdition(e.id, join))) toast.error(b.actionError.value)
+  }
+}
+const saveTopic = async (id: number | null, edit: BriefTopicEdit): Promise<boolean> => {
+  if (id !== null) return saved(await b.saveTopic(id, edit), "Topic saved")
+  const known = new Set(b.topics.value.map((t) => t.id))
+  const ok = saved(await b.createTopic(edit), "Topic saved")
+  if (ok) await joinEditions(known)
+  return ok
+}
 const saveEdition = async (id: number | null, edit: BriefEditionEdit): Promise<boolean> => saved(id === null ? await b.createEdition(edit) : await b.saveEdition(id, edit), "Edition saved")
 
 const addSource = async (label: string, target: string): Promise<boolean> => saved(await b.addSource(label, target), "Source added")

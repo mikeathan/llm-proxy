@@ -63,7 +63,8 @@ describe('NewsroomView', () => {
     const { w } = await mountView('/newsroom/briefs')
     expect(w.text()).toContain('No editions yet')
     await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
-    expect(w.text()).toContain('Add a topic')
+    expect(w.text()).toContain('New section')
+    expect(w.text()).toContain('Add an edition')
   })
 
   it('offers "Delete all briefs" only when there is something to delete, and only after a confirmation', async () => {

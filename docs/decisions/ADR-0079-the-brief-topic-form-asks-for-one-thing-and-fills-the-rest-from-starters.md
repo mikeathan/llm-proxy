@@ -1,11 +1,11 @@
 ---
 id: ADR-0079
 title: The Brief topic form asks for one thing and fills the rest from starters
-status: proposed
+status: superseded
 date: 2026-11-23
 subsystems: [autonomy]
 supersedes:
-superseded_by:
+superseded_by: ADR-0080
 ---
 
 # ADR-0079: The Brief topic form asks for one thing and fills the rest from starters

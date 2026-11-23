@@ -16,19 +16,47 @@ const ANSWERS = {
   '/newsroom/sources/lookup': { found: true, title: 'Another Blog', sample: [{ title: 'One' }, { title: 'Two' }], choices: [] }, '/briefs/settings': { model_calls_per_day: 0, default: 200, max: 2000 }, '/newsroom/watches': [], '/newsroom/feed': [],
 }
 
-test('the topic form: region and skip words level, suggestions while typing, the browser and My sources', async ({ page }, testInfo) => {
+test('an empty page offers ready-made topics, and the brief form asks what goes in it', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('newsroom/briefs')
   await page.getByRole('button', { name: 'Set up' }).click()
-  // An empty page offers ready-made topics first; the form asks for one thing and keeps the rest under Fine-tune.
   await expect(page.locator('[data-test="starter-gallery"]')).toBeVisible()
   await lookAt(page, testInfo, 'starters', true)
   await expectNoSidewaysScroll(page)
-  await page.getByRole('button', { name: 'Add a topic' }).click()
-  await expect(page.locator('[data-test="topic-suggestions"]')).toBeVisible()
-  await lookAt(page, testInfo, 'quick-form', true)
-  await page.locator('[data-test="topic-fine-tune"] > summary').click()
-  await page.getByLabel('Name', { exact: true }).first().fill('Financial')
+  // A brief can be only the owner's home, so the form opens with no topic at all.
+  await page.getByRole('button', { name: 'Add an edition' }).click()
+  await expect(page.locator('[data-test="edition-blocks"]')).toBeVisible()
+  await lookAt(page, testInfo, 'brief-form-empty', true)
+  await expectNoSidewaysScroll(page)
+})
+
+// Topics by section, and the brief form with sections as tags.
+const TOPICS = [
+  { id: 1, name: 'UK', category: 'News', queries: ['UK news'], sources: [{ kind: 'feed', label: 'BBC News', target: 'https://feeds.bbci.co.uk/news/rss.xml' }] },
+  { id: 2, name: 'Greece', category: 'News', queries: ['Greece'] },
+  { id: 3, name: 'War', category: 'News', queries: ['war'] },
+  { id: 4, name: 'AI and chips', category: 'Technology', queries: ['AI chips', 'Nvidia'] },
+]
+test('topics sit under their section and the brief form lists the sections as tags', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { ...ANSWERS, '/briefs/topics': TOPICS } })
+  await page.goto('newsroom/briefs')
+  await page.getByRole('button', { name: 'Set up' }).click()
+  await expect(page.locator('[data-test="topic-section-group"]')).toHaveCount(2)
+  await lookAt(page, testInfo, 'sections', true)
+  await expectNoSidewaysScroll(page)
+  await page.getByRole('button', { name: 'Add an edition' }).click()
+  await page.locator('[data-test="block-news"] label').click()
+  await expect(page.locator('[data-test="edition-sections"]')).toBeVisible()
+  await lookAt(page, testInfo, 'brief-form', true)
+  await expectNoSidewaysScroll(page)
+})
+
+test('the topic form: region and skip words level, suggestions while typing, the browser and My sources', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { ...ANSWERS, '/briefs/topics': [{ id: 1, name: 'Financial', category: 'News' }] } })
+  await page.goto('newsroom/briefs')
+  await page.getByRole('button', { name: 'Set up' }).click()
+  await page.getByRole('button', { name: 'Edit Financial' }).click()
+  await lookAt(page, testInfo, 'topic-form', true)
 
   // The two fields of the last row start and end at the same height, whatever the skip box holds.
   const region = await page.getByLabel('News from').boundingBox()

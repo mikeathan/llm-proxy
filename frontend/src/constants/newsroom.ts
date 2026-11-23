@@ -288,9 +288,9 @@ export const TOPICS_TITLE = 'Topics'
 export const EDITIONS_TITLE = 'Editions'
 export const NEW_TOPIC_LABEL = 'Add a topic'
 export const NEW_EDITION_LABEL = 'Add an edition'
-export const NO_EDITIONS_SETUP_BODY = 'An edition lists some topics and is written at a time you set.'
-export const NEED_TOPIC_FIRST = 'Add a topic first: an edition is made of topics.'
-export const TOPIC_NAME_LABEL = 'Name'
+export const NO_EDITIONS_SETUP_BODY = 'An edition is one brief: the news sections you pick, what your watches found and your home, written at a time you set.'
+export const NEED_TOPIC_FIRST = 'Add a topic first to include news.'
+export const TOPIC_NAME_LABEL = 'Topic name'
 export const TOPIC_NEEDS_SOMETHING = 'A topic needs at least one search or one feed.'
 export const READ_NOW_LABEL = 'Read now'
 export const EDITION_NAME_LABEL = 'Name'
@@ -325,13 +325,13 @@ export const modelCallsProblem = (text: string, max: number): string => {
 }
 
 // Topic and edition forms
-export const TOPIC_NAME_HINT = 'Left empty, the first search names the topic.'
+export const TOPIC_NAME_HINT = 'One subject, such as Greece. Left empty, the first search names it.'
 export const TOPIC_CATEGORY_LABEL = 'Section'
-export const TOPIC_CATEGORY_HINT = 'Topics with the same section are read together under one heading in the brief. Pick one or type your own; left empty, this topic is a section of its own.'
+export const TOPIC_CATEGORY_HINT = 'The heading this topic appears under in your brief. Topics with the same section are listed together.'
 /** The sections offered first: the built-in source list's groups, so a pick lines up with the sources under it. */
 export const BRIEF_CATEGORIES = ['News', 'Technology', 'Business and finance', 'Science and health', 'Sport'] as const
-export const TOPIC_SEARCHES_LABEL = 'What do you want to follow?'
-export const TOPIC_SEARCHES_HINT = 'Type a search and press Enter, as you would in a news search, or tap a suggestion. site:reuters.com follows one publisher.'
+export const TOPIC_SEARCHES_LABEL = 'What to search for'
+export const TOPIC_SEARCHES_HINT = 'Words you would type in a news search, such as Greece. Press Enter after each. Several searches are merged into this one topic.'
 export const TOPIC_SEARCHES_PLACEHOLDER = 'AI chips…'
 export const TOPIC_FEEDS_LABEL = 'Follow a website (optional)'
 export const TOPIC_FEEDS_HINT = 'Its newest stories are read alongside your searches. Start typing a site you know, or paste the link of its feed (RSS).'
@@ -366,12 +366,13 @@ export const REGION_OPTIONS: { value: string; label: string }[] = [
   { value: 'en-AU', label: 'Australia (English)' }, { value: 'en-CA', label: 'Canada (English)' }, { value: 'en-IE', label: 'Ireland (English)' },
   { value: 'de-DE', label: 'Germany (German)' }, { value: 'fr-FR', label: 'France (French)' }, { value: 'es-ES', label: 'Spain (Spanish)' },
 ]
+export const MAX_EDITION_TOPICS = 12
 export const EDITION_NAME_HINT = 'Such as Morning or Evening.'
 export const EDITION_READY_LABEL = 'Ready at'
 export const EDITION_DAYS_LABEL = 'On these days'
-export const EDITION_TOPICS_LABEL = 'Which topics?'
-export const EDITION_WATCHES_LABEL = 'Include what my watches found'
-export const EDITION_HOME_LABEL = 'Include my network and radio'
+export const EDITION_TOPICS_LABEL = 'What goes in it?'
+export const EDITION_WATCHES_LABEL = 'What my watches found'
+export const EDITION_HOME_LABEL = 'My home: network and radio'
 export const HOME_BLOCK_LABEL = 'Home'
 export const HOME_COUNTS_ONLY = 'Counts only. Names and addresses stay on the Network and Radio pages.'
 export const WATCHES_BLOCK_LABEL = 'Your watches'
@@ -397,12 +398,6 @@ export const EDITION_ON_BADGE = 'On'
 export const topicLastWords = (when: string, n: number | undefined): string => `Last read ${when}${n === undefined ? '' : ` · ${n} new`}`
 // The topic form asks for one thing, what to follow; the rest sits under Fine-tune. The starters are ready-made topics (name, section, searches and
 // well-known sites by their name in the built-in list), offered as suggestions in the form and as a gallery on an empty page.
-export const TOPIC_FINE_TUNE_LABEL = 'Fine-tune'
-export const TOPIC_FINE_TUNE_HINT = 'Name, section, websites, region and words to skip. All optional.'
-export const TOPIC_SUGGESTIONS_LABEL = 'Suggestions'
-export const TOPIC_SUGGESTION_LIMIT = 8
-export const topicSummaryWords = (name: string, section: string, searches: number, sites: number): string =>
-  `Called ${name}, in ${section || 'a section of its own'}, reading ${searches} ${searches === 1 ? 'search' : 'searches'} and ${sites} ${sites === 1 ? 'site' : 'sites'}.`
 export const STARTERS_TITLE = 'Pick topics to start with'
 export const STARTERS_HINT = 'Each comes with its searches and websites. Change anything afterwards from its card.'
 export const STARTERS_ALL_LABEL = 'All'
@@ -428,3 +423,28 @@ export const MODEL_LIMIT_TITLE = 'Daily AI limit'
 export const MODEL_LIMIT_HINT = (fallback: number, max: number): string => `A safety cap on how many times a day the Newsroom may ask the AI — watches and briefs share it. It does not set how often news is gathered. Empty uses ${fallback}; the most is ${max}.`
 export const READ_EDITION_READY = (ready: string, topics: number): string => `Ready at ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
 export const NO_ISSUE_HEADLINE = 'Nothing written yet'
+
+// Topics by section, and the edition form's "What goes in it?"
+export const TOPICS_INTRO = 'A section is a heading in the brief. A topic is one thing you follow, found by searching the news for its words.'
+export const NEW_SECTION_LABEL = 'New section'
+export const SECTION_NAME_LABEL = 'Section name'
+export const SECTION_NAME_PLACEHOLDER = 'Section name, such as Sport'
+export const ADD_SECTION_LABEL = 'Add section'
+export const ADD_TOPIC_LABEL = 'Add topic'
+export const addTopicPlaceholder = (section: string): string => `Add a topic to ${section}, such as Greece`
+export const addTopicLabel = (section: string): string => `Add a topic to ${section}`
+export const topicCountWords = (n: number): string => `${n} ${n === 1 ? 'topic' : 'topics'}`
+export const NO_SECTION_LABEL = 'No section'
+export const NO_SECTION_HINT = 'Each is read under its own name. Edit one to give it a section.'
+export const TOPIC_SEARCHES_ROW = 'Searches'
+export const TOPIC_READS_ROW = 'Reads'
+export const THIN_TOPIC_HINT = 'One word brings a lot. Try a longer phrase, or add a site.'
+export const EDITION_INCLUDE_HINT = 'Pick at least one. A brief can be only your home.'
+export const EDITION_NEWS_LABEL = 'News'
+export const EDITION_NEWS_HINT = 'The sections you pick, each with its topics. A topic added to a section you picked joins the brief.'
+export const EDITION_WATCHES_HINT = 'New items from the feeds you follow, since the last brief.'
+export const EDITION_SECTIONS_LABEL = 'Sections in this brief'
+export const removeSectionLabel = (name: string): string => `Remove ${name} from this brief`
+export const addSectionLabel = (name: string): string => `Add ${name} to this brief`
+export const EDITION_TOO_MANY = `A brief reads at most ${MAX_EDITION_TOPICS} topics. Take a section out, or delete topics you do not need.`
+export const EDITION_NEEDS_SOMETHING = 'Pick at least one thing for the brief.'
