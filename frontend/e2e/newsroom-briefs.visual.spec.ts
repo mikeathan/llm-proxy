@@ -20,7 +20,14 @@ test('the topic form: region and skip words level, suggestions while typing, the
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('newsroom/briefs')
   await page.getByRole('button', { name: 'Set up' }).click()
+  // An empty page offers ready-made topics first; the form asks for one thing and keeps the rest under Fine-tune.
+  await expect(page.locator('[data-test="starter-gallery"]')).toBeVisible()
+  await lookAt(page, testInfo, 'starters', true)
+  await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Add a topic' }).click()
+  await expect(page.locator('[data-test="topic-suggestions"]')).toBeVisible()
+  await lookAt(page, testInfo, 'quick-form', true)
+  await page.locator('[data-test="topic-fine-tune"] > summary').click()
   await page.getByLabel('Name', { exact: true }).first().fill('Financial')
 
   // The two fields of the last row start and end at the same height, whatever the skip box holds.

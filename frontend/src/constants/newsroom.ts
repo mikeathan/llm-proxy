@@ -1,4 +1,4 @@
-import type { SourceGuide, SourceKind, SourceKindInfo, WatchStatus } from '../types/newsroom'
+import type { BriefStarter, SourceGuide, SourceKind, SourceKindInfo, WatchStatus } from '../types/newsroom'
 import type { ChoiceOption, StatusState } from '../types/ui'
 
 // The words of the Newsroom screens.
@@ -288,7 +288,6 @@ export const TOPICS_TITLE = 'Topics'
 export const EDITIONS_TITLE = 'Editions'
 export const NEW_TOPIC_LABEL = 'Add a topic'
 export const NEW_EDITION_LABEL = 'Add an edition'
-export const NO_TOPICS_BODY = 'A topic is a news area you choose, such as Technology, read from searches and feeds.'
 export const NO_EDITIONS_SETUP_BODY = 'An edition lists some topics and is written at a time you set.'
 export const NEED_TOPIC_FIRST = 'Add a topic first: an edition is made of topics.'
 export const TOPIC_NAME_LABEL = 'Name'
@@ -326,13 +325,13 @@ export const modelCallsProblem = (text: string, max: number): string => {
 }
 
 // Topic and edition forms
-export const TOPIC_NAME_HINT = 'A short name for what this topic follows, such as AI chips.'
+export const TOPIC_NAME_HINT = 'Left empty, the first search names the topic.'
 export const TOPIC_CATEGORY_LABEL = 'Section'
 export const TOPIC_CATEGORY_HINT = 'Topics with the same section are read together under one heading in the brief. Pick one or type your own; left empty, this topic is a section of its own.'
 /** The sections offered first: the built-in source list's groups, so a pick lines up with the sources under it. */
 export const BRIEF_CATEGORIES = ['News', 'Technology', 'Business and finance', 'Science and health', 'Sport'] as const
-export const TOPIC_SEARCHES_LABEL = 'What should it find?'
-export const TOPIC_SEARCHES_HINT = 'Type a search and press Enter, as you would in a news search: AI chips, Ukraine, site:reuters.com for one publisher.'
+export const TOPIC_SEARCHES_LABEL = 'What do you want to follow?'
+export const TOPIC_SEARCHES_HINT = 'Type a search and press Enter, as you would in a news search, or tap a suggestion. site:reuters.com follows one publisher.'
 export const TOPIC_SEARCHES_PLACEHOLDER = 'AI chips…'
 export const TOPIC_FEEDS_LABEL = 'Follow a website (optional)'
 export const TOPIC_FEEDS_HINT = 'Its newest stories are read alongside your searches. Start typing a site you know, or paste the link of its feed (RSS).'
@@ -396,6 +395,33 @@ export const editionCardWords = (ready: string, days: readonly number[]): string
 export const EDITION_OFF_LABEL = 'Paused'
 export const EDITION_ON_BADGE = 'On'
 export const topicLastWords = (when: string, n: number | undefined): string => `Last read ${when}${n === undefined ? '' : ` · ${n} new`}`
+// The topic form asks for one thing, what to follow; the rest sits under Fine-tune. The starters are ready-made topics (name, section, searches and
+// well-known sites by their name in the built-in list), offered as suggestions in the form and as a gallery on an empty page.
+export const TOPIC_FINE_TUNE_LABEL = 'Fine-tune'
+export const TOPIC_FINE_TUNE_HINT = 'Name, section, websites, region and words to skip. All optional.'
+export const TOPIC_SUGGESTIONS_LABEL = 'Suggestions'
+export const TOPIC_SUGGESTION_LIMIT = 8
+export const topicSummaryWords = (name: string, section: string, searches: number, sites: number): string =>
+  `Called ${name}, in ${section || 'a section of its own'}, reading ${searches} ${searches === 1 ? 'search' : 'searches'} and ${sites} ${sites === 1 ? 'site' : 'sites'}.`
+export const STARTERS_TITLE = 'Pick topics to start with'
+export const STARTERS_HINT = 'Each comes with its searches and websites. Change anything afterwards from its card.'
+export const STARTERS_ALL_LABEL = 'All'
+export const STARTERS_OWN_LABEL = 'Make my own'
+export const startersAddWords = (n: number): string => `Add ${n} ${n === 1 ? 'topic' : 'topics'}`
+export const BRIEF_STARTERS: readonly BriefStarter[] = [
+  { name: 'AI and chips', section: 'Technology', queries: ['AI chips', 'Nvidia'], sites: ['Ars Technica', 'The Verge'] },
+  { name: 'World headlines', section: 'News', queries: [], sites: ['BBC World', 'The Guardian World', 'Al Jazeera'] },
+  { name: 'Markets', section: 'Business and finance', queries: ['stock markets'], sites: ['CNBC Top News', 'Financial Times', 'MarketWatch Top Stories'] },
+  { name: 'Space', section: 'Science and health', queries: ['space', 'NASA'], sites: ['NASA', 'BBC Science'] },
+  { name: 'Football', section: 'Sport', queries: ['Premier League'], sites: ['BBC Sport'] },
+  { name: 'Cybersecurity', section: 'Technology', queries: ['cybersecurity', 'ransomware'], sites: ['Krebs on Security', 'The Hacker News'] },
+  { name: 'UK news', section: 'News', queries: [], sites: ['BBC UK', 'The Guardian UK', 'Sky News'] },
+  { name: 'Crypto', section: 'Business and finance', queries: ['Bitcoin'], sites: ['CoinDesk'] },
+  { name: 'Ukraine', section: 'News', queries: ['Ukraine'], sites: ['BBC World'] },
+  { name: 'Health', section: 'Science and health', queries: ['health'], sites: ['BBC Health', 'WHO news'] },
+  { name: 'Formula 1', section: 'Sport', queries: ['Formula 1'], sites: ['BBC Sport'] },
+  { name: 'Tech headlines', section: 'Technology', queries: [], sites: ['The Verge', 'TechCrunch', 'Ars Technica'] },
+]
 export const TOPIC_NEVER_READ = 'Not read yet'
 export const topicFollowsWords = (n: number): string => `+${n} ${n === 1 ? 'website' : 'websites'}`
 export const MODEL_LIMIT_TITLE = 'Daily AI limit'

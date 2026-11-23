@@ -269,6 +269,14 @@ export interface BriefTopic {
   last_problems?: string[]
 }
 
+/** A ready-made topic: its name and section, its searches, and well-known sites named as the built-in list names them. */
+export interface BriefStarter {
+  name: string
+  section: string
+  queries: readonly string[]
+  sites: readonly string[]
+}
+
 /** One source the topic form offers: the built-in list (builtin) and the owner's own (an id, so it can be removed). A feed target is an address; a news search's is the search. */
 export interface BriefSource {
   id?: number
