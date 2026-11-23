@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
@@ -12,7 +12,7 @@ import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
   BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
-  deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
+  DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
 
@@ -52,6 +52,15 @@ async function deleteEdition(e: BriefEdition) {
   if (!(await confirm({ title: deleteEditionTitle, message: deleteEditionMessage(e.name), type: "warning", confirmText: "Delete" }))) return
   if (!(await b.removeEdition(e.id))) toast.error(b.actionError.value)
 }
+// Anything to delete: a topic, an edition, or a source the owner added.
+const hasContent = computed(() => b.topics.value.length > 0 || b.editions.value.length > 0 || b.sources.value.some((s) => !s.builtin))
+async function deleteAll() {
+  if (!(await confirm({ title: deleteAllTitle, message: DELETE_ALL_MESSAGE, type: "error", confirmText: DELETE_ALL_LABEL }))) return
+  if (await b.deleteAll()) {
+    mode.value = "read"
+    toast.success(DELETE_ALL_DONE)
+  } else toast.error(b.actionError.value)
+}
 async function readTopic(t: BriefTopic) {
   const done = await b.collectTopic(t.id)
   if (done) toast.success(topicReadWords(done.new))
@@ -64,7 +73,10 @@ async function readTopic(t: BriefTopic) {
     <LoadingState v-if="b.loading.value" label="Loading the briefs" :rows="3" />
     <ErrorState v-else-if="b.error.value" title="The briefs are unavailable" :cause="b.error.value" :next="NEWSROOM_RELOAD_HINT" />
     <template v-else>
-      <SegmentedControl v-model="mode" :options="MODES" :label="BRIEFS_VIEW_LABEL" variant="compact" />
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl v-model="mode" :options="MODES" :label="BRIEFS_VIEW_LABEL" variant="compact" />
+        <BaseButton v-if="hasContent" variant="danger" size="sm" :disabled="b.saving.value" data-test="delete-all-briefs" @click="deleteAll">{{ DELETE_ALL_LABEL }}</BaseButton>
+      </div>
       <NewsroomBriefSetup
         v-if="mode === 'setup'"
         :topics="b.topics.value"

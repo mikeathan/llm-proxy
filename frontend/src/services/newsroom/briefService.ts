@@ -64,6 +64,12 @@ export class BriefService {
     if (!res.ok) throw await failureReason(res, 'remove the source')
   }
 
+  /** Forgets every topic, edition, collected story and the owner's own sources. */
+  static async deleteAll(): Promise<void> {
+    const res = await apiFetch(`${BASE}/all`, { method: 'DELETE' })
+    if (!res.ok) throw await failureReason(res, 'delete the briefs')
+  }
+
   static async createTopic(edit: BriefTopicEdit): Promise<BriefTopic> {
     const res = await apiFetch(`${BASE}/topics`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(edit) })
     if (!res.ok) throw await failureReason(res, 'add the topic')

@@ -300,6 +300,10 @@ export const deleteTopicTitle = 'Delete this topic?'
 export const deleteTopicMessage = (name: string): string => `"${name}" is removed. An edition that lists it must drop it first.`
 export const deleteEditionTitle = 'Delete this edition?'
 export const deleteEditionMessage = (name: string): string => `"${name}" is removed.`
+export const DELETE_ALL_LABEL = 'Delete all briefs'
+export const deleteAllTitle = 'Delete all briefs?'
+export const DELETE_ALL_MESSAGE = 'This permanently removes every topic, every edition, every collected story and the sources you added. The built-in sources and your daily model-call limit stay. This cannot be undone.'
+export const DELETE_ALL_DONE = 'All briefs deleted'
 export const topicReadWords = (n: number): string => (n === 0 ? 'Read: nothing new.' : `Read: ${n} new ${n === 1 ? 'story' : 'stories'}.`)
 export const editionSummaryWords = (ready: string, topics: number): string => `Ready by ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
 

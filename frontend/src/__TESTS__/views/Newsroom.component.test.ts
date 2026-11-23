@@ -5,14 +5,14 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { ROUTE_NAMES } from '../../types/routes'
 import type { NewsroomDay, NewsroomWatch } from '../../types/newsroom'
 
-const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock } = vi.hoisted(() => ({
-  watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
+const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock, briefTopicsMock, deleteAllMock } = vi.hoisted(() => ({
+  briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
   NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock },
 }))
 vi.mock('../../services/newsroom/briefService', () => ({
-  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: vi.fn().mockResolvedValue([]), issues: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
+  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: briefTopicsMock, deleteAll: deleteAllMock, issues: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../composables/models/useModels', () => ({
@@ -45,6 +45,8 @@ enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
   confirmMock.mockResolvedValue(true)
+  briefTopicsMock.mockResolvedValue([])
+  deleteAllMock.mockResolvedValue(undefined)
   createMock.mockResolvedValue(watch())
   markReadMock.mockResolvedValue(undefined)
 })
@@ -62,6 +64,20 @@ describe('NewsroomView', () => {
     expect(w.text()).toContain('No editions yet')
     await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
     expect(w.text()).toContain('Add a topic')
+  })
+
+  it('offers "Delete all briefs" only when there is something to delete, and only after a confirmation', async () => {
+    expect((await mountView('/newsroom/briefs')).w.find('[data-test="delete-all-briefs"]').exists()).toBe(false)
+    briefTopicsMock.mockResolvedValue([{ id: 1, name: 'Go' }])
+    const { w } = await mountView('/newsroom/briefs')
+    confirmMock.mockResolvedValueOnce(false)
+    await w.get('[data-test="delete-all-briefs"]').trigger('click')
+    await flushPromises()
+    expect(deleteAllMock).not.toHaveBeenCalled()
+    await w.get('[data-test="delete-all-briefs"]').trigger('click')
+    await flushPromises()
+    expect(confirmMock).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Delete all briefs?', confirmText: 'Delete all briefs' }))
+    expect(deleteAllMock).toHaveBeenCalledTimes(1)
   })
 
   it("asks for the feed in the reader's zone, and shows the day's findings as one list, newest first", async () => {

@@ -80,6 +80,11 @@ export function useBriefs() {
   const removeEdition = async (id: number): Promise<boolean> => (await change(() => BriefService.removeEdition(id))).ok
   const addSource = async (label: string, target: string): Promise<boolean> => (await change(() => BriefService.addSource(label, target))).ok
   const removeSource = async (id: number): Promise<boolean> => (await change(() => BriefService.removeSource(id))).ok
+  const deleteAll = async (): Promise<boolean> => {
+    const done = await change(() => BriefService.deleteAll())
+    if (done.ok) pickedId.value = null
+    return done.ok
+  }
   async function collectTopic(id: number): Promise<{ new: number; problems?: string[] } | null> {
     const done = await change(() => BriefService.collect(id))
     return done.ok ? done.value : null
@@ -90,6 +95,6 @@ export function useBriefs() {
 
   return {
     editions, topics, issues, settings, sources, addSource, removeSource, saveSettings, edition, issue, pickedId, loading, error, actionError, making, saving, load, makeNow,
-    createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition,
+    createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition, deleteAll,
   }
 }
