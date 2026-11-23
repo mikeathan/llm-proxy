@@ -657,6 +657,28 @@ func (s *AppServices) radioDigest(ctx context.Context) (json.RawMessage, error) 
 	return s.netaudit.Radio.Read(ctx, radio.DigestPath)
 }
 
+// homePort is the Home port of the Newsroom stack: the inventory's counts and the Radio digest's finding ids, in the core's words (ADR-0077). Each source is
+// read when asked, so the port works whichever of the services started first.
+func (s *AppServices) homePort() stackport.Home {
+	return stackport.Home{
+		Devices: func() (models.DeviceInventory, error) {
+			if s.netaudit == nil || s.netaudit.Inventory == nil {
+				return models.DeviceInventory{}, fmt.Errorf("the network inventory is not running")
+			}
+			return s.netaudit.Inventory.View()
+		},
+		Presence: func(d models.NetworkDevice) models.DevicePresence {
+			if s.netaudit == nil {
+				return models.PresenceUnknown
+			}
+			return devicePresence(s.netaudit.PresenceConfig, s.netaudit.Presence)(d)
+		},
+		RadioOn: s.radioOn,
+		Radio:   s.radioDigest,
+		Now:     time.Now,
+	}
+}
+
 // radioOn says whether the Radio stack is switched on, which is when the tool is offered.
 func (s *AppServices) radioOn(ctx context.Context) bool {
 	if s.netaudit == nil || s.netaudit.Radio == nil {
@@ -691,6 +713,8 @@ func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetc
 			func() int { return policy.Get().ModelCallsPerDay }),
 		// The core words a watch's notice and sends it to the connector the watch names, if the owner enabled it (ADR-0036).
 		Notice: stackport.Notice{Notify: s.notifyPort()},
+		// The Brief's Home block reads counts and the core's own fixed words about the network and Radio, nothing a device or frame sent (ADR-0077).
+		Home: s.homePort(),
 	})
 	if err != nil {
 		return nil, err

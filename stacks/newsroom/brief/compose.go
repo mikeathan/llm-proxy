@@ -83,8 +83,27 @@ type Issue struct {
 	ReadyFor time.Time      `json:"ready_for,omitzero"`
 	Top      []Story        `json:"top,omitempty"`
 	Sections []IssueSection `json:"sections"`
+	// Watches is what the owner's watches found since the previous edition of this name, one line per watch, when the edition asks for it. It is read
+	// from the watch journal when the edition is made (no model call), so reading the edition later shows what it showed then.
+	Watches []WatchLine `json:"watches,omitempty"`
+	// Home is the core's fixed facts about the home network and Radio when the edition asks for them (ADR-0077): counts and the core's own sentences, filled in
+	// after the model has written the sections, so no model call ever sees them.
+	Home []stacksdk.HomeLine `json:"home,omitempty"`
 	// ModelCalls is how many model calls writing it took.
 	ModelCalls int `json:"model_calls"`
+}
+
+// WatchLine is one watch's part of an edition: how many findings it made, the newest one, and the sources it could not read. Headline, Summary and Link are
+// the journal entry's own text (the watch's model wrote the headline), never new text.
+type WatchLine struct {
+	Watch    string    `json:"watch"`
+	New      int       `json:"new"`
+	Headline string    `json:"headline,omitempty"`
+	Summary  string    `json:"summary,omitempty"`
+	Link     string    `json:"link,omitempty"`
+	At       time.Time `json:"at,omitzero"`
+	// Problems is one sentence for each source the watch's last run could not read.
+	Problems []string `json:"problems,omitempty"`
 }
 
 // Shown is the record that a story went into an edition: when, and how many outlets reported it then.
@@ -109,7 +128,7 @@ type ComposeInput struct {
 // then asks once for the top stories across them. It never fails: a model that is missing, spent or wrong leaves the section ranked by outlets under
 // the stories' own headlines, and the section says so.
 func Compose(ctx context.Context, in ComposeInput) Issue {
-	c := composer{in: in, shown: shownIndex(in.Shown, in.Now)}
+	c := composer{in: in, shown: shownIndex(in.Shown, in.Now), placed: map[string]bool{}}
 	issue := Issue{EditionID: in.Edition.ID, Name: in.Edition.Name, MadeAt: in.Now.UTC()}
 	for _, sec := range in.Edition.Sections {
 		topic, ok := c.topic(sec.TopicID)
@@ -126,6 +145,8 @@ func Compose(ctx context.Context, in ComposeInput) Issue {
 type composer struct {
 	in    ComposeInput
 	shown map[string]Shown
+	// placed holds the keys of stories already put in an earlier section: a story in two topics appears in the first one only.
+	placed map[string]bool
 	calls int
 	// off is the reason the model is not asked again: its limit is spent, or it could not answer. It stops the rest of the edition from asking.
 	off string
@@ -162,6 +183,9 @@ func (c *composer) candidates(topicID int64) []candidate {
 		if !slices.Contains(p.Topics, topicID) || c.in.Now.Sub(storyTime(p)) > CandidateMaxAge {
 			continue
 		}
+		if c.placed[p.Key] {
+			continue
+		}
 		prev, seen := c.shown[p.Key]
 		if seen && p.Outlets() <= prev.Outlets {
 			continue
@@ -191,6 +215,9 @@ func (c *composer) section(ctx context.Context, t Topic) IssueSection {
 	sec := IssueSection{Kind: SectionNews, TopicID: t.ID, Name: t.Name, Category: t.Category, AsOf: t.LastCollected, Problems: slices.Clone(t.LastProblems)}
 	if cands := c.candidates(t.ID); len(cands) > 0 {
 		sec.Stories, sec.Note = c.write(ctx, t, cands)
+		for _, s := range sec.Stories {
+			c.placed[s.Key] = true
+		}
 	}
 	return withFreshness(sec, c.in.Edition.CollectEvery, c.in.Now)
 }

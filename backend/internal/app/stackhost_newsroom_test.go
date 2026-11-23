@@ -81,7 +81,7 @@ func TestNewsroomStack_ItsHostTakesExactlyThePortsItsManifestRequires(t *testing
 	if err := m.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule}
+	want := []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule, stacksdk.PortHome}
 	if len(m.Requires) != len(want) {
 		t.Errorf("requires %v, want %v", m.Requires, want)
 	}

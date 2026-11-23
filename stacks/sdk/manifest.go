@@ -210,9 +210,13 @@ const (
 	// PortNotice lets a stack hand the core a structured notice (a watch, the items found, the facts that changed) to send to one connector type the owner
 	// enabled. The core words it from fixed wording and sends it as plain text; the stack never sends and never writes the message (ADR-0036, ADR-0071).
 	PortNotice = "notice"
+	// PortHome lets a stack read, and only read, a short list of fixed facts about the owner's network and radio: a count and a sentence the core wrote
+	// from its own table (ADR-0077). No address, hardware address, device name, network name or tag is ever in it, and the stack must never pass it to a
+	// fetch or to a model.
+	PortHome = "briefhome"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP, PortModel, PortNotice}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP, PortModel, PortNotice, PortHome}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

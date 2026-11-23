@@ -214,6 +214,29 @@ func tellFindings(h heard) (kept []found, dropped int) {
 	return kept, dropped
 }
 
+// Finding is one finding of the digest the core can word: its id, the tier of evidence, a clamped count and the core's own sentence for the id.
+type Finding struct {
+	ID    string
+	Tier  string
+	Count int
+	Words string
+}
+
+// Findings reads the stack's digest answer and returns only the findings the core has words for, in the core's words and with clamped counts, at most
+// maxEntries. Anything else in the answer, including the stack's own wording, is ignored.
+func Findings(raw json.RawMessage) ([]Finding, error) {
+	var h heard
+	if err := json.Unmarshal(raw, &h); err != nil {
+		return nil, fmt.Errorf("the radio sensor's answer could not be read: %w", err)
+	}
+	kept, _ := tellFindings(h)
+	out := make([]Finding, len(kept))
+	for i, f := range kept {
+		out[i] = Finding{ID: f.ID, Tier: f.Tier, Count: f.Count, Words: f.Claim}
+	}
+	return out, nil
+}
+
 // tellUnseen keeps the ids of checks that could not run, when the core knows the check.
 func tellUnseen(h heard) (kept []string, dropped int) {
 	for _, c := range h.CouldNotSee {

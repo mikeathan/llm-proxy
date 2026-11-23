@@ -59,12 +59,14 @@ export function groupSources(entries: readonly BriefSource[], topicName: string,
   return ranked.map((category) => ({ category, entries: entries.filter((e) => e.category === category) })).filter((g) => g.entries.length > 0)
 }
 
-export function editionEdit(f: { name: string; readyBy: string; days: number[]; topics: number[]; enabled: boolean; every: number; forHours: number }): BriefEditionEdit {
+export function editionEdit(f: { name: string; readyBy: string; days: number[]; topics: number[]; enabled: boolean; every: number; forHours: number; watches: boolean; home: boolean }): BriefEditionEdit {
   return {
     name: f.name.trim(),
     ready_by: f.readyBy,
     days: f.days,
     enabled: f.enabled,
+    watches: f.watches,
+    home: f.home,
     collect_every: hoursToDuration(f.every),
     collect_for: hoursToDuration(f.forHours),
     sections: f.topics.map((topic_id) => ({ kind: 'news' as const, topic_id })),

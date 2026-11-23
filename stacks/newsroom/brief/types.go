@@ -100,7 +100,11 @@ type Edition struct {
 	CollectFor   time.Duration `json:"collect_for"`
 	Sections     []Section     `json:"sections"`
 	Enabled      bool          `json:"enabled"`
-	CreatedAt    time.Time     `json:"created_at,omitzero"`
+	// Watches adds a "Your watches" block: what the owner's watches found since the previous edition. Off by default.
+	Watches bool `json:"watches,omitempty"`
+	// Home adds a "Home" block: the core's fixed counts about the network and Radio (ADR-0077). Off by default.
+	Home      bool      `json:"home,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
 }
 
 var (

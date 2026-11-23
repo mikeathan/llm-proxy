@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"llm-proxy-stacks/sdk"
 )
 
 // Timings of making an edition.
@@ -21,6 +23,10 @@ type Publisher struct {
 	Store *Store
 	// Model may be nil: an edition is then made from the pool alone.
 	Model Model
+	// Watches reports what the watches found between two moments; nil leaves the "Your watches" block out of every edition.
+	Watches func(since, until time.Time) []WatchLine
+	// Home reads the core's fixed home facts; nil leaves the Home block out. It is called after Compose and its answer is only stored.
+	Home func(ctx context.Context) []stacksdk.HomeLine
 
 	// mu keeps two editions from being written at once, so the loop and a manual request take turns and do not both write the same edition.
 	mu sync.Mutex
@@ -101,5 +107,22 @@ func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Tim
 	now := p.now()
 	is := Compose(ctx, ComposeInput{Edition: *edition, Topics: snap.Topics, Pool: snap.Pool, Shown: snap.Shown, Model: p.Model, Now: now})
 	is.ReadyFor = readyFor.UTC()
+	if edition.Home && p.Home != nil {
+		is.Home = p.Home(ctx)
+	}
+	if edition.Watches && p.Watches != nil {
+		is.Watches = p.Watches(p.since(editionID, now), now)
+	}
 	return p.Store.SaveIssue(is, now)
+}
+
+// WatchesWindow is how far back the "Your watches" block looks for an edition that has no earlier one.
+const WatchesWindow = 24 * time.Hour
+
+// since is when the edition was last made, or a day ago for the first one.
+func (p *Publisher) since(editionID int64, now time.Time) time.Time {
+	if made := p.Store.Issues(editionID); len(made) > 0 {
+		return made[0].MadeAt
+	}
+	return now.Add(-WatchesWindow)
 }

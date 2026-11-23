@@ -7,7 +7,7 @@ import CheckboxGroup from "../common/forms/CheckboxGroup.vue"
 import { editionEdit, editionTopicIds, hoursOf } from "../../utils/newsroom/briefForm"
 import {
   ALL_DAYS, DAY_ORDER, DAY_SHORT, DEFAULT_EVERY_HOURS, DEFAULT_FOR_HOURS, DEFAULT_READY_BY, EDITION_DAYS_LABEL, EDITION_NAME_HINT, EDITION_NAME_LABEL, EDITION_ON_LABEL,
-  EDITION_READY_LABEL, EDITION_TOPICS_LABEL, EVERY_HOURS, FOR_HOURS, GATHER_AFTER, GATHER_BEFORE, GATHER_START, NEED_TOPIC_FIRST, WATCH_NAME_MAX, hoursWords,
+  EDITION_READY_LABEL, EDITION_TOPICS_LABEL, EDITION_WATCHES_LABEL, EDITION_HOME_LABEL, EVERY_HOURS, FOR_HOURS, GATHER_AFTER, GATHER_BEFORE, GATHER_START, NEED_TOPIC_FIRST, WATCH_NAME_MAX, hoursWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic } from "../../types/newsroom"
 
@@ -22,6 +22,8 @@ const readyBy = ref(props.edition?.ready_by ?? DEFAULT_READY_BY)
 const days = ref<string[]>((props.edition?.days ?? ALL_DAYS).map(String))
 const chosen = ref<string[]>(editionTopicIds(props.edition).map(String))
 const enabled = ref(props.edition?.enabled ?? true)
+const watches = ref(props.edition?.watches ?? false)
+const home = ref(props.edition?.home ?? false)
 const every = ref(hoursOf(props.edition?.collect_every ?? "") ?? DEFAULT_EVERY_HOURS)
 const forHours = ref(hoursOf(props.edition?.collect_for ?? "") ?? DEFAULT_FOR_HOURS)
 
@@ -37,7 +39,7 @@ const toggleDay = (d: string) => (days.value = days.value.includes(d) ? days.val
 function submit() {
   if (!canSave.value) return
   // The sections follow the order the topics are listed in on screen.
-  emit("save", editionEdit({ name: name.value, readyBy: readyBy.value, days: days.value.map(Number), topics: chosen.value.map(Number), enabled: enabled.value, every: every.value, forHours: forHours.value }))
+  emit("save", editionEdit({ name: name.value, readyBy: readyBy.value, days: days.value.map(Number), topics: chosen.value.map(Number), enabled: enabled.value, every: every.value, forHours: forHours.value, watches: watches.value, home: home.value }))
 }
 </script>
 
@@ -77,6 +79,8 @@ function submit() {
       <select v-model="forHours" aria-label="How long before it is ready" class="form-control w-fit"><option v-for="h in forOptions" :key="h" :value="h">{{ hoursWords(h) }}</option></select>
       <span>{{ GATHER_AFTER }}</span>
     </div>
+    <BaseToggle v-model="watches" :label="EDITION_WATCHES_LABEL" />
+    <BaseToggle v-model="home" :label="EDITION_HOME_LABEL" />
     <BaseToggle v-model="enabled" :label="EDITION_ON_LABEL" />
     <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
     <div class="flex gap-2">

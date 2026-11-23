@@ -46,6 +46,8 @@ type Host struct {
 	Model Model
 	// Notice hands the core a structured notice to word and send; nil unless the manifest requires PortNotice.
 	Notice Notice
+	// Home reads the core's fixed facts about the home network and radio, as counts and the core's own words; nil unless the manifest requires PortHome.
+	Home Home
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -724,6 +726,25 @@ type Notice interface {
 	Send(ctx context.Context, channel string, n NoticeRequest) error
 }
 
+// MaxHomeLines bounds one answer of the Home port; the core sends no more and a stack takes no more.
+const MaxHomeLines = 16
+
+// HomeLine is one fact about the home network or radio (ADR-0077): ID names the fact in the core's own table, Count is a number the core clamped, and Words
+// is the sentence the core wrote for that ID. It is typed on purpose: the core builds Words from fixed text, never from anything a device, a frame or a
+// resolver sent, so no address, name, tag or network name can be in it. A stack shows it to the owner as text and does nothing else with it: it is
+// not a model prompt, not a fetch target and not part of a message to a connector.
+type HomeLine struct {
+	ID    string `json:"id"`
+	Count int    `json:"count,omitempty"`
+	Words string `json:"words"`
+}
+
+// Home is the one way a stack reads what the core knows of the home. It is pulled (the core never pushes), read-only and bounded by MaxHomeLines. A
+// failure is an *Error: CodeUnavailable when the core cannot say.
+type Home interface {
+	Lines(ctx context.Context) ([]HomeLine, error)
+}
+
 // The bounds of one model call (ADR-0071): a call over either is refused with CodeInvalid, never truncated.
 const (
 	MaxModelPromptBytes = 64 * 1024
@@ -855,5 +876,5 @@ type ToolSource interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}, ModelRequest{}, ModelResponse{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}, ModelRequest{}, ModelResponse{}, HomeLine{}}
 }

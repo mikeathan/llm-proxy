@@ -174,6 +174,9 @@ export interface SourceGuide {
 // The Briefs module as /admin/api/newsroom/briefs/* reports it (stacks/newsroom/brief: editions, topics and the editions already made).
 
 /** One story of an edition. Everything but the headline and summary is the collected story's own data. */
+/** Which bundled artwork a section gets. */
+export type PlateKind = 'world' | 'economy' | 'tech' | 'politics' | 'science' | 'paper' | 'watch' | 'home'
+
 export interface BriefStory {
   pool_id: number
   headline: string
@@ -202,6 +205,24 @@ export interface BriefSection {
   problems?: string[]
 }
 
+/** One watch's part of an edition: how many findings, the newest, and the sources it could not read. */
+export interface BriefWatchLine {
+  watch: string
+  new: number
+  headline?: string
+  summary?: string
+  link?: string
+  at?: string
+  problems?: string[]
+}
+
+/** One fact of the Home block. */
+export interface BriefHomeLine {
+  id: string
+  count?: number
+  words: string
+}
+
 /** An edition as it was made; reading one asks nothing of the model. */
 export interface BriefIssue {
   id: number
@@ -210,6 +231,10 @@ export interface BriefIssue {
   made_at: string
   top?: BriefStory[]
   sections: BriefSection[]
+  /** What the watches found since the previous edition; absent when the edition does not ask. */
+  watches?: BriefWatchLine[]
+  /** The core's fixed facts about the network and Radio: a count and the core's own sentence for an id; absent when the edition does not ask. */
+  home?: BriefHomeLine[]
   model_calls: number
 }
 
@@ -225,6 +250,10 @@ export interface BriefEdition {
   collect_for: string
   sections: { kind: 'news'; topic_id: number }[]
   enabled: boolean
+  /** Adds the Your watches block. */
+  watches?: boolean
+  /** Adds the Home block: the core's counts about the network and Radio. */
+  home?: boolean
 }
 
 export interface BriefTopic {
@@ -273,6 +302,8 @@ export interface BriefEditionEdit {
   ready_by: string
   days: number[]
   enabled: boolean
+  watches: boolean
+  home: boolean
   collect_every: string
   collect_for: string
   sections: { kind: 'news'; topic_id: number }[]
