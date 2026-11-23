@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
@@ -44,6 +44,8 @@ const emit = defineEmits<{
 
 const editingTopic = ref<Target>(null)
 const editingEdition = ref<Target>(null)
+// The sections the owner's topics already use, offered again when a topic is edited.
+const categories = computed(() => [...new Set(props.topics.map((t) => t.category?.trim()).filter((c): c is string => !!c))])
 const topicName = (id: number): string => props.topics.find((t) => t.id === id)?.name ?? "Removed topic"
 const feedsOf = (t: BriefTopic): number => (t.sources ?? []).length
 const gather = (e: BriefEdition): string => gatherWords(hoursOf(e.collect_every) ?? 0, hoursOf(e.collect_for) ?? 0)
@@ -60,6 +62,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
         v-if="editingTopic === NEW"
         :topic="null"
         :sources="sources"
+        :categories="categories"
         :add-source="addSource"
         :saving="saving"
         :error="error"
@@ -74,6 +77,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
             v-if="editingTopic === t.id"
             :topic="t"
             :sources="sources"
+            :categories="categories"
             :add-source="addSource"
             :saving="saving"
             :error="error"
@@ -84,6 +88,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
           <div v-else :class="CARD" data-test="topic-card">
             <div class="flex items-start gap-2">
               <span class="min-w-0 flex-1 break-words text-[length:var(--text-body)] font-medium text-primary">{{ t.name }}</span>
+              <span v-if="t.category && t.category !== t.name" :class="[CHIP, 'text-accent-brand']" data-test="topic-section-chip">{{ t.category }}</span>
               <BaseButton variant="ghost" size="sm" icon="edit" icon-only :label="`Edit ${t.name}`" @click="editingTopic = t.id" />
               <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete ${t.name}`" @click="emit('delete-topic', t)" />
             </div>

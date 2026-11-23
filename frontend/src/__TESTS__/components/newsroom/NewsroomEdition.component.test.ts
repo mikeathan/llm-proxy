@@ -88,7 +88,7 @@ describe('NewsroomEdition', () => {
     const w = mount(NewsroomEdition, { props: { issue: issue({ top: [top], sections: [section({ stories: [top, story({ pool_id: 2, headline: 'Second' })] })] }) } })
     expect(w.get('section[aria-label="Technology"]').text()).toContain('Second')
     expect(w.get('section[aria-label="Technology"]').text()).not.toContain('Lead')
-    expect(w.get('section[aria-label="Technology"]').text()).toContain('1 story')
+    expect(w.get('section[aria-label="Technology"]').text()).toContain('2 stories · 1 in Top stories')
     const only = mount(NewsroomEdition, { props: { issue: issue({ top: [top], sections: [section({ stories: [top] })] }) } })
     expect(only.get('section[aria-label="Technology"]').text()).toContain('in the top stories above')
   })
@@ -127,5 +127,13 @@ it('says once that a card is headlines only instead of tagging every story, and 
     const links = w.findAll('a').map((a) => a.attributes('href'))
     expect(links).toEqual(['https://example.com/a'])
     expect(w.get('a').attributes('rel')).toContain('noopener')
+  })
+
+  it('counts what the section holds and says how many the top stories already show, and names the section of each top story', () => {
+    const stories = [1, 2, 3, 4, 5].map((n) => story({ pool_id: n, headline: `Story ${n}` }))
+    const w = mount(NewsroomEdition, { props: { issue: issue({ sections: [section({ stories })], top: stories.slice(0, 4) }) } })
+    expect(w.get('section[aria-label="Technology"]').text()).toContain('5 stories · 4 in Top stories')
+    expect(w.get('[data-test="lead-story"] [data-test="story-section"]').text()).toBe('Technology')
+    expect(mount(NewsroomEdition, { props: { issue: issue() } }).get('section[aria-label="Technology"]').text()).not.toContain('in Top stories')
   })
 })

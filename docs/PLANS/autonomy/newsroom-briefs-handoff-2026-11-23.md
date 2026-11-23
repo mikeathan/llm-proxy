@@ -23,6 +23,10 @@ evidence: Branch newsroom-briefs-screens, cut from origin/main at 322f5002 (#298
 ## Checks run
 Stack `GOWORK=off go test -race . ./sources ./watches ./brief`; `cd stacks/sdk && go test ./...`; backend `go build ./... && go test ./...`; `go run ./tools/check-complexity/`; frontend `npm test` and `npm run build`; harness. See the final message of the session for the last result of each. **Not run:** `npm run test:visual`; the page in a browser or on a phone; anything on vertex (does the Home port read the live inventory and Radio digest? does the presence line say "cannot say" when the check is off?).
 
+## Built after the merge of #299 (branch `newsroom-categories`, uncommitted)
+- **Section = category** (ADR-0078, SPEC-013 1.17): `brief/compose.go` `groups`, `Topic.Group`, `CategoryKey`; topic form Section field; card count "5 stories · 4 in Top stories"; each top story names its section. Tests: `TestCompose_TopicsOfOneCategoryAreOneSection`, the Edition component test. Not looked at in a browser; not run: `test:visual`, vertex.
+- Cause of the owner's "categories I deleted" report: not deleted topics; the one Technology topic's search returned finance headlines and the card hid the 4 stories the top block showed.
+
 ## Left, in order
 1. **Owner:** review and accept or change ADR-0077; commit, merge, deploy; on vertex switch "Include my network and radio" and "Include what my watches found" on an edition, press Write it now, check the blocks.
 2. **Built 2026-11-23:** the side column (Home, Your watches beside the news on a desktop, under it on a phone) and a minimal print rule. **Looked at 2026-11-23** in Chromium at 1440 and 390 px with invented data (spec `frontend/e2e/newsroom-briefs.visual.spec.ts`, the edition-page test: side column right of the news on desktop and under it on a phone, cards capped at three, no sideways scroll; screenshots by `SCREENSHOTS=1`). **Left:** print preview (not looked at), the other themes (only paper was looked at), Your day in the side column, the dashboard card (links only, ADR-0064), the masthead's source count.

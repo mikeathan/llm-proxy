@@ -9,7 +9,7 @@ import NewsroomPlate from "./NewsroomPlate.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
   BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
-  briefAsOfWords, briefMadeWords, briefStoryCountWords, showMoreWords,
+  briefAsOfWords, briefMadeWords, briefSectionCountWords, showMoreWords,
 } from "../../constants/newsroom"
 import type { BriefIssue, BriefSection, BriefStory } from "../../types/newsroom"
 
@@ -39,6 +39,10 @@ const topIds = computed(() => new Set((props.issue.top ?? []).map((s) => s.pool_
 const storiesOf = (sec: BriefSection): BriefStory[] => sec.stories.filter((s) => !topIds.value.has(s.pool_id))
 const headlinesOnly = (sec: BriefSection): boolean => storiesOf(sec).length > 0 && storiesOf(sec).every((s) => s.headline_only)
 
+// Which section a top story came from, so a story from outside the topic's heading does not look misplaced.
+const sectionOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.name] as const))))
+const inTopCount = (sec: BriefSection): number => sec.stories.length - storiesOf(sec).length
+
 const lead = computed(() => props.issue.top?.[0])
 const otherTop = computed(() => props.issue.top?.slice(1) ?? [])
 const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))
@@ -60,12 +64,12 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
       <div class="flex items-start gap-4 rounded-[var(--radius-md)] bg-surface-raised p-4" data-test="lead-story">
         <div class="min-w-0 flex-1">
           <p class="m-0 text-[length:var(--text-small)] font-medium uppercase tracking-wide text-accent-brand">{{ LEAD_STORY_LABEL }}</p>
-          <NewsroomBriefStory :story="lead" lead quiet />
+          <NewsroomBriefStory :story="lead" :section="sectionOf.get(lead.pool_id)" lead quiet />
         </div>
         <NewsroomPlate class="hidden sm:block" :label="issue.name" size="lg" />
       </div>
       <ul v-if="otherTop.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-        <li v-for="s in otherTop" :key="s.pool_id"><NewsroomBriefStory :story="s" quiet /></li>
+        <li v-for="s in otherTop" :key="s.pool_id"><NewsroomBriefStory :story="s" :section="sectionOf.get(s.pool_id)" quiet /></li>
       </ul>
     </section>
 
@@ -80,7 +84,7 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
         >
           <span class="flex min-w-0 flex-1 flex-col">
             <h2 class="m-0 break-words text-[length:var(--text-body)] font-medium text-primary">{{ sec.name }}</h2>
-            <span class="text-[length:var(--text-small)] text-faint">{{ briefStoryCountWords(storiesOf(sec).length) }}<template v-if="sec.as_of"> · {{ briefAsOfWords(formatRelativeTime(sec.as_of)) }}</template></span>
+            <span class="text-[length:var(--text-small)] text-faint">{{ briefSectionCountWords(sec.stories.length, inTopCount(sec)) }}<template v-if="sec.as_of"> · {{ briefAsOfWords(formatRelativeTime(sec.as_of)) }}</template></span>
           </span>
           <Icon name="chevron-down" size="xs" :class-name="['flex-none text-faint transition-transform duration-fast', isOpen(sec.topic_id, i) ? '' : '-rotate-90'].join(' ')" />
         </button>

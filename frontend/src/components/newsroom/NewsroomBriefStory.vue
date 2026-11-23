@@ -8,13 +8,14 @@ import type { BriefStory } from "../../types/newsroom"
 
 // One story of an edition: the headline (a link only if it is a real http or https address), what was written about it, who reported it and when. All text
 // came from the open internet or a model that read it, so it is shown as text.
-const props = defineProps<{ story: BriefStory; lead?: boolean; quiet?: boolean }>()
+const props = defineProps<{ story: BriefStory; lead?: boolean; quiet?: boolean; section?: string }>()
 const link = computed(() => safeWebLink(props.story.link))
 </script>
 
 <template>
   <article class="flex min-w-0 flex-col gap-1 py-3">
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:var(--text-small)] text-faint">
+      <span v-if="section" class="font-medium text-secondary" data-test="story-section">{{ section }}</span>
       <time v-if="story.posted" :datetime="story.posted">{{ postedWords(formatRelativeTime(story.posted)) }}</time>
       <StatusTag v-if="story.update" state="warning" :label="UPDATE_LABEL" />
       <StatusTag v-if="story.headline_only && !quiet" state="neutral" :label="HEADLINE_ONLY_LABEL" />

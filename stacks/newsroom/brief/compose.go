@@ -130,12 +130,8 @@ type ComposeInput struct {
 func Compose(ctx context.Context, in ComposeInput) Issue {
 	c := composer{in: in, shown: shownIndex(in.Shown, in.Now), placed: map[string]bool{}}
 	issue := Issue{EditionID: in.Edition.ID, Name: in.Edition.Name, MadeAt: in.Now.UTC()}
-	for _, sec := range in.Edition.Sections {
-		topic, ok := c.topic(sec.TopicID)
-		if sec.Kind != SectionNews || !ok {
-			continue
-		}
-		issue.Sections = append(issue.Sections, c.section(ctx, topic))
+	for _, g := range c.groups() {
+		issue.Sections = append(issue.Sections, c.section(ctx, g))
 	}
 	issue.Top = c.top(ctx, issue.Sections)
 	issue.ModelCalls = c.calls
@@ -160,6 +156,46 @@ func (c *composer) topic(id int64) (Topic, bool) {
 	return c.in.Topics[i], true
 }
 
+// group is one section of an edition: every topic of the edition that shares a category. A topic is a set of searches and feeds; the category is what the
+// reader sees, so a "Technology" section holds whatever any of its topics found.
+type group struct {
+	name   string
+	topics []Topic
+}
+
+// ids are the topic ids of the group.
+func (g group) ids() []int64 {
+	out := make([]int64, len(g.topics))
+	for i, t := range g.topics {
+		out[i] = t.ID
+	}
+	return out
+}
+
+// groups are the edition's news sections, one per category, in the order each category first appears among the edition's topics. A category is matched
+// without regard to case or extra spaces (CategoryKey); the first topic's spelling is the section's name.
+func (c *composer) groups() []group {
+	var out []group
+	at := map[string]int{}
+	for _, sec := range c.in.Edition.Sections {
+		topic, ok := c.topic(sec.TopicID)
+		if sec.Kind != SectionNews || !ok {
+			continue
+		}
+		key := CategoryKey(topic.Group())
+		i, seen := at[key]
+		if !seen {
+			i = len(out)
+			at[key] = i
+			out = append(out, group{name: topic.Group()})
+		}
+		if !slices.ContainsFunc(out[i].topics, func(t Topic) bool { return t.ID == topic.ID }) {
+			out[i].topics = append(out[i].topics, topic)
+		}
+	}
+	return out
+}
+
 func shownIndex(in []Shown, now time.Time) map[string]Shown {
 	out := map[string]Shown{}
 	for _, s := range in {
@@ -177,10 +213,10 @@ type candidate struct {
 }
 
 // candidates are the section's stories that are recent and not already shown, the best first (most outlets, then newest) and at most the cap.
-func (c *composer) candidates(topicID int64) []candidate {
+func (c *composer) candidates(topicIDs []int64) []candidate {
 	var out []candidate
 	for _, p := range c.in.Pool {
-		if !slices.Contains(p.Topics, topicID) || c.in.Now.Sub(storyTime(p)) > CandidateMaxAge {
+		if !slices.ContainsFunc(p.Topics, func(id int64) bool { return slices.Contains(topicIDs, id) }) || c.in.Now.Sub(storyTime(p)) > CandidateMaxAge {
 			continue
 		}
 		if c.placed[p.Key] {
@@ -211,10 +247,23 @@ func storyTime(p PoolItem) time.Time {
 	return p.Posted
 }
 
-func (c *composer) section(ctx context.Context, t Topic) IssueSection {
-	sec := IssueSection{Kind: SectionNews, TopicID: t.ID, Name: t.Name, Category: t.Category, AsOf: t.LastCollected, Problems: slices.Clone(t.LastProblems)}
-	if cands := c.candidates(t.ID); len(cands) > 0 {
-		sec.Stories, sec.Note = c.write(ctx, t, cands)
+// section writes one category. TopicID is the group's first topic (it only identifies the section); AsOf is the oldest read among the topics that have
+// been read, so the section is called stale when any of them is; problems name their topic when the section has more than one.
+func (c *composer) section(ctx context.Context, g group) IssueSection {
+	sec := IssueSection{Kind: SectionNews, TopicID: g.topics[0].ID, Name: g.name, Category: g.name}
+	for _, t := range g.topics {
+		if !t.LastCollected.IsZero() && (sec.AsOf.IsZero() || t.LastCollected.Before(sec.AsOf)) {
+			sec.AsOf = t.LastCollected
+		}
+		for _, p := range t.LastProblems {
+			if len(g.topics) > 1 {
+				p = t.Name + ": " + p
+			}
+			sec.Problems = append(sec.Problems, p)
+		}
+	}
+	if cands := c.candidates(g.ids()); len(cands) > 0 {
+		sec.Stories, sec.Note = c.write(ctx, g.name, cands)
 		for _, s := range sec.Stories {
 			c.placed[s.Key] = true
 		}
@@ -243,8 +292,8 @@ func joinNotes(a, b string) string {
 }
 
 // write turns the candidates into the section's stories: the model's choice when it gave a usable one, else the code's ranking. The note says which.
-func (c *composer) write(ctx context.Context, t Topic, cands []candidate) ([]Story, string) {
-	answer, why := c.ask(ctx, fmt.Sprintf(sectionSystem, StoriesPerSection), sectionPrompt(t, cands))
+func (c *composer) write(ctx context.Context, name string, cands []candidate) ([]Story, string) {
+	answer, why := c.ask(ctx, fmt.Sprintf(sectionSystem, StoriesPerSection), sectionPrompt(name, cands))
 	if why != "" {
 		return plainStories(cands), why
 	}
@@ -288,9 +337,9 @@ Choose the most important stories, at most %d, best first. For each give the num
 A story that has no text gets no summary. Never write about a story that is not in the list.
 Answer with JSON only: {"stories":[{"item":1,"headline":"...","summary":"..."}]}`
 
-func sectionPrompt(t Topic, cands []candidate) string {
+func sectionPrompt(name string, cands []candidate) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Section: %s\n<stories>\n", sources.Line(t.Name, 80))
+	fmt.Fprintf(&b, "Section: %s\n<stories>\n", sources.Line(name, 80))
 	for i, c := range cands {
 		fmt.Fprintf(&b, "%d. %s (%d outlets)\n", i+1, sources.Line(c.item.Title, promptTitleRune), c.item.Outlets())
 		if c.item.Text != "" {

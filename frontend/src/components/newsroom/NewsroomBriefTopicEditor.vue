@@ -7,7 +7,7 @@ import NewsroomBriefSourceBrowser from "./NewsroomBriefSourceBrowser.vue"
 import NewsroomBriefCustomFeeds from "./NewsroomBriefCustomFeeds.vue"
 import { topicEdit, topicFields } from "../../utils/newsroom/briefForm"
 import {
-  REGION_OPTIONS, SOURCE_SEARCH_NOTE, TOPIC_FEEDS_HINT, TOPIC_FEEDS_LABEL, TOPIC_FEEDS_PLACEHOLDER, TOPIC_FEEDS_REJECTED, isFeedAddress, TOPIC_IGNORE_HINT, TOPIC_IGNORE_LABEL, TOPIC_NAME_HINT, TOPIC_NAME_LABEL, TOPIC_NEEDS_SOMETHING, TOPIC_REGION_LABEL,
+  BRIEF_CATEGORIES, TOPIC_CATEGORY_HINT, TOPIC_CATEGORY_LABEL, REGION_OPTIONS, SOURCE_SEARCH_NOTE, TOPIC_FEEDS_HINT, TOPIC_FEEDS_LABEL, TOPIC_FEEDS_PLACEHOLDER, TOPIC_FEEDS_REJECTED, isFeedAddress, TOPIC_IGNORE_HINT, TOPIC_IGNORE_LABEL, TOPIC_NAME_HINT, TOPIC_NAME_LABEL, TOPIC_NEEDS_SOMETHING, TOPIC_REGION_LABEL,
   TOPIC_SEARCHES_HINT, TOPIC_SEARCHES_LABEL, TOPIC_SEARCHES_PLACEHOLDER, WATCH_NAME_MAX,
 } from "../../constants/newsroom"
 import type { BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -15,7 +15,7 @@ import type { BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsro
 // Create or edit one topic: a name, what it should find (chips), websites to follow, and the region and words to skip. There is nothing hidden behind
 // "Advanced". Websites are chosen from the well-known and the owner's own sources (`sources`) while typing or in the browser under the field, or pasted as
 // a feed link. The server checks everything again and says why it refuses (`error`).
-const props = withDefaults(defineProps<{ topic: BriefTopic | null; saving: boolean; error: string; sources?: readonly BriefSource[]; addSource?: (label: string, target: string) => Promise<boolean> }>(), { sources: () => [], addSource: undefined })
+const props = withDefaults(defineProps<{ topic: BriefTopic | null; saving: boolean; error: string; sources?: readonly BriefSource[]; categories?: readonly string[]; addSource?: (label: string, target: string) => Promise<boolean> }>(), { sources: () => [], categories: () => [], addSource: undefined })
 const emit = defineEmits<{ (e: "save", edit: BriefTopicEdit): void; (e: "cancel"): void }>()
 
 const f = ref(topicFields(props.topic))
@@ -38,6 +38,8 @@ function toggle(s: BriefSource) {
   if (s.kind === "feed") f.value.feeds = next
   else f.value.searches = next
 }
+// The sections offered: the fixed list, then the others the owner's topics already use.
+const sectionChoices = computed(() => [...new Set([...BRIEF_CATEGORIES, ...props.categories])])
 const edit = computed(() => topicEdit(f.value, props.topic, labels.value))
 const hasSomething = computed(() => edit.value.queries.length + edit.value.sources.length > 0)
 const canSave = computed(() => !props.saving && edit.value.name !== "" && hasSomething.value)
@@ -53,6 +55,12 @@ function submit() {
     <FormField :label="TOPIC_NAME_LABEL" :hint="TOPIC_NAME_HINT">
       <template #default="{ id, describedBy }">
         <input :id="id" v-model="f.name" :aria-describedby="describedBy" type="text" :maxlength="WATCH_NAME_MAX" required class="form-control" />
+      </template>
+    </FormField>
+    <FormField :label="TOPIC_CATEGORY_LABEL" :hint="TOPIC_CATEGORY_HINT">
+      <template #default="{ id, describedBy }">
+        <input :id="id" v-model="f.category" :aria-describedby="describedBy" :list="`${id}-sections`" type="text" :maxlength="WATCH_NAME_MAX" class="form-control" data-test="topic-section" />
+        <datalist :id="`${id}-sections`"><option v-for="c in sectionChoices" :key="c" :value="c" /></datalist>
       </template>
     </FormField>
     <FormField :label="TOPIC_SEARCHES_LABEL" :hint="TOPIC_SEARCHES_HINT">
