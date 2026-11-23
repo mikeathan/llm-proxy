@@ -2,8 +2,11 @@ package brief
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	stacksdk "llm-proxy-stacks/sdk"
 )
 
 // publishRig is the collector rig with a pool already collected, and a publisher over the same store and clock.
@@ -124,5 +127,64 @@ func TestStore_IssuesPersistAndAreRetained(t *testing.T) {
 	}
 	if got := back.Issues(0); len(got) != 1 || got[0].ID == is.ID {
 		t.Errorf("an edition past its retention is dropped: %+v", got)
+	}
+}
+
+// "Home" is stored on the issue only when the edition asks, and is read after the sections are written: the model is never shown it.
+func TestPublisher_HomeBlockIsStoredAndNeverShownToTheModel(t *testing.T) {
+	r, p, m := publishRig(t, func(e *Edition) { e.Home = true })
+	line := stacksdk.HomeLine{ID: "network_online", Count: 3, Words: "SECRET-HOME-WORDS"}
+	p.Home = func(context.Context) []stacksdk.HomeLine { return []stacksdk.HomeLine{line} }
+	r.at(6, 45)
+	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	if err != nil || len(is.Home) != 1 || is.Home[0] != line {
+		t.Fatalf("home block: %+v, %v", is.Home, err)
+	}
+	if len(m.prompts) == 0 {
+		t.Fatal("the model was never asked, so this proves nothing")
+	}
+	for _, prompt := range m.prompts {
+		if strings.Contains(prompt, "SECRET-HOME-WORDS") || strings.Contains(prompt, "network_online") {
+			t.Errorf("the model saw the home facts: %q", prompt)
+		}
+	}
+	r2, p2, _ := publishRig(t, nil)
+	p2.Home = func(context.Context) []stacksdk.HomeLine { return []stacksdk.HomeLine{line} }
+	r2.at(6, 45)
+	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID); len(is.Home) != 0 {
+		t.Errorf("an edition that did not ask has no block: %+v", is.Home)
+	}
+}
+
+// "Your watches" is in an edition only when the edition asks for it, and it covers the time since the edition before it.
+func TestPublisher_WatchesBlockOnlyWhenAsked(t *testing.T) {
+	var windows [][2]time.Time
+	hook := func(since, until time.Time) []WatchLine {
+		windows = append(windows, [2]time.Time{since, until})
+		return []WatchLine{{Watch: "AI news", New: 2, Headline: "A model shipped"}}
+	}
+	r, p, _ := publishRig(t, func(e *Edition) { e.Watches = true })
+	p.Watches = hook
+	r.at(6, 45)
+	first, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	if err != nil || len(first.Watches) != 1 || first.Watches[0].Headline != "A model shipped" {
+		t.Fatalf("the block is missing: %+v, %v", first.Watches, err)
+	}
+	if got := windows[0][1].Sub(windows[0][0]); got != WatchesWindow {
+		t.Errorf("the first edition looks back %s, want %s", got, WatchesWindow)
+	}
+	r.at(8, 0)
+	if _, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if !windows[1][0].Equal(first.MadeAt) {
+		t.Errorf("the next edition starts where the last was made: %v, want %v", windows[1][0], first.MadeAt)
+	}
+
+	r2, p2, _ := publishRig(t, nil)
+	p2.Watches = hook
+	r2.at(6, 45)
+	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID); len(is.Watches) != 0 {
+		t.Errorf("an edition that did not ask has no block: %+v", is.Watches)
 	}
 }

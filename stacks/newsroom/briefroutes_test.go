@@ -245,3 +245,44 @@ func TestEraseAllClearsTheBriefsToo(t *testing.T) {
 		t.Errorf("a factory reset forgets the topics: %s", resp.Body)
 	}
 }
+
+type fakeHome struct{ lines []stacksdk.HomeLine }
+
+func (f fakeHome) Lines(context.Context) ([]stacksdk.HomeLine, error) { return f.lines, nil }
+
+// The two block flags survive the routes (create, update, read) and an edition that asks for them carries them; one that does not has none.
+func TestBriefRoutes_WatchesAndHomeFlagsRoundTripAndFillTheEdition(t *testing.T) {
+	s := New()
+	s.tick = time.Hour
+	home := fakeHome{lines: []stacksdk.HomeLine{{ID: "radio_off", Words: "Radio is off, so nothing is said about the air."}}}
+	h := stacksdk.Host{DataDir: &memDir{files: map[string][]byte{}}, Config: &fakeConfig{}, Fetch: &rssFetch{}, Schedule: cronSchedule{}, Home: home}
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	resp, _ := call(t, s, "POST", RouteBriefTopics, topicBody)
+	var topic struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &topic)
+	body := strings.Replace(editionBody(topic.ID), `"enabled":true,`, `"enabled":true,"watches":true,"home":true,`, 1)
+	resp, err := call(t, s, "POST", RouteBriefEditions, body)
+	if err != nil || !strings.Contains(string(resp.Body), `"watches":true`) || !strings.Contains(string(resp.Body), `"home":true`) {
+		t.Fatalf("create keeps the flags: %s %v", resp.Body, err)
+	}
+	var ed struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &ed)
+	path := fmt.Sprintf("%seditions/%d", RouteBriefs, ed.ID)
+	if resp, err = call(t, s, "PUT", path, strings.Replace(body, `"home":true`, `"home":false`, 1)); err != nil || strings.Contains(string(resp.Body), `"home"`) || !strings.Contains(string(resp.Body), `"watches":true`) {
+		t.Fatalf("update changes only what was sent: %s %v", resp.Body, err)
+	}
+	if _, err = call(t, s, "PUT", path, body); err != nil {
+		t.Fatal(err)
+	}
+	made, err := call(t, s, "POST", path+"/issue", "")
+	if err != nil || !strings.Contains(string(made.Body), "Radio is off, so nothing is said about the air.") {
+		t.Fatalf("the edition carries the home block: %s %v", made.Body, err)
+	}
+}

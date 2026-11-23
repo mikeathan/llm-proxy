@@ -217,3 +217,19 @@ func TestCompose_ReplayGivesTheSameEdition(t *testing.T) {
 		t.Errorf("two runs differ:\n%v\n%v", a, b)
 	}
 }
+
+// A story that belongs to two topics is in the first section only, and the second section is filled from its other stories.
+func TestCompose_AStoryInTwoTopicsAppearsOnce(t *testing.T) {
+	both := poolStory(1, "Markets fall on AI fears", "Shares dropped.", 3, 7, time.Hour)
+	both.Topics = []int64{7, 8}
+	in := oneSection(both, poolStory(2, "New chip announced", "A chip.", 1, 8, 2*time.Hour))
+	in.Edition.Sections = []Section{{Kind: SectionNews, TopicID: 7}, {Kind: SectionNews, TopicID: 8}}
+	in.Topics = append(in.Topics, Topic{ID: 8, Name: "Economy", LastCollected: composeNow.Add(-time.Hour)})
+	got := Compose(context.Background(), in)
+	if len(got.Sections) != 2 || len(got.Sections[0].Stories) != 1 || got.Sections[0].Stories[0].PoolID != 1 {
+		t.Fatalf("the shared story belongs to the first section: %+v", got.Sections)
+	}
+	if st := got.Sections[1].Stories; len(st) != 1 || st[0].PoolID != 2 {
+		t.Errorf("the second section keeps only its own story: %+v", st)
+	}
+}

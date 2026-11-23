@@ -268,6 +268,14 @@ export const BRIEF_EDITION_LABEL = 'Edition'
 export const briefMadeWords = (when: string, calls: number): string => `Written ${when} · ${calls} model ${calls === 1 ? 'call' : 'calls'}`
 export const briefReportedWords = (outlets: string[]): string => `Reported by ${outlets.join(', ')}`
 export const briefAsOfWords = (when: string): string => `Collected ${when}`
+export const BRIEF_SECTION_SHOWN = 3
+export const SECTION_IN_TOP = 'This topic\'s stories are in the top stories above.'
+export const SECTION_HEADLINES_ONLY = 'These sources give headlines only, so there is no summary.'
+export const COLLAPSE_ALL_LABEL = 'Collapse all'
+export const EXPAND_ALL_LABEL = 'Expand all'
+export const showMoreWords = (n: number): string => `Show ${n} more`
+export const SHOW_FEWER_LABEL = 'Show fewer'
+export const LEAD_STORY_LABEL = 'Top story'
 export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'story' : 'stories'}`
 export const BRIEF_PROBLEMS_LABEL = 'Could not read'
 
@@ -357,6 +365,14 @@ export const EDITION_NAME_HINT = 'Such as Morning or Evening.'
 export const EDITION_READY_LABEL = 'Ready at'
 export const EDITION_DAYS_LABEL = 'On these days'
 export const EDITION_TOPICS_LABEL = 'Which topics?'
+export const EDITION_WATCHES_LABEL = 'Include what my watches found'
+export const EDITION_HOME_LABEL = 'Include my network and radio'
+export const HOME_BLOCK_LABEL = 'Home'
+export const HOME_COUNTS_ONLY = 'Counts only. Names and addresses stay on the Network and Radio pages.'
+export const WATCHES_BLOCK_LABEL = 'Your watches'
+export const WATCHES_SINCE_LAST = 'since the last edition'
+export const watchNewWords = (n: number): string => `${n} new`
+export const WATCH_SOURCE_PROBLEM = 'Source not read'
 export const EDITION_ON_LABEL = 'Write this edition automatically'
 export const GATHER_BEFORE = 'Gather news every'
 export const GATHER_START = 'starting'

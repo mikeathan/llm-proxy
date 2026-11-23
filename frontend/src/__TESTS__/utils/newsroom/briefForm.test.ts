@@ -48,8 +48,8 @@ describe('briefForm', () => {
   })
 
   it('sends an edition with durations as strings and sections in the order chosen', () => {
-    expect(editionEdit({ name: ' Morning ', readyBy: '07:00', days: [1, 2], topics: [5, 4], enabled: true, every: 2, forHours: 12 })).toEqual({
-      name: 'Morning', ready_by: '07:00', days: [1, 2], enabled: true, collect_every: '2h', collect_for: '12h',
+    expect(editionEdit({ name: ' Morning ', readyBy: '07:00', days: [1, 2], topics: [5, 4], enabled: true, every: 2, forHours: 12, watches: true, home: true })).toEqual({
+      name: 'Morning', ready_by: '07:00', days: [1, 2], enabled: true, watches: true, home: true, collect_every: '2h', collect_for: '12h',
       sections: [{ kind: 'news', topic_id: 5 }, { kind: 'news', topic_id: 4 }],
     })
   })

@@ -4,7 +4,7 @@ date: 2026-11-21
 last_reviewed: 2026-11-21
 related_specs: [SPEC-013, SPEC-011, SPEC-007, SPEC-003]
 constitution_references: [I.1, II.13, III.2, IV.6, V.2]
-related_plans: [topic-watch.md, newsroom-watches-handoff-2026-11-20.md, standing-goals.md, attention-policy.md, ../cross-cutting/reminders-stack.md, ../cross-cutting/network-radio-joined-by-tag.md]
+related_plans: [topic-watch.md, newsroom-briefs-handoff-2026-11-23.md, standing-goals.md, attention-policy.md, ../cross-cutting/reminders-stack.md, ../cross-cutting/network-radio-joined-by-tag.md]
 evidence: Read 2026-11-21 - stacks/newsroom (watches, sources), stacks/sdk/ports.go (Model, Fetch, StackFinding), backend/internal/core/stackport/model.go, backend/internal/app/stack_model.go, frontend/src/styles/tokens.css; live feed tests on 2026-11-21 (curl from a Mac, then through vertex's own look-up endpoint /admin/api/newsroom/sources/lookup); owner answers of 2026-11-20 and 2026-11-21. The filename is kept for existing links; the plan is now called Briefs.
 ---
 
@@ -129,6 +129,10 @@ Matches the app's design language (tokens, fonts, hairline panels, square status
 ## Risks
 
 A late or failed source leaves a stale section (each section shows its age). The model restates a fact wrongly (citation rule; no free text from stacks). A very long edition (a per-section size cap). The model's daily limit shared with watches (D8). Google can change or refuse the news-search feed (the section then says so; nothing else breaks). Two plans own "a morning digest" (D9).
+
+## Progress (2026-11-23): edition page redesigned, Your watches built (branch newsroom-briefs-screens, uncommitted)
+
+Edition page: masthead, lead story, plate per section, 3 stories a card with Show more, Collapse all (`NewsroomEdition.vue`, `NewsroomPlate.vue`). **Your watches** (phase 4, first half): `Edition.Watches`, `Issue.Watches`, `Publisher.Watches` hook, `stacks/newsroom/briefwatches.go`, the block `NewsroomEditionWatches.vue` and an editor switch. SPEC 1.13. Checks run: stack `go test -race . ./sources ./watches ./brief`, backend build + tests + complexity, frontend test (3505) + build, harness. **Not run:** `npm run test:visual`; the page in a browser; vertex. **Home built the same day** through a new read-only SDK port (ADR-0077, proposed; counts and the core's fixed words only; SPEC 1.14). **Left:** sidebar layout, print style, dashboard card; phases 5–7.
 
 ## Progress (2026-11-22, later): phase 3 started
 

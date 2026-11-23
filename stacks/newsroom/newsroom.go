@@ -146,7 +146,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{WatchesFile, BriefsFile},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule, stacksdk.PortHome},
 	}
 }
 
@@ -194,7 +194,7 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	if h.Schedule != nil {
 		timing := brief.Timing{Schedule: h.Schedule, Location: func() *time.Location { return s.feedZone(run, "") }}
 		s.collector = &brief.Collector{Timing: timing, Store: briefs, Readers: readers}
-		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model}
+		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model, Watches: func(since, until time.Time) []brief.WatchLine { return watchLines(store, since, until) }, Home: homeLines(h.Home)}
 	}
 	s.cancel, s.done = cancel, make(chan struct{})
 	go s.loop(run, s.runner, s.collector, s.publisher, s.done)

@@ -229,6 +229,9 @@ func (s *Store) dropLocked(drop func(Entry) bool) (int, error) {
 	return gone, s.saveLocked()
 }
 
+// Entries returns a copy of the journal entries that match f, newest first.
+func (s *Store) Entries(f Filter) []Entry { return s.entriesFor(f) }
+
 // entriesFor returns a copy of the journal entries that match f, newest first.
 func (s *Store) entriesFor(f Filter) []Entry {
 	s.mu.Lock()

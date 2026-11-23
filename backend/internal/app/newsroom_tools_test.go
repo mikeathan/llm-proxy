@@ -40,6 +40,7 @@ func newNewsroomToolsRig(t *testing.T) (*toolregistry.LocalToolRegistry, *memNew
 		Fetch:    noFetch{},
 		Model:    noModel{},
 		Notice:   stackport.Notice{},
+		Home:     stackport.Home{},
 		Schedule: stackport.Schedule{Parse: func(expr string) (interface{ Next(time.Time) time.Time }, error) { return automation.ParseCron(expr) }},
 	})
 	if err != nil {
