@@ -5,6 +5,11 @@ import { createAppRouter } from '../../../router'
 import BottomTabs from '../../../components/layout/BottomTabs.vue'
 import { useLastWorkspace } from '../../../composables/ui/useLastWorkspace'
 import { memoryStorage } from '../../helpers/memoryStorage'
+import { resetBriefUnread } from '../../../composables/newsroom/useBriefUnread'
+
+// The shell asks which briefs wait unread (a dot on More, since Newsroom sits under it); the tests answer it instead of reaching a server.
+const briefs = vi.hoisted(() => ({ latest: [] as { edition_id: number; name: string; issue_id: number; made_at: string; read: boolean }[] }))
+vi.mock('../../../services/newsroom/briefService', () => ({ BriefService: { latest: () => Promise.resolve(briefs.latest) } }))
 
 const mounted: VueWrapper[] = []
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
@@ -25,6 +30,8 @@ describe('BottomTabs', () => {
   })
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
+    resetBriefUnread()
+    briefs.latest = []
     document.body.innerHTML = ''
     useLastWorkspace().forget('demo')
     vi.unstubAllGlobals()
@@ -35,6 +42,15 @@ describe('BottomTabs', () => {
     expect(tabs(wrapper).map((a) => a.attributes('aria-label'))).toEqual(['Dashboard', 'Assistant', 'Workspace', 'Automations'])
     expect(tabs(wrapper).map((a) => a.attributes('href'))).toEqual(['/dashboard?board=home', '/workspaces/demo/assistant', '/workspaces/demo/files', '/automations'])
     expect(more(wrapper).text()).toContain('More')
+  })
+
+  it('puts a dot on More while a brief waits unread, since Newsroom sits under it', async () => {
+    briefs.latest = [{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: false }]
+    const { wrapper } = await mountAt('/models')
+    expect(more(wrapper).find('[data-test="nav-dot"]').exists()).toBe(true)
+    expect(more(wrapper).attributes('aria-label')).toMatch(/^More, .*brief/i)
+    await more(wrapper).trigger('click')
+    expect(document.body.querySelector('#more-sheet [data-test="nav-dot"]')).not.toBeNull()
   })
 
   it('marks the current tab', async () => {

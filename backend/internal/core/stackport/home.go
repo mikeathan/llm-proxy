@@ -51,6 +51,15 @@ var homeWords = map[string]string{
 	HomeRadioUnreadable: "Radio could not be read.",
 }
 
+// HomeWords is the core's sentence for a home fact id, from this file's table or Radio's; false for an id the core has no words for.
+func HomeWords(id string) (string, bool) {
+	if w, ok := homeWords[id]; ok {
+		return w, true
+	}
+	w, _, ok := radiodigest.Words(id)
+	return w, ok
+}
+
 func homeCount(n int) int { return max(0, min(n, maxHomeCount)) }
 
 func homeLine(id string, count int) stacksdk.HomeLine {

@@ -54,6 +54,26 @@ describe('NewsroomBriefSetup', () => {
     expect(p.saveEdition).toHaveBeenCalledWith(null, expect.objectContaining({ name: 'Home', home: true, watches: false, sections: [] }))
   })
 
+  it('lets a brief be only your day, and sends a short summary to Telegram only when that is switched on', async () => {
+    const p = props({ topics: [], editions: [] })
+    const w = mount(NewsroomBriefSetup, { props: p })
+    await w.findAll('button').find((b) => b.text() === 'Add an edition')!.trigger('click')
+    await w.get('[data-test="edition-name"]').setValue('Day')
+    await w.findAll('[data-test="edition-blocks"] input[role="switch"]')[3]!.setValue(true)
+    await editionForm(w).trigger('submit')
+    await flushPromises()
+    expect(p.saveEdition).toHaveBeenLastCalledWith(null, expect.objectContaining({ name: 'Day', day: true, home: false, send_to: '', sections: [] }))
+
+    const again = mount(NewsroomBriefSetup, { props: p })
+    await again.findAll('button').find((b) => b.text() === 'Add an edition')!.trigger('click')
+    await again.get('[data-test="edition-name"]').setValue('Day')
+    await again.findAll('[data-test="edition-blocks"] input[role="switch"]')[3]!.setValue(true)
+    await again.get('[data-test="edition-send"] input[role="switch"]').setValue(true)
+    await editionForm(again).trigger('submit')
+    await flushPromises()
+    expect(p.saveEdition).toHaveBeenLastCalledWith(null, expect.objectContaining({ day: true, send_to: 'telegram' }))
+  })
+
   const news: BriefTopic[] = [{ id: 5, name: 'UK', category: 'News', queries: ['UK news'] }, { id: 6, name: 'Greece', category: ' news ', queries: ['Greece'], sources: [{ kind: 'feed', label: 'BBC UK', target: 'https://bbc.example/uk' }] }, { id: 7, name: 'AI', category: 'Technology', queries: ['AI chips'] }]
 
   it('lays topics out under their section, spacing and case ignored, with the ones that have none last', () => {

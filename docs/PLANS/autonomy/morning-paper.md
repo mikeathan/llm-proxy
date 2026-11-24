@@ -98,15 +98,17 @@ Matches the app's design language (tokens, fonts, hairline panels, square status
 
 ## Decisions for the owner
 
+**Answered 2026-11-24 (the questions left after the Briefs page shipped):** (1) **Your day shows the titles of the owner's own reminders** on the dashboard and the page; (2) **Telegram:** the link reuses the connector's public host (none yet: text only), the message is **top stories plus the Home lines, written to fit a phone** ("your recommendation"), and it is **not** to carry reminder titles; the owner did not re-answer the quiet-day question (D2), so D2 stands; (3) **no providers with a key, not now**; (4) a **dot on the sidebar's Newsroom item** (its own badge kind, apart from the run-notification count) and **regenerating the `/design` visual baselines**: both yes. The owner also found the dashboard Brief card lacked the Home block and kept its fold control at the bottom of a long open edition; both fixed.
+
 **Answered 2026-11-21: the owner accepted every recommendation in the table (D1 to D10).** One reversal, with the owner's reason: **Telegram carries the Home block** (network and radio findings), "because it is important to get updates when I am not home and cannot reach vertex". The earlier recommendation (dashboard only) is withdrawn. The notice port is shaped around one watch (`NoticeRequest`: Watch, Items, Changes), so a brief summary with Home lines needs a new notice shape in the SDK (Phase 6). Telegram stays an owner choice per edition (the "Send to" switch).
 
 
 | # | Decision | Recommendation |
 |---|---|---|
 | D1 | Collection through the day, model only at edition time | Yes |
-| D2 | A quiet day: send nothing, or one Telegram line? | Dashboard card only, no push |
-| D3 | The Telegram link: which address does the phone use? | Reuse the connector's public host setting if set; else text only |
-| D4 | Providers that need a key: how is the key sent (an SDK header option, or a per-provider reader in the core)? | Decide before building; a later phase |
+| D2 | A quiet day: send nothing, or one Telegram line? | Dashboard card only, no push. **Not re-answered on 2026-11-24, so this stands:** an issue with no story and no home fact sends nothing. |
+| D3 | The Telegram link: which address does the phone use? | Reuse the connector's public host setting if set; else text only. **Answered 2026-11-24: yes; the owner has no https address now (they are on http, a webhook needs https), so the message is text only until they do.** Built as the origin of the connector's stored https webhook address. |
+| D4 | Providers that need a key: how is the key sent (an SDK header option, or a per-provider reader in the core)? | Decide before building; a later phase. **Answered 2026-11-24: not now; every source stays free and keyless, and phase 7 is dropped.** |
 | D5 | Remote images from publishers | No; bundled art only |
 | D6 | Google News search as the way to reach Reuters, AP and topic queries | Yes, labelled headline only, once the owner has clicked one link in their own browser (a consent page may show first) |
 | D7 | Retention: pool 3 days, editions 30 days | Yes |
@@ -121,9 +123,9 @@ Matches the app's design language (tokens, fonts, hairline panels, square status
 2. **News sections:** candidate cap, one call per section and for Top stories, citation enforcement, headline-only handling, early start, late-section labels. *Accept:* a test with an injected fabricated line removes it; a headline-only item has no summary.
 3. **Edition page, dashboard card and Briefs settings** from the mocks, with Simple and Advanced. *Accept:* the checks in the frontend rule file; screenshots at desktop and phone in a light and a dark theme.
 4. **Your watches** (reads the watch journal and health) and **Home** (findings by id through the core's join). *Accept:* an unread watch source shows with its fix; a finding appears once.
-5. **Your day:** a reminders and agenda port in the SDK, then the section. *Accept:* the port is plain data and survives a JSON round trip (the SDK's own test).
-6. **Telegram summary and link** (needs D3).
-7. **Providers with a key** (needs D4).
+5. **Your day** (built 2026-11-24, ADR-0083): a read-only Day port in the SDK, then the section. Reminders only: the product has no calendar or agenda source. *Accept:* the port is plain data and survives a JSON round trip (the SDK's own test).
+6. **Telegram summary and link** (built 2026-11-24, ADR-0083): top stories plus the Home lines as id and count, worded by the core to fit a phone; a link only over https.
+7. ~~**Providers with a key**~~ (dropped 2026-11-24: D4 "not now").
 8. **Docs:** SPEC-013 (or a new SPEC), an ADR, the hub, learnings, the capability list.
 
 ## Risks

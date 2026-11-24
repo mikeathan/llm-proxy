@@ -856,7 +856,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	// The watches the owner follows live in their own stack. A host that could not be built leaves Newsroom unavailable and everything else as it was.
 	newsroomPolicy := dataMgr.Newsroom()
-	newsroomHost, err := s.newNewsroomHost(newsroomPolicy, stackport.Fetch{Opener: netTools})
+	newsroomHost, err := s.newNewsroomHost(newsroomPolicy, stackport.Fetch{Opener: netTools}, func() string { return remindersPolicy.Get().Timezone })
 	if err != nil {
 		s.logger.Error("the Newsroom stack could not be hosted", "error", err.Error())
 	}

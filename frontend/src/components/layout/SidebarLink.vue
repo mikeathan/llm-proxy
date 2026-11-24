@@ -12,9 +12,11 @@ const props = defineProps<{
   nested?: boolean
 }>()
 
-const accessibleName = computed(() =>
-  props.item.badge ? `${props.item.label}, ${props.item.badge} unread run notification${props.item.badge === 1 ? "" : "s"}` : props.item.label,
-)
+const accessibleName = computed(() => {
+  const { label, badge, dot } = props.item
+  if (badge) return `${label}, ${badge} unread run notification${badge === 1 ? "" : "s"}`
+  return dot ? `${label}, ${dot}` : label
+})
 </script>
 
 <template>
@@ -33,6 +35,7 @@ const accessibleName = computed(() =>
     <span class="relative flex-none">
       <Icon :name="item.icon" size="sm" class-name="flex-none" />
       <NotificationDot v-if="item.badge" :count="item.badge" />
+      <NotificationDot v-else-if="item.dot" data-test="nav-dot" />
     </span>
     <span v-if="!collapsed" aria-hidden="true">{{ item.label }}</span>
   </RouterLink>

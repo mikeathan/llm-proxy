@@ -91,6 +91,11 @@ type Issue struct {
 	// Home is the core's fixed facts about the home network and Radio when the edition asks for them (ADR-0077): counts and the core's own sentences, filled in
 	// after the model has written the sections, so no model call ever sees them.
 	Home []stacksdk.HomeLine `json:"home,omitempty"`
+	// Day is the owner's own reminders for the day, when the edition asks for them (ADR-0083): read after the model has written the sections, so no model call
+	// ever sees a title, and never sent on to a connector.
+	Day *DayBlock `json:"day,omitempty"`
+	// SentAt is when the short summary of this issue went to the edition's connector; zero while it has not (or the edition sends none).
+	SentAt time.Time `json:"sent_at,omitzero"`
 	// OutletsRead is how many different outlets reported the stories the edition could choose from; the masthead says it.
 	OutletsRead int `json:"outlets_read,omitempty"`
 	// ModelCalls is how many model calls writing it took.

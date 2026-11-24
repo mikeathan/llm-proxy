@@ -60,7 +60,7 @@ export function groupSources(entries: readonly BriefSource[], topicName: string,
   return ranked.map((category) => ({ category, entries: entries.filter((e) => e.category === category) })).filter((g) => g.entries.length > 0)
 }
 
-export function editionEdit(f: { name: string; readyBy: string; days: number[]; topics: number[]; enabled: boolean; every: number; forHours: number; watches: boolean; home: boolean }): BriefEditionEdit {
+export function editionEdit(f: { name: string; readyBy: string; days: number[]; topics: number[]; enabled: boolean; every: number; forHours: number; watches: boolean; home: boolean; day: boolean; sendTo: string }): BriefEditionEdit {
   return {
     name: f.name.trim(),
     ready_by: f.readyBy,
@@ -68,6 +68,8 @@ export function editionEdit(f: { name: string; readyBy: string; days: number[]; 
     enabled: f.enabled,
     watches: f.watches,
     home: f.home,
+    day: f.day,
+    send_to: f.sendTo,
     collect_every: hoursToDuration(f.every),
     collect_for: hoursToDuration(f.forHours),
     sections: f.topics.map((topic_id) => ({ kind: 'news' as const, topic_id })),
@@ -142,6 +144,7 @@ export const editionBlocks = (e: BriefEdition, groups: readonly SectionGroup[]):
   ...groups.filter((g) => editionSectionKeys(e, groups).includes(g.key)).map((g) => g.label),
   ...(e.watches ? ['Watches'] : []),
   ...(e.home ? ['Home'] : []),
+  ...(e.day ? ['Your day'] : []),
 ]
 
 /**
@@ -155,7 +158,7 @@ export function editionJoining(e: BriefEdition, topics: readonly BriefTopic[], a
   const reads = topics.some((t) => ids.has(t.id) && t.category && categoryKey(t.category) === categoryKey(category))
   if (!reads || ids.has(added.id)) return null
   return {
-    name: e.name, ready_by: e.ready_by, days: e.days, enabled: e.enabled, watches: !!e.watches, home: !!e.home,
+    name: e.name, ready_by: e.ready_by, days: e.days, enabled: e.enabled, watches: !!e.watches, home: !!e.home, day: !!e.day, send_to: e.send_to ?? '',
     collect_every: e.collect_every, collect_for: e.collect_for,
     sections: [...e.sections, { kind: 'news', topic_id: added.id }],
   }

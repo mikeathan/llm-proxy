@@ -21,6 +21,8 @@ interface NavContext {
   routeName: string | null | undefined
   destination: Destination | undefined
   badges: Partial<Record<NavId, number>>
+  /** Entries with a plain dot (no count), as the words a screen reader says. */
+  dots?: Partial<Record<NavId, string>>
 }
 
 interface NavSpec {
@@ -82,6 +84,7 @@ export function buildNavigation(ctx: NavContext): NavItem[] {
     to: spec.to(ctx.lastWorkspace),
     current: spec.current(ctx),
     badge: ctx.badges[spec.id] ?? 0,
+    dot: ctx.dots?.[spec.id] ?? '',
   }))
 }
 
@@ -101,13 +104,14 @@ export function groupNavigation(items: readonly NavItem[]): NavEntry[] {
     }
     let group = groups.get(item.group)
     if (!group) {
-      group = { id: item.group, ...GROUPS[item.group], items: [], current: false, badge: 0 }
+      group = { id: item.group, ...GROUPS[item.group], items: [], current: false, badge: 0, dot: '' }
       groups.set(item.group, group)
       entries.push({ kind: 'group', group })
     }
     group.items.push(item)
     group.current ||= item.current
     group.badge += item.badge
+    group.dot ||= item.dot
   }
   return entries
 }

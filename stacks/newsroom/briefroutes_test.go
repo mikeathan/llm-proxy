@@ -287,6 +287,43 @@ func TestBriefRoutes_WatchesAndHomeFlagsRoundTripAndFillTheEdition(t *testing.T)
 	}
 }
 
+type fakeDay struct{ items []stacksdk.DayItem }
+
+func (f fakeDay) Items(context.Context, bool) ([]stacksdk.DayItem, error) { return f.items, nil }
+
+// "Your day" and the connector a summary goes to survive the routes, and a made edition carries the owner's reminders as stored data.
+func TestBriefRoutes_DayAndSendToRoundTripAndFillTheEdition(t *testing.T) {
+	s := New()
+	s.tick = time.Hour
+	h := stacksdk.Host{DataDir: &memDir{files: map[string][]byte{}}, Config: &fakeConfig{}, Fetch: &rssFetch{}, Schedule: cronSchedule{}, Day: fakeDay{items: []stacksdk.DayItem{{Clock: "14:00", Title: "Call the dentist"}}}}
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	resp, _ := call(t, s, "POST", RouteBriefTopics, topicBody)
+	var topic struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &topic)
+	body := strings.Replace(editionBody(topic.ID), `"enabled":true,`, `"enabled":true,"day":true,"send_to":"telegram",`, 1)
+	resp, err := call(t, s, "POST", RouteBriefEditions, body)
+	if err != nil || !strings.Contains(string(resp.Body), `"day":true`) || !strings.Contains(string(resp.Body), `"send_to":"telegram"`) {
+		t.Fatalf("create keeps day and send to: %s %v", resp.Body, err)
+	}
+	var ed struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &ed)
+	path := fmt.Sprintf("%seditions/%d", RouteBriefs, ed.ID)
+	made, err := call(t, s, "POST", path+"/issue", "")
+	if err != nil || !strings.Contains(string(made.Body), `"day":{"items":[{"clock":"14:00","title":"Call the dentist"}]}`) {
+		t.Fatalf("the edition carries the day block: %s %v", made.Body, err)
+	}
+	if _, err = call(t, s, "POST", RouteBriefEditions, strings.Replace(body, `"send_to":"telegram"`, `"send_to":"not a type"`, 1)); err == nil {
+		t.Error("a send to that is not a connector type is refused")
+	}
+}
+
 // The latest issue of each edition and whether it was read: marking reads is kept, and a missing issue is not found.
 func TestBriefRoutes_LatestAndMarkRead(t *testing.T) {
 	s := startBriefs(t, "", &rssFetch{}, time.Hour)
