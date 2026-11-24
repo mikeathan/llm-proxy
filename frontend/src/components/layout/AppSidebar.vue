@@ -91,6 +91,7 @@ onMounted(async () => {
             <span class="relative flex-none">
               <Icon :name="entry.group.icon" size="sm" class-name="flex-none" />
               <NotificationDot v-if="entry.group.badge && !isGroupOpen(entry.group)" :count="entry.group.badge" />
+              <NotificationDot v-else-if="entry.group.dot && !isGroupOpen(entry.group)" data-test="nav-dot" />
             </span>
             <span class="flex-1 text-left">{{ entry.group.label }}</span>
             <Icon name="chevron-down" size="xs" :class-name="['flex-none transition-transform duration-fast', isGroupOpen(entry.group) ? '' : '-rotate-90'].join(' ')" />

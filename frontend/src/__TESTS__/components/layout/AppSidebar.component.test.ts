@@ -5,6 +5,11 @@ import { createAppRouter } from '../../../router'
 import AppSidebar from '../../../components/layout/AppSidebar.vue'
 import { useLastWorkspace } from '../../../composables/ui/useLastWorkspace'
 import { memoryStorage } from '../../helpers/memoryStorage'
+import { resetBriefUnread } from '../../../composables/newsroom/useBriefUnread'
+
+// The shell asks which briefs wait unread (a dot on Newsroom); the tests answer it instead of reaching a server.
+const briefs = vi.hoisted(() => ({ latest: [] as { edition_id: number; name: string; issue_id: number; made_at: string; read: boolean }[] }))
+vi.mock('../../../services/newsroom/briefService', () => ({ BriefService: { latest: () => Promise.resolve(briefs.latest) } }))
 
 vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
@@ -12,6 +17,7 @@ vi.mock('../../../services/admin/adminService', () => ({
 
 const DESTINATIONS = ['Dashboard', 'Assistant', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Newsroom', 'Models', 'Activity', 'Settings']
 
+const mounted: { unmount(): void }[] = []
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
@@ -19,6 +25,7 @@ async function mountAt(path: string, props: Record<string, unknown> = {}) {
     props: { ...props },
     global: { plugins: [router], stubs: { Icon: true } },
   })
+  mounted.push(wrapper)
   await flushPromises()
   return { wrapper, router }
 }
@@ -28,6 +35,9 @@ const navLinks = (wrapper: Awaited<ReturnType<typeof mountAt>>['wrapper']) => wr
 describe('AppSidebar', () => {
   beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
   afterEach(() => {
+    mounted.splice(0).forEach((w) => w.unmount())
+    resetBriefUnread()
+    briefs.latest = []
     useLastWorkspace().forget('demo')
     vi.unstubAllGlobals()
   })
@@ -37,6 +47,22 @@ describe('AppSidebar', () => {
     expect(wrapper.text()).toContain('v1.2.3')
     expect(navLinks(wrapper).map((a) => a.attributes('aria-label'))).toEqual(DESTINATIONS)
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
+  })
+
+  it('shows a plain dot on Newsroom while a brief waits unread, apart from the run-notification count', async () => {
+    briefs.latest = [{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: false }]
+    const { wrapper } = await mountAt('/dashboard')
+    const link = wrapper.get('[data-destination="newsroom"]')
+    expect(link.find('[data-test="nav-dot"]').exists()).toBe(true)
+    expect(link.attributes('aria-label')).toMatch(/^Newsroom, .*brief/i)
+    expect(wrapper.get('[data-destination="dashboard"]').find('[data-test="nav-dot"]').exists()).toBe(false)
+  })
+
+  it('shows no dot once every brief is read', async () => {
+    briefs.latest = [{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: true }]
+    const { wrapper } = await mountAt('/dashboard')
+    expect(wrapper.find('[data-test="nav-dot"]').exists()).toBe(false)
+    expect(wrapper.get('[data-destination="newsroom"]').attributes('aria-label')).toBe('Newsroom')
   })
 
   it('keeps Network, Agents and Radio under an expandable Stacks group, open by default and remembered when closed', async () => {

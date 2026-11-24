@@ -5,39 +5,44 @@ last_reviewed: 2026-11-24
 related_specs: [SPEC-013, SPEC-003]
 constitution_references: [I.16, IV.6, V.2]
 related_plans: [morning-paper.md, topic-watch.md]
-evidence: Branch briefs-quality-and-polish, cut from origin/main at bf9a6dc4 (#303, v0.127.0) on 2026-11-24; pushed as PR #304. Checks as listed below. This file replaces newsroom-briefs-handoff-2026-11-23.md, whose work is merged (#298 to #303).
+evidence: Branch briefs-day-telegram-card-home, cut from origin/main at 4a9251f7 (#304, v0.128.0) on 2026-11-24, uncommitted. Checks as listed below. This file replaces the handoff of the same day that described #304, whose work is merged.
 ---
 
-# Newsroom Briefs: handoff (2026-11-24, after #303)
+# Newsroom Briefs: handoff (2026-11-24, after #304)
 
 ## State
-- **Branch:** `briefs-quality-and-polish`, from origin/main at `bf9a6dc4`. Five commits, pushed, PR #304 (open; merge is the owner's call). Version file says 0.128.0.
-- Merged before this: edition page, Your watches, Home (#299), sections (#300 to #302), read state, dots and the dashboard Brief card (#303). Design, owner answers D1 to D10 and phases: `morning-paper.md`.
-- **Live check (2026-11-24, GET only):** vertex answers `/briefs/latest` through the core. Morning issue 3 was unread. The unread dot clearing on opening the page was not checked (it needs a POST to `/read`, which would clear the owner's state).
+- **Branch:** `briefs-day-telegram-card-home`, from origin/main at `4a9251f7`, committed, pushed and opened as a pull request on 2026-11-24 (merge is the owner's call; the PR number is on GitHub). Version file says 0.129.0. `frontend_dist/index.html` is rebuilt and committed with the frontend change.
+- **Live check on vertex (2026-11-24, GET only):** the owner's new Morning brief (issue 4) was written at 18:24 from 317 outlets, with 4 top stories and a Home block of 3 lines. Its three topics make **two sections by design** (two share the category Technology). The Evening edition had no issue yet (created 18:22, due 20:00). Not checked: anything of this branch, which vertex does not run yet.
 
-## Built on this branch (v0.128.0, ADR-0082, SPEC-013 1.21)
-- Reworded headlines fold into one candidate; outlets counted by `OutletKey`; prompts ask for one story per event; `Issue.outlets_read` and "read from N outlets" in the masthead.
-- Earlier briefs picker (newest first; only the newest is marked read); a section's source problem says what to do and opens Set up.
-- A status block at the top of the Briefs page says whether the brief is today's, how it was written and when the next comes (the owner could not tell a morning brief from yesterday's); the button reads "Write a new one now".
-- CI: the radio stack test `TestAWatchThatTheAdapterEndedEarly...` raced (the run clears Listening before the alert is told); it now waits for the alert.
-- Print hides the sidebar, header, tab bar, Briefs toolbar and picker; one visual test looks at the edition in nine themes and in print.
-- Looked at in the screenshots: retro-sand, retro-plum (desktop), print (desktop). Not looked at one by one: the other six presets (the test checks no sideways scroll in all nine), and the mobile project's screenshots.
+## Built (v0.129.0, ADR-0083, SPEC-013 1.22)
+- **Dashboard Brief card:** shows the Home, Watches and Your day blocks beside the news on the large size; the fold control moved from after the open edition into the card header.
+- **Sidebar dot:** `NavItem.dot` / `NavGroup.dot` (a plain dot with no count, apart from the run-notification `badge`) on Newsroom while a brief is unread, in the sidebar, the folded Stacks group, the phone tab bar's More and its sheet. It reuses the one brief poller.
+- **Your day:** read-only `briefday` port (`stackport.Day` over the Reminders stack's list), `Issue.day`, an edition switch, the block on the page and the card; reminders only (the product has no calendar or agenda source). Titles are not in a prompt and not in Telegram.
+- **Telegram summary:** `Notice.Brief` (the core words it: name, up to five headlines with links, Home facts re-worded by id and count), an edition `send_to` switch, `Publisher.Deliver` (once per scheduled issue, marked only after the connector took it, retried for 3 hours, never for a hand-made issue). The link is the origin of the connector's stored **https** webhook address, else text only.
+- **`/design` visual baselines** regenerated (16 PNGs under `frontend/e2e/__screenshots__`, the only visual cases that failed, with the same 16 before this branch's edits). Not looked at one by one.
 
-## Checks run (all on the final tree)
-Stack `GOWORK=off go test -race . ./sources ./watches ./brief`; frontend `npm test` (375 files, 3544 tests), `npm run build`, `npm run test:visual` (422 passed, 2 skipped, **16 failed: every `design.visual.spec.ts` "/design in <theme>" at both widths**, 2% of pixels, the whole page shifted). They fail identically with this branch's shell edits removed, and the branch touches nothing the /design page renders, so they look like environment drift (the baselines are from 2026-10-15); not confirmed against main, and the baselines were not updated. All Newsroom and Briefs visual tests pass. Backend `go build ./... && go test ./...` (pass), `go run ./tools/check-complexity/` (OK, no new violations), `./scripts/check-agent-harness.sh` (pass). Not run: anything that needs vertex running the new build.
+## Checks run (on the final tree)
+Backend `go build ./... && go test ./...` (pass); `go run ./tools/check-complexity/` (no new violation; two functions I wrote were split first); stack `GOWORK=off go test -race . ./sources ./watches ./brief` (pass) and `stacks/sdk` tests (pass). Frontend `npm test` (377 files, 3562 tests), `npm run build` (pass), `npm run test:visual`: 422 passed, 2 skipped and the 16 `/design` failures **before** regenerating them; after `playwright test e2e/design.visual.spec.ts --update-snapshots` those 20 cases pass. **Not run:** anything against a running vertex build; a real Telegram send; `./scripts/check-agent-harness.sh` is run at the end of this change (see the final message).
+
+## Open question: vertex memory (owner reported 3% "used" at idle, rising over about a week)
+- **What the 3% is (read 2026-11-24, GET `/admin/api/metrics`):** `mem_used_mb` 1,439 of 47,950 MB, which is the **whole machine** (total minus available), not the service. One sample shows no growth and does not say llm-proxy is the cause.
+- **Review of this PR for memory:** it adds no long-lived state (`Deliver` and `Unsent` copy at most 3 hours of issues a minute, which is freed; the Day port reads the reminders list once per edition; the sidebar poll runs in the browser). Not the likely cause.
+- **Bounds read in the Newsroom stack (all bounded, small):** pool 3,000 items for 3 days with `Text` clipped to 1,000 runes (`MaxTextRune`); issues 100 for 30 days; watches journal 200 per watch for 30 days; look-up cache 64 entries for 10 minutes; fetch bodies read through a limit. **One unbounded thing, minor:** `sources.Registry` keeps a reader for every distinct source spec and never evicts, so an edited source leaves its old reader. The store saves its whole JSON document on every write (a short peak, not a leak). Not read: Radio, the Network stack, the core's own stores.
+- **Owner to collect on vertex, now and again a few hours later:** `ps aux --sort=-rss | head -15`; `systemctl status <llm-proxy unit>` (Memory and peak lines; the unit name was not looked up); `grep -E 'MemAvailable|AnonPages|Shmem|Slab' /proc/meminfo`. Steady climb of the service's RSS means a leak; a plateau after a spike means a high-water mark (a nightly audit, a capture window); a big non-llm-proxy process or tmpfs means it is not the service.
+- **Decided against (2026-11-24, owner):** adding Go heap and process memory to the metrics payload. If the numbers point at llm-proxy, first read Radio and Network state for caps, then reconsider it.
 
 ## Left, in order
-1. **Owner:** review ADR-0077, ADR-0081 and ADR-0082; push, merge, deploy. On vertex, press "Write it now" on Morning and look at whether the Nvidia-type event is now one story (the model must follow the new prompt line; tune `minSharedWords` and `similarShare` in `brief/similar.go` if it does not).
-2. Most stories are headline only (Google News links carry no text). Add direct feeds (BBC, the Guardian and similar) to the topics from Set up: a content choice, no code.
-3. **Your day** (phase 5): needs an owner decision on whether the owner's own reminder text may pass a port (ADR-0068).
-4. **Telegram** (phase 6, D3/D4): a brief notice shape so the New brief can go to the phone; then providers with a key (phase 7).
-5. A dot on the sidebar's Newsroom item: needs its own badge kind (see the learnings line of 2026-11-24).
+0. **Owner:** send the memory numbers above; then read the next step from them.
+1. **Owner:** review ADR-0083 (it amends ADR-0077), merge, deploy. Then on vertex: switch **My day** on for Morning and Evening and press "Write a new one now"; check the block shows today's (Morning) and tomorrow's (Evening) reminders.
+2. **Telegram needs an https address.** The owner is on http and a Telegram webhook needs https, so the connector's stored webhook is empty or http and the message goes **text only** until that changes. To try the summary: switch "Send a short summary to Telegram" on for an edition with a scheduled time; it goes when the next scheduled issue is written (a hand-made one is never sent).
+3. **Not built:** the Briefs page says nothing when Telegram refused a summary (the connector is not enabled); a refusal is silent, a failure is a warning in the stack log. A quiet-day line (D2) was not re-answered, so nothing is sent for an issue with nothing to say.
+4. Most stories are still headline only (Google News links carry no text). Add direct feeds (BBC, the Guardian and similar) in Set up: content, no code. The Nvidia-type event should now be one story after #304; the model must follow the prompt line.
+5. Phase 7 (providers with a key) is dropped (D4 "not now").
 
 ## Traps
-- `go test ./...` does not work in `stacks/newsroom` (workspace): name the packages, with `GOWORK=off`. Topic ids and edition ids share one counter in the store.
-- Tests that mount a component using `useBriefUnread` must unmount it (module-level state). A `.component.test.ts` name gives a test the DOM.
-- The mock admin API matches by path suffix: answer `/briefs/issues/5` and `/briefs/latest` separately.
-- `HomeLine` must keep exactly `ID, Count, Words`.
+- `go test ./...` does not work in `stacks/newsroom` (workspace): name the packages, with `GOWORK=off`. `HomeLine` must keep exactly `ID, Count, Words`.
+- `Notice` has two methods now: a fake of `stacksdk.Notice` in a stack test needs `Brief`. `editionJoining` rebuilds an edition edit by field: a new flag must be carried there (a test pins `day` and `send_to`).
+- A component that calls `useBriefUnread` must be unmounted in its test, and a test of the shell mocks `BriefService.latest` (the sidebar polls).
 
 ## First command
-`cd stacks/newsroom && GOWORK=off go test -race . ./brief`, then `stacks/newsroom/brief/similar.go`.
+`cd stacks/newsroom && GOWORK=off go test -race . ./brief`, then `stacks/newsroom/brief/send.go` and `backend/internal/core/stackport/day.go`.

@@ -148,7 +148,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{WatchesFile, BriefsFile},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule, stacksdk.PortHome},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule, stacksdk.PortHome, stacksdk.PortDay},
 	}
 }
 
@@ -196,11 +196,20 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	if h.Schedule != nil {
 		timing := brief.Timing{Schedule: h.Schedule, Location: func() *time.Location { return s.feedZone(run, "") }}
 		s.collector = &brief.Collector{Timing: timing, Store: briefs, Readers: readers}
-		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model, Watches: func(since, until time.Time) []brief.WatchLine { return watchLines(store, since, until) }, Home: homeLines(h.Home)}
+		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model, Watches: func(since, until time.Time) []brief.WatchLine { return watchLines(store, since, until) }, Home: homeLines(h.Home), Day: dayReader(h.Day), Send: briefSender(h.Notice)}
 	}
 	s.cancel, s.done = cancel, make(chan struct{})
 	go s.loop(run, s.runner, s.collector, s.publisher, s.done)
 	return nil
+}
+
+// briefSender is the publisher's hook over the core's Notice port: the brief's facts go over as data (the home facts by id and count only) and the core words
+// the message. Nil when the host gave no port.
+func briefSender(p stacksdk.Notice) func(context.Context, string, stacksdk.BriefNoticeRequest) error {
+	if p == nil {
+		return nil
+	}
+	return p.Brief
 }
 
 // noticeSender is the runner's delivery hook over the core's Notice port: the notice's facts go over as data and the core words them. A channel the core
@@ -275,6 +284,12 @@ func (s *Stack) publish(ctx context.Context, p *brief.Publisher) {
 	}
 	for _, m := range made {
 		s.logLine(stacksdk.LevelInfo, "edition made", "edition", strconv.FormatInt(m.EditionID, 10), "model_calls", strconv.Itoa(m.ModelCalls))
+	}
+	// A summary that could not go is tried again on the next pass; a refusal is the owner's connector setting, said once on the Briefs page, not here.
+	for _, d := range p.Deliver(ctx) {
+		if d.Err != nil && stacksdk.CodeOf(d.Err) != stacksdk.CodeInvalid {
+			s.logLine(stacksdk.LevelWarn, "brief summary not sent", "issue", strconv.FormatInt(d.IssueID, 10), "error", d.Err.Error())
+		}
 	}
 }
 

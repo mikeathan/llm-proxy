@@ -22,6 +22,9 @@ func (f *fakeNotice) Send(_ context.Context, channel string, n stacksdk.NoticeRe
 	return f.err
 }
 
+// Brief is the summary port: the tests of the Newsroom stack's own notices do not use it.
+func (f *fakeNotice) Brief(context.Context, string, stacksdk.BriefNoticeRequest) error { return f.err }
+
 func TestNoticeSender_HandsTheCoreFactsNotWords(t *testing.T) {
 	f := &fakeNotice{}
 	send := noticeSender(f)

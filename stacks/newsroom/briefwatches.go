@@ -39,6 +39,15 @@ func watchLines(store *watches.Store, since, until time.Time) []brief.WatchLine 
 	return out
 }
 
+// dayReader hands the publisher the Day port, or nil when the host gave none; the "Your day" block is then left out. What it returns is the owner's own
+// words, stored with the issue and shown as text: not a model prompt, not a fetch target and not part of a message to a connector (ADR-0083).
+func dayReader(p stacksdk.Day) func(context.Context, bool) ([]stacksdk.DayItem, error) {
+	if p == nil {
+		return nil
+	}
+	return p.Items
+}
+
 // homeLines reads the Home port for an edition that asks for it, or is nil when the host gave none. The answer is kept as it came, bounded to
 // stacksdk.MaxHomeLines, and goes nowhere but the stored edition: not to a model, not to a fetch, not to a notice (ADR-0077). A port that fails leaves
 // the block out; it never fails the edition.

@@ -679,6 +679,44 @@ func (s *AppServices) homePort() stackport.Home {
 	}
 }
 
+// dayPort is the Day port of the Newsroom stack: the Reminders stack's open reminders that fall due on one day, in the owner's zone. The Reminders host is read
+// when asked, so the port works whichever service started first; a stack that is off or not running answers unavailable, never an empty day (ADR-0083).
+func (s *AppServices) dayPort(zone func() string) stackport.Day {
+	return stackport.Day{
+		Read: func(ctx context.Context) (json.RawMessage, error) {
+			if s.netaudit == nil || s.netaudit.Reminders == nil {
+				return nil, fmt.Errorf("the reminders stack is not running")
+			}
+			return s.netaudit.Reminders.Read(ctx, reminders.RouteList)
+		},
+		Zone: func() *time.Location { return ownerZone(zone()) },
+		Now:  time.Now,
+	}
+}
+
+// ownerZone is the zone the owner's days are drawn in: the one set for reminders when it names a zone this computer knows, else this computer's own.
+func ownerZone(name string) *time.Location {
+	if l, err := time.LoadLocation(name); name != "" && err == nil {
+		return l
+	}
+	return time.Local
+}
+
+// briefLink is the address a phone can open the Briefs page at for a connector: the origin of the connector's own stored webhook address, and only when that is
+// https, because a plain address cannot be opened safely from a phone away from home. No address is stored by the owner for this and none is guessed: a
+// connector with no https webhook gets a message with text only (ADR-0083).
+func (s *AppServices) briefLink(channel string) string {
+	for _, c := range s.AppCtx.GetRegistry().Communication.Connectors {
+		if c.Type != channel || !c.Enabled {
+			continue
+		}
+		if page := stackport.BriefPage(c.WebhookURL); page != "" {
+			return page
+		}
+	}
+	return ""
+}
+
 // radioOn says whether the Radio stack is switched on, which is when the tool is offered.
 func (s *AppServices) radioOn(ctx context.Context) bool {
 	if s.netaudit == nil || s.netaudit.Radio == nil {
@@ -693,7 +731,7 @@ func newsroomStack() stacksdk.Stack { return newsroom.New() }
 
 // newNewsroomHost hosts the Newsroom stack over the core's own services, one adapter per port its manifest requires: the settings document, the log, the
 // data folder restricted to the one file the manifest lists, and the guarded fetch. A factory reset removes the watches file.
-func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetch) (*stackHost, error) {
+func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetch, ownerZone func() string) (*stackHost, error) {
 	st := newsroomStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), radioStack().Manifest(), remindersStack().Manifest(), st.Manifest()); err != nil {
@@ -712,9 +750,11 @@ func (s *AppServices) newNewsroomHost(policy newsroomPolicy, fetch stacksdk.Fetc
 		Model: s.stackModelPort(st.Manifest().ID, func() bool { c := policy.Get(); return !c.Disabled || !c.BriefsDisabled },
 			func() int { return policy.Get().ModelCallsPerDay }),
 		// The core words a watch's notice and sends it to the connector the watch names, if the owner enabled it (ADR-0036).
-		Notice: stackport.Notice{Notify: s.notifyPort()},
+		Notice: stackport.Notice{Notify: s.notifyPort(), BriefLink: s.briefLink},
 		// The Brief's Home block reads counts and the core's own fixed words about the network and Radio, nothing a device or frame sent (ADR-0077).
 		Home: s.homePort(),
+		// The Brief's Your day block reads the owner's own reminders for one day through the Reminders stack's list route (ADR-0083).
+		Day: s.dayPort(ownerZone),
 	})
 	if err != nil {
 		return nil, err

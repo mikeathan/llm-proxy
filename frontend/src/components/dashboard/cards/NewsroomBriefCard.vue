@@ -8,6 +8,9 @@ import ErrorState from "../../common/feedback/ErrorState.vue"
 import StatusTag from "../../common/display/StatusTag.vue"
 import NewsroomBriefStory from "../../newsroom/NewsroomBriefStory.vue"
 import NewsroomPlate from "../../newsroom/NewsroomPlate.vue"
+import NewsroomEditionDay from "../../newsroom/NewsroomEditionDay.vue"
+import NewsroomEditionHome from "../../newsroom/NewsroomEditionHome.vue"
+import NewsroomEditionWatches from "../../newsroom/NewsroomEditionWatches.vue"
 import {
   BRIEF_CARD_COLLAPSE, BRIEF_CARD_EMPTY_ISSUE, BRIEF_CARD_EXPAND, BRIEF_CARD_LOAD_FAILED, BRIEF_CARD_NONE, BRIEF_CARD_OPEN, BRIEF_CARD_PICK_LABEL, BRIEF_CARD_RELOAD, BRIEF_CARD_SET_UP,
   BRIEF_CARD_WAITING, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, briefCardCountWords, briefCardLineWords, briefMadeWords,
@@ -115,7 +118,13 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
             </h3>
             <span class="text-[length:var(--text-small)] text-faint">{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }} · {{ briefCardCountWords(storyCount, sections.length) }}</span>
           </div>
-          <RouterLink :to="toNewsroom('briefs')" class="text-[length:var(--text-small)] text-accent-brand hover:underline" data-test="brief-card-open">{{ BRIEF_CARD_OPEN }}</RouterLink>
+          <div class="flex flex-wrap items-center gap-3">
+            <!-- The fold control lives up here, so a long open edition never has to be scrolled to its end to be closed. -->
+            <BaseButton v-if="sections.length" size="sm" variant="secondary" :aria-expanded="expanded" data-test="brief-card-toggle" @click="expanded = !expanded">
+              {{ expanded ? BRIEF_CARD_COLLAPSE : BRIEF_CARD_EXPAND }}
+            </BaseButton>
+            <RouterLink :to="toNewsroom('briefs')" class="text-[length:var(--text-small)] text-accent-brand hover:underline" data-test="brief-card-open">{{ BRIEF_CARD_OPEN }}</RouterLink>
+          </div>
         </header>
 
         <p v-if="!lead" class="m-0 text-muted">{{ BRIEF_CARD_EMPTY_ISSUE }}</p>
@@ -140,6 +149,12 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
           </li>
         </ul>
 
+        <div v-if="issue.day || issue.home?.length || issue.watches?.length" class="grid min-w-0 items-start gap-4 md:grid-cols-2" data-test="brief-card-beside">
+          <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
+          <NewsroomEditionHome v-if="issue.home?.length" :lines="issue.home" />
+          <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
+        </div>
+
         <div v-if="expanded" class="grid min-w-0 items-start gap-x-6 gap-y-4 md:grid-cols-2" data-test="brief-card-all">
           <section v-for="sec in sections" :id="`brief-section-${sec.topic_id}`" :key="sec.topic_id" class="flex min-w-0 scroll-mt-20 flex-col" :aria-label="sec.name">
             <h4 class="m-0 flex items-center gap-2 text-[length:var(--text-body)] font-medium text-primary"><NewsroomPlate :label="sec.name" :category="sec.category" />{{ sec.name }}</h4>
@@ -148,9 +163,6 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
             </ul>
           </section>
         </div>
-        <BaseButton v-if="sections.length" class-name="self-start" size="sm" variant="secondary" :aria-expanded="expanded" data-test="brief-card-toggle" @click="expanded = !expanded">
-          {{ expanded ? BRIEF_CARD_COLLAPSE : BRIEF_CARD_EXPAND }}
-        </BaseButton>
       </div>
     </template>
   </div>

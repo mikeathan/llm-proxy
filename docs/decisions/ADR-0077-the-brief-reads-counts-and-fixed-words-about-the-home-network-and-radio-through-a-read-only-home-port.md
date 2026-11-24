@@ -22,7 +22,7 @@ We add one **read-only, pulled** port, `PortHome` ("briefhome"), with one method
 - **Network lines** come from the stored inventory (not a refresh, no look is started): devices the network sees now, devices not marked as the owner's, addresses that changed hands. A presence check that is off or stale gives one fixed "cannot say" line, not "0 online".
 - **Radio lines** reuse `core/radiodigest`: only finding ids the core has words for, in the core's words (the stack's own wording is not read), at most 16. Radio off, unreadable or quiet each give one fixed line.
 - **One part failing does not hide the other.** At most `MaxHomeLines` (16) lines.
-- **Direction and use.** The core never pushes. The stack calls the port when it writes an edition that asked for Home (an edition switch, off by default), stores the lines **after** the model has written the sections, and shows them as text. The SDK doc states the rule and the stack tests pin it: the lines are never put in a model prompt, a fetch or a notice. They are kept with the edition (30 days) and are served only by the admin-only issue routes.
+- **Direction and use.** The core never pushes. The stack calls the port when it writes an edition that asked for Home (an edition switch, off by default), stores the lines **after** the model has written the sections, and shows them as text. The SDK doc states the rule and the stack tests pin it: the lines are never put in a model prompt or a fetch. **Amended 2026-11-24 (ADR-0083):** they reach a connector only as id and count, which the core words again from its own table; the sentence a stack stored is never sent on. They are kept with the edition (30 days) and are served only by the admin-only issue routes.
 - **No name leaves the house.** Because the lines are counts, the Home block can later go to Telegram without carrying a device name; the block says "Counts only. Names and addresses stay on the Network and Radio pages" and links to them.
 
 ## Consequences
@@ -30,7 +30,7 @@ We add one **read-only, pulled** port, `PortHome` ("briefhome"), with one method
 - Easier: the Brief shows the home without a core change per fact; a new fact is one table row in the core.
 - Harder: `PortHome` joins `portNames`, `Host`, `checkPorts` (which now also checks the notice port it had left out) and the manifest of the one stack that requires it; the port's wording table is a second place to keep (radio's stays in radiodigest).
 - Accepted cost: the brief cannot say *which* device joined at 02:14. That is deliberate (names are the owner's own labels but reach a stack that reads the web); a later, separate decision could add a per-device line for the dashboard only.
-- Not done: Your day (a reminders and agenda port, same pattern), Telegram carrying the Home lines (phase 6, needs a brief notice shape).
+- Done later (ADR-0083, 2026-11-24): Your day (a Day port, same pattern) and Telegram carrying the Home lines as id and count.
 
 ## Alternatives considered
 

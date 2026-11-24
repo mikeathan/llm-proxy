@@ -27,6 +27,11 @@ type Publisher struct {
 	Watches func(since, until time.Time) []WatchLine
 	// Home reads the core's fixed home facts; nil leaves the Home block out. It is called after Compose and its answer is only stored.
 	Home func(ctx context.Context) []stacksdk.HomeLine
+	// Day reads the owner's reminders for today or tomorrow; nil leaves the "Your day" block out. It is called after Compose and its answer is only stored:
+	// a title is the owner's own words and never reaches a model, a fetch or a connector (ADR-0083).
+	Day func(ctx context.Context, tomorrow bool) ([]stacksdk.DayItem, error)
+	// Send tells a connector the short summary of a scheduled issue; nil sends nothing. The core words the message.
+	Send func(ctx context.Context, channel string, req stacksdk.BriefNoticeRequest) error
 
 	// mu keeps two editions from being written at once, so the loop and a manual request take turns and do not both write the same edition.
 	mu sync.Mutex
@@ -109,6 +114,9 @@ func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Tim
 	is.ReadyFor = readyFor.UTC()
 	if edition.Home && p.Home != nil {
 		is.Home = p.Home(ctx)
+	}
+	if edition.Day && p.Day != nil {
+		is.Day = dayBlock(ctx, p.Day, *edition)
 	}
 	if edition.Watches && p.Watches != nil {
 		is.Watches = p.Watches(p.since(editionID, now), now)

@@ -48,6 +48,8 @@ type Host struct {
 	Notice Notice
 	// Home reads the core's fixed facts about the home network and radio, as counts and the core's own words; nil unless the manifest requires PortHome.
 	Home Home
+	// Day reads the owner's own reminders for one day, as a time and the owner's own words; nil unless the manifest requires PortDay.
+	Day Day
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -724,6 +726,27 @@ const MaxNoticeItems = 50
 // an empty request or one over MaxNoticeItems, CodeUnavailable when the connector could not be reached. Nothing was sent when it fails.
 type Notice interface {
 	Send(ctx context.Context, channel string, n NoticeRequest) error
+	// Brief sends the short summary of a written brief (ADR-0083). The same rules hold: the core words it, a channel is a connector type, and nothing is sent
+	// when it fails.
+	Brief(ctx context.Context, channel string, n BriefNoticeRequest) error
+}
+
+// MaxBriefNoticeStories bounds the stories of a brief summary; a request over it is refused with CodeInvalid, never cut.
+const MaxBriefNoticeStories = 10
+
+// BriefNoticeHome is one home fact of a brief summary by its id and count only. The core words it again from its own table and drops an id it has no words
+// for, so the sentence a stack stored is never sent on (ADR-0036, ADR-0077).
+type BriefNoticeHome struct {
+	ID    string `json:"id"`
+	Count int    `json:"count,omitempty"`
+}
+
+// BriefNoticeRequest is what the Brief offers to tell the owner: the brief's name, its top stories (a headline and a link, as the source gave them) and the home
+// facts by id. It has no prose and no link to the brief itself: the core words the message and adds the address of the brief only when it knows one.
+type BriefNoticeRequest struct {
+	Name    string            `json:"name"`
+	Stories []NoticeItem      `json:"stories"`
+	Home    []BriefNoticeHome `json:"home,omitempty"`
 }
 
 // MaxHomeLines bounds one answer of the Home port; the core sends no more and a stack takes no more.
@@ -732,7 +755,8 @@ const MaxHomeLines = 16
 // HomeLine is one fact about the home network or radio (ADR-0077): ID names the fact in the core's own table, Count is a number the core clamped, and Words
 // is the sentence the core wrote for that ID. It is typed on purpose: the core builds Words from fixed text, never from anything a device, a frame or a
 // resolver sent, so no address, name, tag or network name can be in it. A stack shows it to the owner as text and does nothing else with it: it is
-// not a model prompt, not a fetch target and not part of a message to a connector.
+// not a model prompt and not a fetch target. It reaches a connector only as ID and Count (BriefNoticeHome, ADR-0083), which the core words again from its own
+// table: the Words a stack stored are never sent on.
 type HomeLine struct {
 	ID    string `json:"id"`
 	Count int    `json:"count,omitempty"`
@@ -743,6 +767,26 @@ type HomeLine struct {
 // failure is an *Error: CodeUnavailable when the core cannot say.
 type Home interface {
 	Lines(ctx context.Context) ([]HomeLine, error)
+}
+
+// MaxDayItems bounds one answer of the Day port; the core sends no more and a stack takes no more.
+const MaxDayItems = 16
+
+// DayItem is one of the owner's own reminders for the day asked about: the time it falls due, as "15:04" in the owner's zone, and the owner's own words for
+// it, clipped to one line by the core. Repeats is true for a reminder that comes round again. It carries nothing else of the reminder (no id, channel,
+// status or zone).
+type DayItem struct {
+	Clock   string `json:"clock"`
+	Title   string `json:"title"`
+	Repeats bool   `json:"repeats,omitempty"`
+}
+
+// Day is the one way a stack reads the owner's reminders for a day (ADR-0083). It is pulled (the core never pushes), read-only and bounded by MaxDayItems:
+// today, or tomorrow when asked, in the owner's zone, paused and finished reminders left out, earliest first. The titles are the owner's own words: a stack
+// shows them to the owner as text and does nothing else with them (not a model prompt, not a fetch target, not a message to a connector). A failure is an
+// *Error: CodeUnavailable when Reminders is off or cannot be read, which a stack must show as such and never as an empty day.
+type Day interface {
+	Items(ctx context.Context, tomorrow bool) ([]DayItem, error)
 }
 
 // The bounds of one model call (ADR-0071): a call over either is refused with CodeInvalid, never truncated.
@@ -876,5 +920,5 @@ type ToolSource interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}, ModelRequest{}, ModelResponse{}, HomeLine{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}, HTTPOptions{}, DynamicTool{}, ToolResult{}, ModelRequest{}, ModelResponse{}, HomeLine{}, DayItem{}, BriefNoticeHome{}, BriefNoticeRequest{}}
 }

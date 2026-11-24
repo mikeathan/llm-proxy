@@ -93,6 +93,16 @@ describe('groupNavigation', () => {
     expect(group({}).current).toBe(false)
     expect(group({ badges: { network: 3 } }).badge).toBe(3)
   })
+
+  it('carries a plain dot apart from the run-notification count, on the item and on its folded group', () => {
+    const dots = { newsroom: '1 brief waiting unread' }
+    const items = buildNavigation({ ...base, dots })
+    expect(items.find((i) => i.id === 'newsroom')).toMatchObject({ dot: '1 brief waiting unread', badge: 0 })
+    expect(items.filter((i) => i.dot).map((i) => i.id)).toEqual(['newsroom'])
+    const found = groupNavigation(items).find((e) => e.kind === 'group')
+    expect(found?.kind === 'group' && found.group.dot).toBe('1 brief waiting unread')
+    expect(groupNavigation(buildNavigation(base)).every((e) => (e.kind === 'group' ? e.group.dot === '' : e.item.dot === ''))).toBe(true)
+  })
 })
 
 describe('badgeTarget', () => {

@@ -239,6 +239,8 @@ export interface BriefIssue {
   watches?: BriefWatchLine[]
   /** The core's fixed facts about the network and Radio: a count and the core's own sentence for an id; absent when the edition does not ask. */
   home?: BriefHomeLine[]
+  /** The owner's own reminders for the day; absent when the edition does not ask. */
+  day?: BriefDay
   /** How many different outlets reported the stories the edition could choose from; absent on older editions. */
   outlets_read?: number
   model_calls: number
@@ -251,6 +253,20 @@ export interface BriefLatest {
   issue_id: number
   made_at: string
   read: boolean
+}
+
+/** One of the owner's own reminders for the day: the time it falls due as "15:04" and the owner's own words. */
+export interface BriefDayItem {
+  clock: string
+  title: string
+  repeats?: boolean
+}
+
+/** "Your day": today's reminders, or tomorrow's for an evening brief. `unavailable` says Reminders was off or could not be read, which is not a quiet day. */
+export interface BriefDay {
+  tomorrow?: boolean
+  unavailable?: boolean
+  items: BriefDayItem[]
 }
 
 export interface BriefEdition {
@@ -269,6 +285,10 @@ export interface BriefEdition {
   watches?: boolean
   /** Adds the Home block: the core's counts about the network and Radio. */
   home?: boolean
+  /** Adds the Your day block: the owner's reminders for the day. */
+  day?: boolean
+  /** The connector type a short summary of each scheduled brief goes to ("telegram"); absent sends none. */
+  send_to?: string
 }
 
 export interface BriefTopic {
@@ -327,6 +347,9 @@ export interface BriefEditionEdit {
   enabled: boolean
   watches: boolean
   home: boolean
+  day: boolean
+  /** "telegram", or "" to send nothing. */
+  send_to: string
   collect_every: string
   collect_for: string
   sections: { kind: 'news'; topic_id: number }[]

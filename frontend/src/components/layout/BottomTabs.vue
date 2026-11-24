@@ -27,9 +27,11 @@ const moreEntries = computed<NavEntry[]>(() =>
 )
 const moreCurrent = computed(() => moreItems.value.some((i) => i.current))
 const moreBadge = computed(() => moreItems.value.reduce((n, i) => n + i.badge, 0))
+const moreDot = computed(() => moreItems.value.find((i) => i.dot)?.dot ?? "")
 
-const accessibleName = (label: string, badge: number) => (badge ? `${label}, ${badge} unread run notification${badge === 1 ? "" : "s"}` : label)
-const itemName = (item: NavItem) => accessibleName(item.label, item.badge)
+const accessibleName = (label: string, badge: number, dot = "") =>
+  badge ? `${label}, ${badge} unread run notification${badge === 1 ? "" : "s"}` : dot ? `${label}, ${dot}` : label
+const itemName = (item: NavItem) => accessibleName(item.label, item.badge, item.dot)
 
 const open = ref(false)
 const moreButton = ref<HTMLButtonElement | null>(null)
@@ -64,6 +66,7 @@ watch(open, async (isOpen) => {
       <span class="relative">
         <Icon :name="item.icon" size="md" />
         <NotificationDot v-if="item.badge" :count="item.badge" />
+        <NotificationDot v-else-if="item.dot" data-test="nav-dot" />
       </span>
       <span aria-hidden="true">{{ item.label }}</span>
     </RouterLink>
@@ -74,7 +77,7 @@ watch(open, async (isOpen) => {
       aria-haspopup="dialog"
       aria-controls="more-sheet"
       :aria-expanded="open"
-      :aria-label="accessibleName('More', moreBadge)"
+      :aria-label="accessibleName('More', moreBadge, moreDot)"
       :data-current="moreCurrent ? 'true' : undefined"
       :class="['tab', { 'tab--current': moreCurrent || open }]"
       @click="open = !open"
@@ -82,6 +85,7 @@ watch(open, async (isOpen) => {
       <span class="relative">
         <Icon name="menu" size="md" />
         <NotificationDot v-if="moreBadge" :count="moreBadge" />
+        <NotificationDot v-else-if="moreDot" data-test="nav-dot" />
       </span>
       <span aria-hidden="true">More</span>
     </button>
@@ -108,6 +112,7 @@ watch(open, async (isOpen) => {
           <span class="relative flex-none">
             <Icon :name="entry.item.icon" size="md" />
             <NotificationDot v-if="entry.item.badge" :count="entry.item.badge" />
+            <NotificationDot v-else-if="entry.item.dot" data-test="nav-dot" />
           </span>
           <span aria-hidden="true">{{ entry.item.label }}</span>
         </RouterLink>
@@ -124,6 +129,7 @@ watch(open, async (isOpen) => {
             <span class="relative flex-none">
               <Icon :name="child.icon" size="md" />
               <NotificationDot v-if="child.badge" :count="child.badge" />
+              <NotificationDot v-else-if="child.dot" data-test="nav-dot" />
             </span>
             <span aria-hidden="true">{{ child.label }}</span>
           </RouterLink>

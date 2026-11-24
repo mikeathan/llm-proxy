@@ -3,6 +3,7 @@ import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Icon from "../icons/Icon.vue"
 import NewsroomBriefStory from "./NewsroomBriefStory.vue"
+import NewsroomEditionDay from "./NewsroomEditionDay.vue"
 import NewsroomEditionHome from "./NewsroomEditionHome.vue"
 import NewsroomEditionWatches from "./NewsroomEditionWatches.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
@@ -115,7 +116,8 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
       </div>
     </section>
     </div>
-    <aside v-if="issue.home?.length || issue.watches?.length" class="flex min-w-0 flex-col gap-5 print:mt-3" data-test="edition-side" aria-label="Beside the news">
+    <aside v-if="issue.day || issue.home?.length || issue.watches?.length" class="flex min-w-0 flex-col gap-5 print:mt-3" data-test="edition-side" aria-label="Beside the news">
+      <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
       <NewsroomEditionHome v-if="issue.home?.length" :lines="issue.home" />
       <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
     </aside>

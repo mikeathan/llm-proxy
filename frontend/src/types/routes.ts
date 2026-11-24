@@ -54,6 +54,8 @@ export interface NavItem {
   current: boolean
   /** Unread run notifications for this entry. */
   badge: number
+  /** A plain dot with no count, for news that is not a run notification (a brief waiting unread): the words a screen reader gets, or '' for no dot. */
+  dot: string
   /** Shown in the phone tab bar (the rest sit under More). */
   tab: boolean
   /** The group this destination is listed under; absent for a top-level entry. */
@@ -69,6 +71,8 @@ export interface NavGroup {
   current: boolean
   /** Unread run notifications across its destinations. */
   badge: number
+  /** The first destination's dot words, so a folded group still shows that something inside waits. */
+  dot: string
 }
 
 /** One row of the shell navigation: a destination or a group of them, in display order. */

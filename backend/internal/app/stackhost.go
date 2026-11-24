@@ -53,7 +53,7 @@ func checkPorts(m stacksdk.Manifest, h stacksdk.Host) error {
 		stacksdk.PortScopedGuard: h.ScopedGuard != nil, stacksdk.PortSecretScan: h.SecretScan != nil, stacksdk.PortVault: h.Vault != nil,
 		stacksdk.PortLAN: h.LAN != nil, stacksdk.PortMeshClients: h.Mesh != nil, stacksdk.PortOwnNetworks: h.Networks != nil,
 		stacksdk.PortNotify: h.Notify != nil, stacksdk.PortSchedule: h.Schedule != nil, stacksdk.PortHTTP: h.HTTP != nil, stacksdk.PortModel: h.Model != nil,
-		stacksdk.PortNotice: h.Notice != nil, stacksdk.PortHome: h.Home != nil,
+		stacksdk.PortNotice: h.Notice != nil, stacksdk.PortHome: h.Home != nil, stacksdk.PortDay: h.Day != nil,
 	}
 	for port, has := range given {
 		if want := slices.Contains(m.Requires, port); want != has {

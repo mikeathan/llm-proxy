@@ -104,13 +104,18 @@ type Edition struct {
 	// Watches adds a "Your watches" block: what the owner's watches found since the previous edition. Off by default.
 	Watches bool `json:"watches,omitempty"`
 	// Home adds a "Home" block: the core's fixed counts about the network and Radio (ADR-0077). Off by default.
-	Home      bool      `json:"home,omitempty"`
+	Home bool `json:"home,omitempty"`
+	// Day adds a "Your day" block: the owner's own reminders for today, or for tomorrow when the edition is ready from noon on (ADR-0083). Off by default.
+	Day bool `json:"day,omitempty"`
+	// SendTo is the connector type (such as "telegram") a short summary of each scheduled issue is sent to; "" sends none. Off by default (ADR-0083).
+	SendTo    string    `json:"send_to,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitzero"`
 }
 
 var (
 	readyByRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
 	weekdays  = [...]int{0, 1, 2, 3, 4, 5, 6}
+	sendToRe  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 )
 
 // Cron is the five-field expression for the moments the edition is ready, for the schedule port: "0 7 * * 1,2,3".
@@ -224,7 +229,10 @@ func (e Edition) Normalize(topics func(id int64) bool) (Edition, error) {
 	if e.CollectEvery, e.CollectFor, err = collectWindow(e.CollectEvery, e.CollectFor); err != nil {
 		return Edition{}, err
 	}
-	if e.Sections, err = cleanSections(e.Sections, topics, e.Watches || e.Home); err != nil {
+	if e.SendTo = strings.TrimSpace(e.SendTo); e.SendTo != "" && !sendToRe.MatchString(e.SendTo) {
+		return Edition{}, fmt.Errorf("%w: send to is a connector type such as telegram", ErrInvalid)
+	}
+	if e.Sections, err = cleanSections(e.Sections, topics, e.Watches || e.Home || e.Day); err != nil {
 		return Edition{}, err
 	}
 	return e, nil
@@ -254,7 +262,7 @@ func cleanSections(in []Section, topics func(id int64) bool, own bool) ([]Sectio
 		return []Section{}, nil
 	}
 	if len(in) == 0 || len(in) > MaxSections {
-		return nil, fmt.Errorf("%w: an edition has 1 to %d sections, or none when it has watches or home", ErrInvalid, MaxSections)
+		return nil, fmt.Errorf("%w: an edition has 1 to %d sections, or none when it has watches, home or day", ErrInvalid, MaxSections)
 	}
 	for i, s := range in {
 		if s.Kind != SectionNews || !topics(s.TopicID) {

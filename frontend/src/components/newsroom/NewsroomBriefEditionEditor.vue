@@ -5,8 +5,8 @@ import BaseToggle from "../common/buttons/BaseToggle.vue"
 import FormField from "../common/forms/FormField.vue"
 import { editionEdit, editionSectionKeys, hoursOf, sectionGroups, topicIdsOf } from "../../utils/newsroom/briefForm"
 import {
-  ALL_DAYS, DAY_ORDER, DAY_SHORT, DEFAULT_EVERY_HOURS, DEFAULT_FOR_HOURS, DEFAULT_READY_BY, EDITION_DAYS_LABEL, EDITION_HOME_LABEL, EDITION_INCLUDE_HINT, EDITION_NAME_HINT, EDITION_NAME_LABEL,
-  EDITION_NEEDS_SOMETHING, EDITION_NEWS_HINT, EDITION_NEWS_LABEL, EDITION_ON_LABEL, EDITION_READY_LABEL, EDITION_SECTIONS_LABEL, EDITION_TOO_MANY, EDITION_TOPICS_LABEL, EDITION_WATCHES_HINT,
+  ALL_DAYS, DAY_ORDER, DAY_SHORT, DEFAULT_EVERY_HOURS, DEFAULT_FOR_HOURS, DEFAULT_READY_BY, EDITION_DAYS_LABEL, EDITION_DAY_HINT, EDITION_DAY_LABEL, EDITION_HOME_LABEL, EDITION_INCLUDE_HINT, EDITION_NAME_HINT, EDITION_NAME_LABEL,
+  EDITION_NEEDS_SOMETHING, EDITION_NEWS_HINT, EDITION_NEWS_LABEL, EDITION_ON_LABEL, EDITION_READY_LABEL, EDITION_SECTIONS_LABEL, EDITION_SEND_HINT, EDITION_SEND_LABEL, EDITION_TOO_MANY, EDITION_TOPICS_LABEL, EDITION_WATCHES_HINT,
   EDITION_WATCHES_LABEL, EVERY_HOURS, FOR_HOURS, GATHER_AFTER, GATHER_BEFORE, GATHER_START, HOME_COUNTS_ONLY, MAX_EDITION_TOPICS, NEED_TOPIC_FIRST, WATCH_NAME_MAX, addSectionLabel, hoursWords, removeSectionLabel,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic } from "../../types/newsroom"
@@ -26,6 +26,10 @@ const picked = ref<string[]>(editionSectionKeys(props.edition, groups.value))
 const enabled = ref(props.edition?.enabled ?? true)
 const watches = ref(props.edition?.watches ?? false)
 const home = ref(props.edition?.home ?? false)
+const day = ref(props.edition?.day ?? false)
+// The one connector a summary can go to for now; the edition stores its type, so another connector is a value here, not a new screen.
+const SEND_TYPE = "telegram"
+const send = ref((props.edition?.send_to ?? "") === SEND_TYPE)
 const every = ref(hoursOf(props.edition?.collect_every ?? "") ?? DEFAULT_EVERY_HOURS)
 const forHours = ref(hoursOf(props.edition?.collect_for ?? "") ?? DEFAULT_FOR_HOURS)
 
@@ -37,7 +41,7 @@ const forOptions = computed(() => withCurrent(FOR_HOURS, forHours.value))
 const news = computed(() => picked.value.length > 0)
 const topicIds = computed(() => topicIdsOf(picked.value, groups.value))
 const tooMany = computed(() => topicIds.value.length > MAX_EDITION_TOPICS)
-const hasSomething = computed(() => news.value || watches.value || home.value)
+const hasSomething = computed(() => news.value || watches.value || home.value || day.value)
 const canSave = computed(() => !props.saving && name.value.trim() !== "" && days.value.length > 0 && hasSomething.value && !tooMany.value)
 
 const setNews = (on: boolean) => (picked.value = on ? groups.value.map((g) => g.key) : [])
@@ -46,7 +50,7 @@ const toggleDay = (d: string) => (days.value = days.value.includes(d) ? days.val
 
 function submit() {
   if (!canSave.value) return
-  emit("save", editionEdit({ name: name.value, readyBy: readyBy.value, days: days.value.map(Number), topics: topicIds.value, enabled: enabled.value, every: every.value, forHours: forHours.value, watches: watches.value, home: home.value }))
+  emit("save", editionEdit({ name: name.value, readyBy: readyBy.value, days: days.value.map(Number), topics: topicIds.value, enabled: enabled.value, every: every.value, forHours: forHours.value, watches: watches.value, home: home.value, day: day.value, sendTo: send.value ? SEND_TYPE : "" }))
 }
 const BLOCK = "flex flex-col gap-2 rounded-[var(--radius-md)] border border-hairline bg-canvas p-3"
 const TAG = "inline-flex min-h-8 items-center gap-1 rounded-full bg-surface-active pl-2.5 pr-1 text-[length:var(--text-small)] text-secondary"
@@ -109,6 +113,12 @@ const TAG = "inline-flex min-h-8 items-center gap-1 rounded-full bg-surface-acti
           <BaseToggle v-model="home" :label="EDITION_HOME_LABEL" hide-label />
         </div>
       </div>
+      <div :class="BLOCK">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0"><div class="font-medium text-primary">{{ EDITION_DAY_LABEL }}</div><div class="text-[length:var(--text-small)] text-muted">{{ EDITION_DAY_HINT }}</div></div>
+          <BaseToggle v-model="day" :label="EDITION_DAY_LABEL" hide-label />
+        </div>
+      </div>
       <p v-if="tooMany" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="edition-too-many">{{ EDITION_TOO_MANY }}</p>
       <p v-else-if="!hasSomething" role="status" class="m-0 text-[length:var(--text-small)] text-faint" data-test="edition-needs">{{ EDITION_NEEDS_SOMETHING }}</p>
     </fieldset>
@@ -118,6 +128,12 @@ const TAG = "inline-flex min-h-8 items-center gap-1 rounded-full bg-surface-acti
       <span>{{ GATHER_START }}</span>
       <select v-model="forHours" aria-label="How long before it is ready" class="form-control w-fit"><option v-for="h in forOptions" :key="h" :value="h">{{ hoursWords(h) }}</option></select>
       <span>{{ GATHER_AFTER }}</span>
+    </div>
+    <div :class="BLOCK" data-test="edition-send">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0"><div class="font-medium text-primary">{{ EDITION_SEND_LABEL }}</div><div class="text-[length:var(--text-small)] text-muted">{{ EDITION_SEND_HINT }}</div></div>
+        <BaseToggle v-model="send" :label="EDITION_SEND_LABEL" hide-label />
+      </div>
     </div>
     <BaseToggle v-model="enabled" :label="EDITION_ON_LABEL" />
     <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>

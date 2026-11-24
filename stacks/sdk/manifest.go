@@ -214,9 +214,12 @@ const (
 	// from its own table (ADR-0077). No address, hardware address, device name, network name or tag is ever in it, and the stack must never pass it to a
 	// fetch or to a model.
 	PortHome = "briefhome"
+	// PortDay lets a stack read, and only read, the owner's own reminders for today or tomorrow: a time and the owner's own words (ADR-0083). The titles are
+	// the owner's text beside a stack that reads the web, so the stack must never pass them to a fetch, a model or a connector.
+	PortDay = "briefday"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP, PortModel, PortNotice, PortHome}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP, PortModel, PortNotice, PortHome, PortDay}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

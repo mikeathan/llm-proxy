@@ -71,6 +71,28 @@ describe('NewsroomBriefCard', () => {
     expect(w.find('[data-test="brief-card-all"]').exists()).toBe(false)
   })
 
+  it('keeps the fold control in the header, above the stories, so a long open edition is closed without scrolling', async () => {
+    const w = await mountCard()
+    await w.get('[data-test="brief-card-toggle"]').trigger('click')
+    expect(w.get('header').find('[data-test="brief-card-toggle"]').exists()).toBe(true)
+    expect(w.findAll('[data-test="brief-card-toggle"]')).toHaveLength(1)
+  })
+
+  it('shows the home block and the watches beside the news, only when the edition carries them', async () => {
+    const plain = await mountCard()
+    expect(plain.find('[data-test="brief-card-beside"]').exists()).toBe(false)
+    service.issue.mockResolvedValue(issue({
+      home: [{ id: 'network_online', count: 16, words: 'Devices the network sees right now.' }],
+      watches: [{ watch: 'Kernel', new: 1, headline: 'A release' }],
+      day: { items: [{ clock: '14:00', title: 'Call the dentist' }] },
+    }))
+    resetBriefUnread()
+    const w = await mountCard()
+    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('Devices the network sees right now.')
+    expect(w.get('[data-test="watches-block"]').text()).toContain('Kernel')
+    expect(w.get('[data-test="day-block"]').text()).toContain('Call the dentist')
+  })
+
   it('opens the whole edition when a section chip is pressed', async () => {
     const w = await mountCard()
     await w.findAll('[data-test="brief-card-chip"]')[1]!.trigger('click')
