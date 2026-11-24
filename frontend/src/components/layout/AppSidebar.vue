@@ -58,7 +58,7 @@ onMounted(async () => {
     id="app-sidebar"
     aria-label="Primary"
     :data-collapsed="isCollapsed"
-    :class="['sticky top-0 flex h-screen flex-none flex-col bg-surface-raised transition-[width] duration-slow ease-standard', isCollapsed ? 'w-14' : 'w-[216px]']"
+    :class="['sticky top-0 flex h-screen flex-none flex-col bg-surface-raised print:hidden transition-[width] duration-slow ease-standard', isCollapsed ? 'w-14' : 'w-[216px]']"
   >
     <div class="flex h-12 flex-none items-center gap-2.5 overflow-hidden px-4">
       <RouterLink

@@ -108,7 +108,7 @@ async function readTopic(t: BriefTopic) {
     <LoadingState v-if="b.loading.value" label="Loading the briefs" :rows="3" />
     <ErrorState v-else-if="b.error.value" title="The briefs are unavailable" :cause="b.error.value" :next="NEWSROOM_RELOAD_HINT" />
     <template v-else>
-      <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-3 print:hidden" data-test="briefs-toolbar">
         <SegmentedControl v-model="mode" :options="MODES" :label="BRIEFS_VIEW_LABEL" variant="compact" />
         <BaseButton v-if="hasContent" variant="danger" size="sm" :disabled="b.saving.value" data-test="delete-all-briefs" @click="deleteAll">{{ DELETE_ALL_LABEL }}</BaseButton>
       </div>
@@ -148,7 +148,7 @@ async function readTopic(t: BriefTopic) {
           </div>
           <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton>
         </div>
-        <div v-if="b.editionIssues.value.length > 1" class="flex items-center gap-2" data-test="earlier-briefs">
+        <div v-if="b.editionIssues.value.length > 1" class="flex items-center gap-2 print:hidden" data-test="earlier-briefs">
           <span class="text-[length:var(--text-small)] text-faint">{{ BRIEF_EARLIER_LABEL }}</span>
           <SelectInput
             :model-value="String(b.issue.value?.id)"
