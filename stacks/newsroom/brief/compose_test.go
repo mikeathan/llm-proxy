@@ -95,6 +95,24 @@ func TestCompose_ARewordedHeadlineOfTheSameStoryIsOneCandidate(t *testing.T) {
 	}
 }
 
+// A story folded into another one is not shown as new the next morning: the earlier edition recorded only the shown story's key, so the rewording must
+// be recognised as that story.
+func TestCompose_AFoldedRewordingIsNotNewTheNextMorning(t *testing.T) {
+	a := poolStory(1, "Nvidia board urged to resign after CEO reinstatement", "", 1, 7, time.Hour)
+	b := poolStory(2, "Nvidia board urged to resign after CEO's reinstatement - analysis", "", 2, 7, 2*time.Hour)
+	first := Compose(context.Background(), oneSection(a, b))
+	var shown []Shown
+	for _, s := range first.Sections[0].Stories {
+		shown = append(shown, Shown{Key: s.Key, At: composeNow, Outlets: len(s.Outlets)})
+	}
+	next := oneSection(a, b)
+	next.Now = composeNow.Add(8 * time.Hour)
+	next.Shown = shown
+	if got := Compose(context.Background(), next).Sections[0].Stories; len(got) != 0 {
+		t.Fatalf("both wordings were shown yesterday as one story, nothing is new: %+v", got)
+	}
+}
+
 // Different angles on one event cannot be told apart by wording, so the prompts ask the model to pick one per event.
 func TestCompose_PromptsAskForOneStoryPerEvent(t *testing.T) {
 	if !strings.Contains(sectionSystem, "same event") || !strings.Contains(topSystem, "same event") {

@@ -18,6 +18,7 @@ The Morning brief on vertex (2026-11-24, issue 3) showed one event, the Nvidia b
 
 - **Outlets are counted by `OutletKey`**: lower case, without a leading "the" and without a regional or web ending (` uk`, ` us`, ` usa`, `.com`, `.co.uk`). A story names each outlet once, under its first spelling.
 - **Rewordings are folded when an edition is written, not in the pool.** `SimilarKeys` calls two title keys one story when they share at least four content words and at least 60% of the words of both together. Candidates are ranked first, then each is folded into the best-ranked similar one: reports add up, a text a headline lacked is taken, and the folded key counts as placed so a later section does not show it. The pool is untouched, so a wrong fold costs one edition, not stored data.
+- **Yesterday's story is recognised under another wording.** An edition records only the shown story's key, so the already-shown rule also matches a similar key (the best-reported earlier story decides); without it the folded rewording would come back as new the next morning.
 - **Different angles on one event are left to the model**: they share a name and little else, so wording cannot tell them apart. Both prompts now say that two stories about the same event count as one and only the best is chosen.
 - Each issue stores `outlets_read` (distinct outlets over the recent pool of its news topics), and the masthead says "read from N outlets". Older issues have none and show nothing.
 

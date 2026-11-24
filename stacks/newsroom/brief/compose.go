@@ -247,7 +247,7 @@ func (c *composer) candidates(topicIDs []int64) []candidate {
 		if c.isPlaced(p.Key) {
 			continue
 		}
-		prev, seen := c.shown[p.Key]
+		prev, seen := c.previouslyShown(p.Key)
 		if seen && p.Outlets() <= prev.Outlets {
 			continue
 		}
@@ -264,6 +264,23 @@ func (c *composer) candidates(topicIDs []int64) []candidate {
 	})
 	out = clustered(out)
 	return out[:min(len(out), CandidatesPerSection)]
+}
+
+// previouslyShown finds the story, or one worded as it is, in what earlier editions showed. An edition records the key of the story it showed, not of the
+// rewordings folded into it, so yesterday's story can come back under another wording today.
+func (c *composer) previouslyShown(key string) (Shown, bool) {
+	if s, ok := c.shown[key]; ok {
+		return s, true
+	}
+	// Several earlier stories can be similar: the best reported one decides, so the answer does not depend on map order.
+	var best Shown
+	found := false
+	for k, s := range c.shown {
+		if SimilarKeys(k, key) && (!found || s.Outlets > best.Outlets) {
+			best, found = s, true
+		}
+	}
+	return best, found
 }
 
 // isPlaced says whether the story, or one worded as it is, is already in an earlier section.
