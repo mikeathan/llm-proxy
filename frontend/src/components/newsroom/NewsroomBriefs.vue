@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
+import SelectInput from "../common/forms/SelectInput.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
@@ -13,7 +14,7 @@ import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
-  BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
+  BRIEF_EARLIER_LABEL, briefEarlierOption, BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
   NEW_BRIEF_LABEL, DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -30,7 +31,7 @@ const unread = useBriefUnread()
 // With several briefs the page opens on the first one that is unread (so a link from a dot lands on what the dot is about), and nothing is marked before
 // both lists are known: otherwise the first brief would flash up and be marked read before the switch.
 function markShown() {
-  if (mode.value !== "read" || b.loading.value || !unread.loaded.value || document.visibilityState !== "visible") return
+  if (mode.value !== "read" || b.viewingEarlier.value || b.loading.value || !unread.loaded.value || document.visibilityState !== "visible") return
   if (b.pickedId.value === null) {
     const first = b.editions.value.find((e) => unread.isUnread(e.id))
     if (first) b.pickedId.value = first.id
@@ -147,7 +148,16 @@ async function readTopic(t: BriefTopic) {
           </div>
           <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton>
         </div>
-        <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" />
+        <div v-if="b.editionIssues.value.length > 1" class="flex items-center gap-2" data-test="earlier-briefs">
+          <span class="text-[length:var(--text-small)] text-faint">{{ BRIEF_EARLIER_LABEL }}</span>
+          <SelectInput
+            :model-value="String(b.issue.value?.id)"
+            :options="b.editionIssues.value.map((i, n) => ({ value: String(i.id), label: briefEarlierOption(new Date(i.made_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), n === 0) }))"
+            :label="BRIEF_EARLIER_LABEL"
+            @update:model-value="b.pickedIssueId.value = Number($event)"
+          />
+        </div>
+        <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" @open-setup="mode = 'setup'" />
         <EmptyState v-else :title="NO_ISSUE_HEADLINE" :body="NO_ISSUE_BODY">
           <template #action><BaseButton size="sm" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton></template>
         </EmptyState>

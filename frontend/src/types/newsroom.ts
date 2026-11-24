@@ -237,6 +237,8 @@ export interface BriefIssue {
   watches?: BriefWatchLine[]
   /** The core's fixed facts about the network and Radio: a count and the core's own sentence for an id; absent when the edition does not ask. */
   home?: BriefHomeLine[]
+  /** How many different outlets reported the stories the edition could choose from; absent on older editions. */
+  outlets_read?: number
   model_calls: number
 }
 

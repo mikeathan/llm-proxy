@@ -280,6 +280,12 @@ export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'st
 /** A section's count: what the model wrote for it, and how many of those the top stories already show. */
 export const briefSectionCountWords = (total: number, inTop: number): string => (inTop > 0 ? `${briefStoryCountWords(total)} · ${inTop} in ${TOP_STORIES_LABEL}` : briefStoryCountWords(total))
 export const BRIEF_PROBLEMS_LABEL = 'Could not read'
+/** What to do about a source that could not be read: the brief goes on with what it collected; the fix is on the topic's Set up. */
+export const BRIEF_PROBLEMS_FIX = 'The brief used what it had already collected. Check the address on the topic, or remove the source.'
+export const BRIEF_PROBLEMS_ACTION = 'Open Set up'
+export const BRIEF_EARLIER_LABEL = 'Earlier briefs'
+export const briefEarlierOption = (when: string, latest: boolean): string => (latest ? `${when} (latest)` : when)
+export const briefOutletsWords = (n: number): string => `read from ${n} ${n === 1 ? 'outlet' : 'outlets'}`
 
 // Briefs setup.
 export const BRIEFS_TAB_LABELS = { read: 'Read', setup: 'Set up' } as const
