@@ -34,6 +34,7 @@ type HandlerSet struct {
 	ActiveRuns  *handlers.ActiveRunsHandler
 	Dispatcher  *handlers.DispatcherHandlers
 	Recordings  *handlers.RecordingHandlers
+	ModelStats  *handlers.ModelStatsHandlers
 	Memory      *handlers.MemoryHandlers
 	Profiles    *handlers.ProfileHandlers
 	Helpers     *handlers.HelpersHandlers
@@ -128,6 +129,9 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	if s.Lane() != nil {
 		hs.Proxy.SetInboundGate(s.gate())
 	}
+	if s.modelStats != nil {
+		hs.Proxy.SetUsageCounter(s.modelStats)
+	}
 	if disp != nil {
 		wsSvc := handlers.NewWorkspaceService(s.Persistence())
 		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger).WithProfiles(s.Profiles())
@@ -176,6 +180,9 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
 	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore, s.RecordDir(), tools.RedactForRecording)
+	if s.modelStats != nil {
+		hs.ModelStats = handlers.NewModelStatsHandlers(s.modelStats.Snapshot)
+	}
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig).WithSessionRetention(s.AppCtx.SessionRetention)
@@ -343,6 +350,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Get("/admin/api/recordings/content/{id...}", hs.Recordings.Content, jsonMethodNotAllowed)
 		router.Get("/admin/api/recordings/{id}", hs.Recordings.Get, jsonMethodNotAllowed)
 		router.Delete("/admin/api/recordings/{id}", hs.Recordings.Delete, jsonMethodNotAllowed)
+	}
+
+	// Model use counts (ADR-0085)
+	if hs.ModelStats != nil {
+		router.Get("/admin/api/model-stats", hs.ModelStats.AdminModelStatsHandler, jsonMethodNotAllowed)
 	}
 
 	// Dispatcher

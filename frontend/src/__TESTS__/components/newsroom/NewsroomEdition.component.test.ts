@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { RouterLinkStub, mount } from '@vue/test-utils'
 import NewsroomEdition from '../../../components/newsroom/NewsroomEdition.vue'
 import type { BriefIssue, BriefSection, BriefStory } from '../../../types/newsroom'
+
+vi.mock('../../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
 
 const story = (over: Partial<BriefStory> = {}): BriefStory => ({ pool_id: 1, headline: 'Chip ban widens', outlets: ['BBC', 'Reuters'], ...over })
 const section = (over: Partial<BriefSection> = {}): BriefSection => ({ kind: 'news', topic_id: 7, name: 'Technology', stories: [story()], ...over })

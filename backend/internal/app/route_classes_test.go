@@ -51,7 +51,7 @@ func allRoutes(t *testing.T) []string {
 		Process: &handlers.ProcessHandlers{}, Model: &handlers.ModelHandlers{},
 		Proxy: &handlers.ProxyHandlers{}, Turns: &chat.Service{}, Assistant: &handlers.AssistantMessageHandler{},
 		ActiveRuns: &handlers.ActiveRunsHandler{}, Dispatcher: &handlers.DispatcherHandlers{},
-		Recordings: &handlers.RecordingHandlers{}, Memory: &handlers.MemoryHandlers{}, Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},
+		Recordings: &handlers.RecordingHandlers{}, ModelStats: &handlers.ModelStatsHandlers{}, Memory: &handlers.MemoryHandlers{}, Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},
 		VulnData: &handlers.VulnDataHandlers{}, Commands: &handlers.CommandHandlers{}, Webhook: &handlers.WebhookHandler{}, Auth: &handlers.AuthHandlers{}, Exposure: &handlers.ExposureHandlers{},
 		Helper: newHelperRoutes(&AppContext{}, nil, helperSinks{}), Hosted: []stacksdk.Stack{networkStack(), agentsStack(), remindersStack()},
 	}

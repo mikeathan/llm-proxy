@@ -761,7 +761,17 @@ type HomeLine struct {
 	ID    string `json:"id"`
 	Count int    `json:"count,omitempty"`
 	Words string `json:"words"`
+	// Level ranks the fact (ADR-0084): one of the HomeLevel words, set by the core from its own table by ID and never from anything a device or a stack sent. A
+	// stack stores it and shows it; a line without one (an edition written before levels) is read as routine.
+	Level string `json:"level,omitempty"`
 }
+
+// The levels of a HomeLine: Critical is serious on its own and is shown loudly and sent to a phone first; Check is worth a look; Info is routine.
+const (
+	HomeLevelCritical = "critical"
+	HomeLevelCheck    = "check"
+	HomeLevelInfo     = "info"
+)
 
 // Home is the one way a stack reads what the core knows of the home. It is pulled (the core never pushes), read-only and bounded by MaxHomeLines. A
 // failure is an *Error: CodeUnavailable when the core cannot say.

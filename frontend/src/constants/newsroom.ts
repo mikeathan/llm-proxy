@@ -383,6 +383,13 @@ export const EDITION_WATCHES_LABEL = 'What my watches found'
 export const EDITION_HOME_LABEL = 'My home: network and radio'
 export const HOME_BLOCK_LABEL = 'Home'
 export const HOME_COUNTS_ONLY = 'Counts only. Names and addresses stay on the Network and Radio pages.'
+export const HOME_QUIET_LABEL = 'All quiet'
+export const BRIEF_ATTENTION_LABEL = 'Needs attention'
+export const HOME_OPEN_LABEL = 'Show the Home facts'
+export const HOME_FOLD_LABEL = 'Fold the Home facts'
+/** The header of the Home block: how many facts are serious and how many are worth a look. */
+export const homeStateWords = (critical: number, check: number): string =>
+  [critical > 0 ? `${critical} critical` : '', check > 0 ? `${check} to check` : ''].filter(Boolean).join(' · ') || HOME_QUIET_LABEL
 export const WATCHES_BLOCK_LABEL = 'Your watches'
 export const WATCHES_SINCE_LAST = 'since the last edition'
 export const watchNewWords = (n: number): string => `${n} new`
@@ -438,7 +445,6 @@ export const TOPIC_NEVER_READ = 'Not read yet'
 export const topicFollowsWords = (n: number): string => `+${n} ${n === 1 ? 'website' : 'websites'}`
 export const MODEL_LIMIT_TITLE = 'Daily AI limit'
 export const MODEL_LIMIT_HINT = (fallback: number, max: number): string => `A safety cap on how many times a day the Newsroom may ask the AI — watches and briefs share it. It does not set how often news is gathered. Empty uses ${fallback}; the most is ${max}.`
-export const READ_EDITION_READY = (ready: string, topics: number): string => `Ready at ${ready} · ${topics} ${topics === 1 ? 'topic' : 'topics'}`
 export const NO_ISSUE_HEADLINE = 'Nothing written yet'
 
 // Topics by section, and the edition form's "What goes in it?"

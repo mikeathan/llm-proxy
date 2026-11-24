@@ -253,6 +253,7 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 | GET | `/admin/api/logs` | Process logs |
 | DELETE | `/admin/api/logs` | Clear logs |
 | GET | `/admin/api/metrics` | System metrics |
+| GET | `/admin/api/model-stats` | Model use counts (ADR-0085): `?days=N` (default 7, at most 14; a value below 1 or not a number is 400). Answers `days` (oldest first, each `date`, `local`, `cloud` calls; a day with no call is zeros) and `today` (each model: `model`, `local`, `calls`, `failed`, `prompt_tokens`, `completion_tokens`, `tokens_per_sec` when a local server reported one) |
 | GET | `/admin/api/runtime/processes` | List processes |
 | POST | `/admin/api/runtime/processes/{pid}/stop` | Kill process |
 | GET | `/admin/api/active-runs` | Global run state: `lane_holders`, `queued`, and `lanes` (per lane `lane`, `limit`, `running`, `waiting`, `holder_keys`). A chat (`kind: interactive`) holder also carries `conversation_id` (omitted while unknown, and for automations and inbound callers) so the UI can link straight to the running conversation |

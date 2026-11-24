@@ -20,6 +20,7 @@ import (
 var coreStoreKinds = []datausage.Kind{
 	{ID: "settings", Title: "Settings, keys and sign-in", Owner: "core", Clean: "A factory reset puts the settings, the registry, the secrets and the key back to their defaults (Settings → Security).",
 		Names: []string{"settings.yml", "registry.json", "secrets.json", "master.key", "master.key.hash", "auth.json", "server.json", "lockdown.json"}},
+	{ID: "model-stats", Title: "Model use counts", Owner: "core", Names: []string{"model-stats.json"}},
 	{ID: "database", Title: "Memory and ledger database", Owner: "core", Names: []string{"orchestrator.db*"}},
 	{ID: "meta", Title: "Conversations and workspace state", Owner: "core", Names: []string{"meta"},
 		Clean: "Delete a conversation from its menu; Clear runtime data removes every conversation (Settings → Security)."},

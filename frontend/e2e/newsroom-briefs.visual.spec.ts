@@ -113,8 +113,24 @@ const ECONOMY = [
   story(6, 'Oil slips as demand worries return', 'Reuters'),
   story(7, 'Bond yields edge higher ahead of the Fed meeting', 'FT'),
 ]
+const DAYS = Array.from({ length: 7 }, (_, i) => {
+  const d = new Date(Date.now() - (6 - i) * 86_400_000)
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { date, local: [90, 120, 80, 150, 170, 200, 214][i]!, cloud: [10, 22, 18, 30, 25, 41, 38][i]! }
+})
+const MODEL_STATS = {
+  days: DAYS,
+  today: [
+    { model: 'Qwen3.5 35B A3B', local: true, calls: 128, failed: 2, prompt_tokens: 402_000, completion_tokens: 12_300, tokens_per_sec: 41.2 },
+    { model: 'Qwen3.8 27B', local: true, calls: 61, failed: 0, prompt_tokens: 190_000, completion_tokens: 8_000, tokens_per_sec: 33.4 },
+    { model: 'LFM2.5-24B-A2B', local: true, calls: 25, failed: 0, prompt_tokens: 58_000, completion_tokens: 2_100, tokens_per_sec: 58.9 },
+    { model: 'deepseek-v4.1-flash', local: false, calls: 22, failed: 1, prompt_tokens: 140_000, completion_tokens: 30_000 },
+    { model: 'nemotron-3.5-super-vl:free', local: false, calls: 16, failed: 0, prompt_tokens: 52_000, completion_tokens: 9_000 },
+  ],
+}
 const EDITION_ANSWERS = {
   ...ANSWERS,
+  '/model-stats': MODEL_STATS,
   '/briefs/editions': [{ id: 2, name: 'Morning', ready_by: '07:00', days: [0, 1, 2, 3, 4, 5, 6], collect_every: '2h0m0s', collect_for: '12h0m0s', enabled: true, watches: true, home: true, sections: [{ kind: 'news', topic_id: 1 }, { kind: 'news', topic_id: 2 }, { kind: 'news', topic_id: 3 }] }],
   '/briefs/issues': [{
     id: 5, edition_id: 2, name: 'Morning', made_at: new Date(Date.now() - 20 * 60_000).toISOString(), model_calls: 4,
@@ -125,8 +141,9 @@ const EDITION_ANSWERS = {
       { kind: 'news', topic_id: 3, name: 'UK politics', category: 'Politics', stories: ECONOMY.slice(0, 2), as_of: new Date(Date.now() - 2 * 60_000).toISOString() },
     ],
     home: [
-      { id: 'network_online', count: 9, words: 'Devices the network sees right now.' }, { id: 'network_not_marked_mine', count: 2, words: 'Devices on your network that you have not marked as yours.' },
-      { id: 'radio_off', words: 'Radio is off, so nothing is said about the air.' },
+      { id: 'radio_open_or_weak_ap', count: 1, words: 'Confirmed access points of yours that are open or use an outdated protection (open, WEP or WPA).', level: 'critical' },
+      { id: 'network_not_marked_mine', count: 2, words: 'Devices on your network that you have not marked as yours.', level: 'check' },
+      { id: 'network_online', count: 9, words: 'Devices the network sees right now.', level: 'info' },
     ],
     watches: [
       { watch: 'AI news', new: 2, headline: 'DeepSeek V4.1-Flash is still the latest model release it knows.', summary: 'Two new posts since the last edition.', link: 'https://example.com/a' },
@@ -135,7 +152,7 @@ const EDITION_ANSWERS = {
   }],
 }
 
-test('the edition page: news beside Home and Your watches on a wide screen, under them on a phone, and cards that stay short', async ({ page }, testInfo) => {
+test('the edition page: news beside Home and Your watches on a wide screen, between the top stories and the sections on a phone, and cards that stay short', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: EDITION_ANSWERS })
   await page.goto('newsroom/briefs')
   const main = page.locator('[data-test="edition-main"]')
@@ -143,10 +160,16 @@ test('the edition page: news beside Home and Your watches on a wide screen, unde
   await expect(main).toBeVisible()
   await expect(side.locator('[data-test="home-block"]')).toBeVisible()
   await expect(side.locator('[data-test="watches-block"]')).toBeVisible()
-  const [m, s] = [await main.boundingBox(), await side.boundingBox()]
+  // On a phone the news column has no box of its own (it dissolves into the page's grid), so the width is compared with the whole body.
+  const mobile = testInfo.project.name === 'mobile'
+  const [m, s] = [await (mobile ? page.locator('[data-test="edition-body"]') : main).boundingBox(), await side.boundingBox()]
   expect(m && s).toBeTruthy()
-  if (testInfo.project.name === 'mobile') {
-    expect(s!.y, 'the side column follows the news').toBeGreaterThan(m!.y + m!.height - 1)
+  if (mobile) {
+    // What needs a look is near the top of a phone: after the top stories, before the first section card.
+    const [top, first] = [await page.locator('section[aria-label="Top stories"]').boundingBox(), await page.locator('section[aria-label="Economy and markets"]').boundingBox()]
+    expect(top && first).toBeTruthy()
+    expect(s!.y, 'the side column follows the top stories').toBeGreaterThan(top!.y + top!.height - 1)
+    expect(s!.y + s!.height, 'and comes before the first section').toBeLessThanOrEqual(first!.y + 1)
     expect(Math.abs(s!.width - m!.width)).toBeLessThanOrEqual(1)
   } else {
     expect(s!.x, 'the side column sits to the right').toBeGreaterThan(m!.x + m!.width - 1)
@@ -163,6 +186,31 @@ test('the edition page: news beside Home and Your watches on a wide screen, unde
   await expect(economy).not.toContainText('Headline only')
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'edition', true)
+})
+
+// The model use block under Home: folded to one line with a small trend, then open into the week and today's models. Aligned inside its column on a phone and a
+// wide screen, nothing scrolls sideways, and long model names wrap instead of pushing the call count off the card.
+test('the model use block opens into the week and today by model, and stays inside its column', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: EDITION_ANSWERS })
+  await page.goto('newsroom/briefs')
+  const block = page.locator('[data-test="model-use-block"]')
+  await expect(block).toBeVisible()
+  await expect(block.locator('[data-test="model-use-total"]')).toHaveText('252 calls today')
+  await expect(block.locator('[data-test="model-use-body"]')).toHaveCount(0)
+  await lookAt(block, testInfo, 'model-use-folded')
+  await block.locator('[data-test="model-use-toggle"]').click()
+  await expect(block.locator('[data-test="model-use-column"]')).toHaveCount(7)
+  await expect(block.locator('[data-test="model-use-row"]')).toHaveCount(5)
+  const [card, chart] = [await block.boundingBox(), await block.locator('[data-test="model-use-chart"]').boundingBox()]
+  expect(card && chart).toBeTruthy()
+  expect(chart!.x).toBeGreaterThanOrEqual(card!.x)
+  expect(chart!.x + chart!.width).toBeLessThanOrEqual(card!.x + card!.width + 1)
+  for (const row of await block.locator('[data-test="model-use-row"]').all()) {
+    const box = await row.boundingBox()
+    expect(box!.x + box!.width, 'a row stays inside the card').toBeLessThanOrEqual(card!.x + card!.width + 1)
+  }
+  await expectNoSidewaysScroll(page)
+  await lookAt(block, testInfo, 'model-use-open')
 })
 
 // The edition page in every theme and in print: nothing scrolls sideways, the masthead counts outlets, a source problem shows its fix, and printing hides the buttons.

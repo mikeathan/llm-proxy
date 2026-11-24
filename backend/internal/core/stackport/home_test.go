@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
 	"llm-proxy-stacks/sdk"
 
+	"llm-proxy/internal/core/radiodigest"
 	"llm-proxy/models"
 )
 
@@ -21,7 +25,9 @@ func radioAnswer(findings string) func(context.Context) (json.RawMessage, error)
 
 func homeOf(devs []models.NetworkDevice, presence models.DevicePresence) Home {
 	return Home{
-		Devices:  func() (models.DeviceInventory, error) { return models.DeviceInventory{Devices: devs, Changes: []models.AddressChange{{}}}, nil },
+		Devices: func() (models.DeviceInventory, error) {
+			return models.DeviceInventory{Devices: devs, Changes: []models.AddressChange{{}}}, nil
+		},
 		Presence: func(models.NetworkDevice) models.DevicePresence { return presence },
 		RadioOn:  func(context.Context) bool { return true },
 		Radio:    radioAnswer(`{"id":"radio_rogue_twin","tier":"seen","count":2,"claim":"EVIL SSID \"HomeWifi\" at 10.0.0.9"},{"id":"made_up","tier":"seen","count":9}`),
@@ -62,8 +68,8 @@ func TestHome_LinesHoldOnlyCountsAndTheCoresWords(t *testing.T) {
 // A presence check that is off says it cannot say, instead of reporting "0 online".
 func TestHome_PresenceUnknownIsSaidNotCountedAsZero(t *testing.T) {
 	lines, _ := homeOf([]models.NetworkDevice{{MAC: "aa:bb:cc:dd:ee:01", Approved: true}}, models.PresenceUnknown).Lines(context.Background())
-	if lines[0].ID != HomeNetworkUnknown {
-		t.Errorf("want the unknown line first: %+v", lines)
+	if lines[0].ID == HomeNetworkOnline || !slices.ContainsFunc(lines, func(l stacksdk.HomeLine) bool { return l.ID == HomeNetworkUnknown }) {
+		t.Errorf("want the unknown line, not an online count: %+v", lines)
 	}
 }
 
@@ -102,14 +108,75 @@ func TestHome_IsBoundedAndClamped(t *testing.T) {
 	}
 }
 
-// HomeLine keeps exactly these fields: a new text field would have to be argued for (ADR-0077).
-func TestHomeLine_HasNoFieldBeyondIDCountWords(t *testing.T) {
+// HomeLine keeps exactly these fields: a new text field would have to be argued for (ADR-0077). Level (ADR-0084) is one of three fixed words, never text.
+func TestHomeLine_HasNoFieldBeyondIDCountWordsLevel(t *testing.T) {
 	typ := reflect.TypeOf(stacksdk.HomeLine{})
 	var got []string
 	for i := range typ.NumField() {
 		got = append(got, typ.Field(i).Name)
 	}
-	if !reflect.DeepEqual(got, []string{"ID", "Count", "Words"}) {
+	if !reflect.DeepEqual(got, []string{"ID", "Count", "Words", "Level"}) {
 		t.Errorf("fields %v", got)
+	}
+}
+
+// Every fact the core can word has a level, so a new id cannot reach the panel or the phone without being ranked.
+func TestHomeLevel_EveryWordedIDHasOne(t *testing.T) {
+	ids := append(slices.Collect(maps.Keys(homeWords)), radiodigest.FindingIDs()...)
+	for _, id := range ids {
+		if !slices.Contains(homeLevelValues, HomeLevel(id)) {
+			t.Errorf("%s has level %q", id, HomeLevel(id))
+		}
+		if _, listed := homeLevels[id]; !listed {
+			t.Errorf("%s is not in the level table", id)
+		}
+	}
+	if got := HomeLevel("made_up"); got != stacksdk.HomeLevelInfo {
+		t.Errorf("an unknown id is routine, not an alarm: %q", got)
+	}
+}
+
+// Critical is kept to what is serious on its own: an open or outdated access point of the owner's. Nothing else interrupts.
+func TestHomeLevel_OnlyAnOwnAccessPointThatIsOpenOrWeakIsCritical(t *testing.T) {
+	var critical []string
+	for id, lv := range homeLevels {
+		if lv == stacksdk.HomeLevelCritical {
+			critical = append(critical, id)
+		}
+	}
+	if !reflect.DeepEqual(critical, []string{"radio_open_or_weak_ap"}) {
+		t.Errorf("critical ids: %v", critical)
+	}
+}
+
+// Lines carry their level, and the lines that need a look come before the routine ones, so the cut at the bound never drops them.
+func TestHome_LinesAreRankedAndCarryTheirLevel(t *testing.T) {
+	h := homeOf([]models.NetworkDevice{{MAC: "aa:bb:cc:dd:ee:01", Approved: true}}, models.PresenceOnline)
+	h.Radio = radioAnswer(`{"id":"radio_hidden_ap_near","tier":"seen","count":1},{"id":"radio_open_or_weak_ap","tier":"seen","count":1}`)
+	lines, _ := h.Lines(context.Background())
+	var levels []string
+	for _, l := range lines {
+		levels = append(levels, l.Level)
+	}
+	if lines[0].ID != "radio_open_or_weak_ap" || levels[0] != stacksdk.HomeLevelCritical {
+		t.Fatalf("critical first: %+v", lines)
+	}
+	if !sort.SliceIsSorted(lines, func(i, j int) bool { return homeRank(lines[i].Level) < homeRank(lines[j].Level) }) {
+		t.Errorf("not ranked: %v", levels)
+	}
+	var devs []models.NetworkDevice
+	for range 40 {
+		devs = append(devs, models.NetworkDevice{})
+	}
+	h = homeOf(devs, models.PresenceOnline)
+	var many []string
+	// Radio keeps at most 16 findings; 15 routine ones and the critical one fill that, and with the network's lines the answer is over the bound.
+	for range stacksdk.MaxHomeLines - 1 {
+		many = append(many, `{"id":"radio_hidden_ap_near","tier":"seen","count":1}`)
+	}
+	h.Radio = radioAnswer(strings.Join(append(many, `{"id":"radio_open_or_weak_ap","tier":"seen","count":1}`), ","))
+	lines, _ = h.Lines(context.Background())
+	if len(lines) > stacksdk.MaxHomeLines || lines[0].ID != "radio_open_or_weak_ap" {
+		t.Errorf("the cut dropped the critical line: %d lines, first %s", len(lines), lines[0].ID)
 	}
 }

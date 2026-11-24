@@ -5,6 +5,7 @@ import Icon from "../icons/Icon.vue"
 import NewsroomBriefStory from "./NewsroomBriefStory.vue"
 import NewsroomEditionDay from "./NewsroomEditionDay.vue"
 import NewsroomEditionHome from "./NewsroomEditionHome.vue"
+import NewsroomEditionModelUse from "./NewsroomEditionModelUse.vue"
 import NewsroomEditionWatches from "./NewsroomEditionWatches.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
 import { formatRelativeTime } from "../../utils/format/time"
@@ -58,12 +59,17 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
         <h2 class="m-0 break-words text-[length:var(--text-h2,1.75rem)] font-semibold leading-tight text-primary" data-test="masthead">{{ issue.name }}</h2>
         <p class="m-0 text-[length:var(--text-small)] text-faint">{{ madeDate }} · {{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}<template v-if="issue.outlets_read"> · {{ briefOutletsWords(issue.outlets_read) }}</template></p>
       </div>
-      <BaseButton v-if="issue.sections.length > 1" class-name="print:hidden" size="sm" variant="secondary" data-test="collapse-all" @click="setAll(!anyOpen)">{{ anyOpen ? COLLAPSE_ALL_LABEL : EXPAND_ALL_LABEL }}</BaseButton>
+      <div class="flex flex-wrap items-center gap-3 print:hidden">
+        <slot name="masthead-end" />
+        <BaseButton v-if="issue.sections.length > 1" size="sm" variant="secondary" data-test="collapse-all" @click="setAll(!anyOpen)">{{ anyOpen ? COLLAPSE_ALL_LABEL : EXPAND_ALL_LABEL }}</BaseButton>
+      </div>
     </header>
 
     <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] print:block" data-test="edition-body">
-    <div class="flex min-w-0 flex-col gap-5" data-test="edition-main">
-    <section v-if="lead" class="flex flex-col gap-2" :aria-label="TOP_STORIES_LABEL">
+    <!-- On a wide screen the news is one column and the side column sits beside it. Below that the news column dissolves into the grid, so the side column falls
+         between the top stories and the sections: what needs a look is near the top of a phone, not under every card. -->
+    <div class="contents min-w-0 lg:flex lg:flex-col lg:gap-5 print:flex print:flex-col print:gap-5" data-test="edition-main">
+    <section v-if="lead" class="order-1 flex flex-col gap-2 lg:order-none" :aria-label="TOP_STORIES_LABEL">
       <div class="flex items-start gap-4 rounded-[var(--radius-md)] bg-surface-raised p-4" data-test="lead-story">
         <div class="min-w-0 flex-1">
           <p class="m-0 text-[length:var(--text-small)] font-medium uppercase tracking-wide text-accent-brand">{{ LEAD_STORY_LABEL }}</p>
@@ -76,6 +82,7 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
       </ul>
     </section>
 
+    <div class="order-3 flex min-w-0 flex-col gap-5 lg:order-none print:gap-3">
     <section v-for="(sec, i) in issue.sections" :key="sec.topic_id" class="flex flex-col rounded-[var(--radius-md)] bg-surface-raised" :aria-label="sec.name">
       <header class="flex items-center gap-3 p-3">
         <NewsroomPlate :label="sec.name" :category="sec.category" />
@@ -116,9 +123,11 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
       </div>
     </section>
     </div>
-    <aside v-if="issue.day || issue.home?.length || issue.watches?.length" class="flex min-w-0 flex-col gap-5 print:mt-3" data-test="edition-side" aria-label="Beside the news">
+    </div>
+    <aside v-if="issue.day || issue.home?.length || issue.watches?.length" class="order-2 flex min-w-0 flex-col gap-5 lg:order-none print:mt-3" data-test="edition-side" aria-label="Beside the news">
       <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
       <NewsroomEditionHome v-if="issue.home?.length" :lines="issue.home" />
+      <NewsroomEditionModelUse v-if="issue.home?.length" />
       <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
     </aside>
     </div>

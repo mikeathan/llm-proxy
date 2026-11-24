@@ -15,6 +15,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
@@ -335,7 +336,7 @@ func TestClientFactory_MasksSecretsInTheRecording(t *testing.T) {
 	defer server.Close()
 
 	c := &Container{RecordDir: recordDir}
-	client := c.newClientFactory(models.NewWorkloadClassifier("", nil))(server.URL, "model-a", nil, true)
+	client := c.newClientFactory(models.NewWorkloadClassifier("", nil), nil)(server.URL, "model-a", nil, true)
 
 	secret := "sk-" + strings.Repeat("a1", 20)
 	if _, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "model-a", Messages: []proxy.Message{{Role: "user", Content: "my key is " + secret}}}); err != nil {
@@ -409,5 +410,30 @@ func TestStartEgressProxy_DisabledInvalidAndEnabled(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("env missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+type countSink struct{ calls []modelstats.Call }
+
+func (c *countSink) Record(call modelstats.Call) { c.calls = append(c.calls, call) }
+
+// A client the factory builds counts its calls when a sink is given, calls the model by the name it was built for, and still answers like the real client.
+func TestNewClientFactory_CountsCallsWhenGivenASinkAndStaysLocalWhenTheModelIs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`))
+	}))
+	defer server.Close()
+	sink := &countSink{}
+	c := &Container{}
+	client := c.newClientFactory(models.NewWorkloadClassifier("", nil), sink)(server.URL, "model-a", nil, true)
+	if _, err := client.Chat(context.Background(), proxy.ChatRequest{Messages: []proxy.Message{{Role: "user", Content: "hi"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.calls) != 1 || sink.calls[0].Model != "model-a" || !sink.calls[0].Local || sink.calls[0].PromptTokens != 12 || sink.calls[0].CompletionTokens != 3 {
+		t.Errorf("counted: %+v", sink.calls)
+	}
+	if !proxy.IsLocalClient(client) {
+		t.Error("the wrapped client no longer reads as local")
 	}
 }

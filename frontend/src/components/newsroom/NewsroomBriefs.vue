@@ -15,7 +15,7 @@ import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
-  BRIEF_EARLIER_LABEL, MAKE_ANOTHER_LABEL, briefEarlierOption, BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
+  BRIEF_EARLIER_LABEL, MAKE_ANOTHER_LABEL, briefEarlierOption, BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE,
   NEW_BRIEF_LABEL, DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -111,9 +111,22 @@ async function readTopic(t: BriefTopic) {
     <LoadingState v-if="b.loading.value" label="Loading the briefs" :rows="3" />
     <ErrorState v-else-if="b.error.value" title="The briefs are unavailable" :cause="b.error.value" :next="NEWSROOM_RELOAD_HINT" />
     <template v-else>
-      <div class="flex flex-wrap items-center justify-between gap-3 print:hidden" data-test="briefs-toolbar">
+      <!-- One slim row: the two views, the edition and the one button that matters. "Delete all briefs" is on the setup view, where the things it deletes are. -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 print:hidden" data-test="briefs-toolbar">
         <SegmentedControl v-model="mode" :options="MODES" :label="BRIEFS_VIEW_LABEL" variant="compact" />
-        <BaseButton v-if="hasContent" variant="danger" size="sm" :disabled="b.saving.value" data-test="delete-all-briefs" @click="deleteAll">{{ DELETE_ALL_LABEL }}</BaseButton>
+        <template v-if="mode === 'read' && b.edition.value">
+          <SegmentedControl
+            v-if="b.editions.value.length > 1"
+            :model-value="String(b.edition.value.id)"
+            :options="b.editions.value.map((e) => ({ value: String(e.id), label: unread.isUnread(e.id) ? `${e.name} · ${NEW_BRIEF_LABEL}` : e.name }))"
+            :label="BRIEF_EDITION_LABEL"
+            variant="compact"
+            @update:model-value="b.pickedId.value = Number($event)"
+          />
+          <h2 v-else class="m-0 text-[length:var(--text-body)] font-semibold text-primary">{{ b.edition.value.name }}</h2>
+          <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" data-test="write-now" @click="write">{{ b.making.value ? MAKING_LABEL : b.issue.value ? MAKE_ANOTHER_LABEL : MAKE_NOW_LABEL }}</BaseButton>
+        </template>
+        <BaseButton v-else-if="mode === 'setup' && hasContent" class-name="ml-auto" variant="danger" size="sm" :disabled="b.saving.value" data-test="delete-all-briefs" @click="deleteAll">{{ DELETE_ALL_LABEL }}</BaseButton>
       </div>
       <NewsroomBriefSetup
         v-if="mode === 'setup'"
@@ -136,39 +149,30 @@ async function readTopic(t: BriefTopic) {
         <template #action><BaseButton size="sm" @click="mode = 'setup'">{{ BRIEFS_TAB_LABELS.setup }}</BaseButton></template>
       </EmptyState>
       <template v-else-if="b.edition.value">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-md)] bg-surface-raised p-4" data-test="edition-header">
-          <SegmentedControl
-            v-if="b.editions.value.length > 1"
-            :model-value="String(b.edition.value.id)"
-            :options="b.editions.value.map((e) => ({ value: String(e.id), label: unread.isUnread(e.id) ? `${e.name} · ${NEW_BRIEF_LABEL}` : e.name }))"
-            :label="BRIEF_EDITION_LABEL"
-            variant="compact"
-            @update:model-value="b.pickedId.value = Number($event)"
-          />
-          <div v-else class="flex min-w-0 flex-col">
-            <h2 class="m-0 text-[length:var(--text-h3,1.25rem)] font-semibold text-primary">{{ b.edition.value.name }}</h2>
-            <span class="text-[length:var(--text-small)] text-faint">{{ READ_EDITION_READY(b.edition.value.ready_by, b.edition.value.sections.length) }}</span>
-          </div>
-          <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : b.issue.value ? MAKE_ANOTHER_LABEL : MAKE_NOW_LABEL }}</BaseButton>
-        </div>
+        <!-- A brief that is today's needs one quiet line (the masthead already says when it was made); one that is not, or none yet, is said louder. -->
+        <p v-if="status.tone === 'fresh'" class="m-0 text-[length:var(--text-small)] text-faint print:hidden" :data-tone="status.tone" data-test="brief-status">{{ status.detail }}</p>
         <div
-          :class="['flex flex-col gap-0.5 rounded-[var(--radius-md)] border-l-4 bg-surface-raised px-4 py-3', status.tone === 'old' ? 'border-state-running' : status.tone === 'fresh' ? 'border-accent-brand' : 'border-hairline']"
+          v-else
+          :class="['flex flex-col gap-0.5 rounded-[var(--radius-md)] border-l-4 bg-surface-raised px-4 py-3 print:hidden', status.tone === 'old' ? 'border-state-running' : 'border-hairline']"
           :data-tone="status.tone"
           data-test="brief-status"
         >
           <p class="m-0 text-[length:var(--text-body)] font-semibold text-primary">{{ status.title }}</p>
           <p class="m-0 text-[length:var(--text-small)] text-muted">{{ status.detail }}</p>
         </div>
-        <div v-if="b.editionIssues.value.length > 1" class="flex items-center gap-2 print:hidden" data-test="earlier-briefs">
-          <span class="text-[length:var(--text-small)] text-faint">{{ BRIEF_EARLIER_LABEL }}</span>
-          <SelectInput
-            :model-value="String(b.issue.value?.id)"
-            :options="b.editionIssues.value.map((i, n) => ({ value: String(i.id), label: briefEarlierOption(new Date(i.made_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), n === 0) }))"
-            :label="BRIEF_EARLIER_LABEL"
-            @update:model-value="b.pickedIssueId.value = Number($event)"
-          />
-        </div>
-        <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" @open-setup="mode = 'setup'" />
+        <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" @open-setup="mode = 'setup'">
+          <template v-if="b.editionIssues.value.length > 1" #masthead-end>
+            <div class="flex items-center gap-2" data-test="earlier-briefs">
+              <span class="text-[length:var(--text-small)] text-faint">{{ BRIEF_EARLIER_LABEL }}</span>
+              <SelectInput
+                :model-value="String(b.issue.value?.id)"
+                :options="b.editionIssues.value.map((i, n) => ({ value: String(i.id), label: briefEarlierOption(new Date(i.made_at).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), n === 0) }))"
+                :label="BRIEF_EARLIER_LABEL"
+                @update:model-value="b.pickedIssueId.value = Number($event)"
+              />
+            </div>
+          </template>
+        </NewsroomEdition>
         <EmptyState v-else :title="NO_ISSUE_HEADLINE" :body="NO_ISSUE_BODY">
           <template #action><BaseButton size="sm" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton></template>
         </EmptyState>

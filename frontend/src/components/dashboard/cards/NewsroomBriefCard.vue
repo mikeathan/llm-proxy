@@ -10,10 +10,11 @@ import NewsroomBriefStory from "../../newsroom/NewsroomBriefStory.vue"
 import NewsroomPlate from "../../newsroom/NewsroomPlate.vue"
 import NewsroomEditionDay from "../../newsroom/NewsroomEditionDay.vue"
 import NewsroomEditionHome from "../../newsroom/NewsroomEditionHome.vue"
+import NewsroomEditionModelUse from "../../newsroom/NewsroomEditionModelUse.vue"
 import NewsroomEditionWatches from "../../newsroom/NewsroomEditionWatches.vue"
 import {
   BRIEF_CARD_COLLAPSE, BRIEF_CARD_EMPTY_ISSUE, BRIEF_CARD_EXPAND, BRIEF_CARD_LOAD_FAILED, BRIEF_CARD_NONE, BRIEF_CARD_OPEN, BRIEF_CARD_PICK_LABEL, BRIEF_CARD_RELOAD, BRIEF_CARD_SET_UP,
-  BRIEF_CARD_WAITING, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, briefCardCountWords, briefCardLineWords, briefMadeWords,
+  BRIEF_CARD_WAITING, BRIEF_ATTENTION_LABEL, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, briefCardCountWords, briefCardLineWords, briefMadeWords,
 } from "../../../constants/newsroom"
 import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useBriefUnread } from "../../../composables/newsroom/useBriefUnread"
@@ -21,6 +22,7 @@ import { usePolling } from "../../../composables/ui/usePolling"
 import { toNewsroom } from "../../../router/routes"
 import { BriefService } from "../../../services/newsroom/briefService"
 import { formatRelativeTime } from "../../../utils/format/time"
+import { homeLevel } from "../../../utils/newsroom/homeLines"
 import type { BriefEdition, BriefIssue, BriefStory } from "../../../types/newsroom"
 
 // Dashboard card · Brief: the newest written brief, big when there is one. Large: the masthead (name, when it was written, a New tag while unread), the lead story with
@@ -40,6 +42,8 @@ const expanded = ref(false)
 const edition = computed(() => editions.value?.find((e) => e.id === picked.value) ?? editions.value?.find((e) => unread.isUnread(e.id)) ?? editions.value?.[0] ?? null)
 const latestOf = computed(() => unread.latest.value.find((l) => l.edition_id === edition.value?.id) ?? null)
 const isNew = computed(() => latestOf.value !== null && !latestOf.value.read)
+// A serious home fact (the core's own ranking, ADR-0084) is said in the card's header, so it is seen without opening the Home block.
+const needsAttention = computed(() => (issue.value?.home ?? []).some((l) => homeLevel(l) === "critical"))
 
 async function loadEditions() {
   try {
@@ -95,13 +99,13 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
 
       <!-- Smallest: one line. -->
       <p v-else-if="size === 'xs'" class="m-0 flex flex-wrap items-center gap-2 text-primary" data-test="brief-card-line">
-        <StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" />{{ briefCardLineWords(issue.name, storyCount) }}
+        <StatusTag v-if="needsAttention" state="error" :label="BRIEF_ATTENTION_LABEL" /><StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" />{{ briefCardLineWords(issue.name, storyCount) }}
       </p>
 
       <!-- Medium: the lead headline and the count. -->
       <div v-else-if="size === 'sm'" class="flex min-w-0 flex-col gap-1" data-test="brief-card-small">
         <p class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-faint">
-          <StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" /><span class="font-medium text-secondary">{{ issue.name }}</span>
+          <StatusTag v-if="needsAttention" state="error" :label="BRIEF_ATTENTION_LABEL" /><StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" /><span class="font-medium text-secondary">{{ issue.name }}</span>
           <span>{{ briefCardCountWords(storyCount, sections.length) }}</span>
         </p>
         <NewsroomBriefStory v-if="lead" :story="lead" quiet />
@@ -114,7 +118,7 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
         <header class="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-t-2 border-accent-brand pt-2">
           <div class="flex min-w-0 flex-col">
             <h3 class="m-0 flex flex-wrap items-center gap-2 break-words text-[length:var(--text-h3,1.25rem)] font-semibold leading-tight text-primary" data-test="brief-card-name">
-              {{ issue.name }}<StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" />
+              {{ issue.name }}<StatusTag v-if="isNew" state="running" :label="NEW_BRIEF_LABEL" /><StatusTag v-if="needsAttention" state="error" :label="BRIEF_ATTENTION_LABEL" />
             </h3>
             <span class="text-[length:var(--text-small)] text-faint">{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }} · {{ briefCardCountWords(storyCount, sections.length) }}</span>
           </div>
@@ -152,6 +156,7 @@ const options = computed(() => (editions.value ?? []).map((e) => ({ value: Strin
         <div v-if="issue.day || issue.home?.length || issue.watches?.length" class="grid min-w-0 items-start gap-4 md:grid-cols-2" data-test="brief-card-beside">
           <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
           <NewsroomEditionHome v-if="issue.home?.length" :lines="issue.home" />
+          <NewsroomEditionModelUse v-if="issue.home?.length" />
           <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
         </div>
 

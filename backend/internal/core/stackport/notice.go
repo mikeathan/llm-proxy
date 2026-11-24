@@ -50,6 +50,8 @@ const (
 	briefStories   = 5
 	briefStoryLink = 300
 	briefBodyBytes = 3000
+	// briefWarnMark starts a critical fact, which sits right under the name.
+	briefWarnMark = "⚠ "
 )
 
 const msgBriefEmpty = "a brief summary needs a name and at least one story or home fact"
@@ -90,11 +92,11 @@ func (n Notice) Brief(ctx context.Context, channel string, req stacksdk.BriefNot
 func BriefText(req stacksdk.BriefNoticeRequest, link string) string {
 	name := oneLine(req.Name, noticeWatch)
 	stories, shown := briefStoryLines(req.Stories)
-	home := briefHomeLines(req.Home)
-	if name == "" || (shown == 0 && home == "") {
+	warn, home := briefHomeLines(req.Home)
+	if name == "" || (shown == 0 && home == "" && warn == "") {
 		return ""
 	}
-	body := name
+	body := name + warn
 	if shown > 0 {
 		body += "\n" + stories
 	}
@@ -126,21 +128,26 @@ func briefStoryLines(in []stacksdk.NoticeItem) (string, int) {
 	return b.String(), shown
 }
 
-// briefHomeLines words each home fact again from the core's own tables by id; an id the core has no words for is dropped.
-func briefHomeLines(in []stacksdk.BriefNoticeHome) string {
-	var b strings.Builder
+// briefHomeLines words each home fact again from the core's own tables by id; an id the core has no words for is dropped. A critical fact (the core's own
+// table, never the stack's say-so, ADR-0084) is returned apart as a warning line for the top of the message; the rest are the "At home" bullets.
+func briefHomeLines(in []stacksdk.BriefNoticeHome) (warn, home string) {
+	var w, b strings.Builder
 	for _, h := range in {
 		words, ok := HomeWords(h.ID)
 		if !ok {
 			continue
 		}
+		out, mark := &b, "• "
+		if HomeLevel(h.ID) == stacksdk.HomeLevelCritical {
+			out, mark = &w, briefWarnMark
+		}
 		if c := homeCount(h.Count); c > 0 {
-			fmt.Fprintf(&b, "\n• %d · %s", c, words)
+			fmt.Fprintf(out, "\n%s%d · %s", mark, c, words)
 		} else {
-			b.WriteString("\n• " + words)
+			out.WriteString("\n" + mark + words)
 		}
 	}
-	return b.String()
+	return w.String(), b.String()
 }
 
 // NoticeText is the message for a notice: fixed wording, then each item's title and link, then the changed facts. It is empty when there is no watch

@@ -216,11 +216,16 @@ export interface BriefWatchLine {
   problems?: string[]
 }
 
+/** How much a Home fact matters, set by the core from its own table (ADR-0084): critical is serious on its own, check is worth a look, info is routine. */
+export type BriefHomeLevel = 'critical' | 'check' | 'info'
+
 /** One fact of the Home block. */
 export interface BriefHomeLine {
   id: string
   count?: number
   words: string
+  /** Absent on an edition written before levels existed; read as routine. */
+  level?: BriefHomeLevel
 }
 
 /** An edition as it was made; reading one asks nothing of the model. */
