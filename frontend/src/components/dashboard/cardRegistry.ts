@@ -15,6 +15,7 @@ export const CARD_DEFS: readonly DashboardCardDef[] = [
   { id: 'running-now', source: 'host', title: 'Running now', component: card('RunningNowCard'), cols: 4, rows: 1, control: () => toActivity() },
   { id: 'recent-runs', source: 'automations', title: 'Recent runs', component: card('RecentRunsCard'), cols: 8, rows: 1, control: toAutomations },
   { id: 'reminders', source: 'reminders', title: 'Reminders', component: card('RemindersCard'), cols: 4, rows: 1, control: toReminders },
+  { id: 'newsroom-brief', source: 'newsroom', title: 'Brief', component: card('NewsroomBriefCard'), cols: 12, rows: 1, control: () => toNewsroom('briefs') },
   { id: 'newsroom-latest', source: 'newsroom', title: 'Newsroom', component: card('NewsroomLatestCard'), cols: 12, rows: 1, control: () => toNewsroom() },
   { id: 'network-overview', source: 'network', title: 'Network overview', component: card('NetworkOverviewCard'), cols: 12, rows: 1, control: () => toNetwork('modules') },
   { id: 'network-devices', source: 'network', title: 'Devices', component: card('NetworkDevicesCard'), cols: 12, rows: 1, control: () => toNetworkSettings('devices') },

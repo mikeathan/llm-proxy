@@ -79,6 +79,8 @@ type Issue struct {
 	EditionID int64     `json:"edition_id"`
 	Name      string    `json:"name"`
 	MadeAt    time.Time `json:"made_at"`
+	// ReadAt is when the owner first read it; zero while unread. It is the server's, so the dot on a tab is the same on every screen.
+	ReadAt time.Time `json:"read_at,omitzero"`
 	// ReadyFor is the moment the edition was made for (its ready time); an edition is made once for each.
 	ReadyFor time.Time      `json:"ready_for,omitzero"`
 	Top      []Story        `json:"top,omitempty"`

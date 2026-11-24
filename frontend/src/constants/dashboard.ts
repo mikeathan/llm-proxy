@@ -167,7 +167,15 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
   },
-  { id: 'newsroom', name: 'Newsroom', source: 'newsroom', cards: [{ id: 'newsroom-latest', cols: 12, rows: 1 }] },
+  {
+    id: 'newsroom',
+    name: 'Newsroom',
+    source: 'newsroom',
+    cards: [
+      { id: 'newsroom-brief', cols: 12, rows: 1 },
+      { id: 'newsroom-latest', cols: 12, rows: 1 },
+    ],
+  },
   {
     id: 'agents',
     name: 'Agents',

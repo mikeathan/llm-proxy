@@ -1,4 +1,4 @@
-import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
+import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefLatest, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
 import { apiFetch } from '../httpClient'
 import { failureReason } from '../failureReason'
 
@@ -24,6 +24,27 @@ export class BriefService {
     const res = await apiFetch(`${BASE}/issues${query}`)
     if (!res.ok) throw await failureReason(res, 'read the editions')
     return (await res.json()) ?? []
+  }
+
+  /** The newest edition of each edition and whether it was read; light enough to ask every half minute. */
+  static async latest(): Promise<BriefLatest[]> {
+    const res = await apiFetch(`${BASE}/latest`)
+    if (!res.ok) throw await failureReason(res, 'read the latest editions')
+    const body: unknown = await res.json()
+    return Array.isArray(body) ? (body as BriefLatest[]) : []
+  }
+
+  /** One edition as it was made. */
+  static async issue(id: number): Promise<BriefIssue> {
+    const res = await apiFetch(`${BASE}/issues/${id}`)
+    if (!res.ok) throw await failureReason(res, 'read the edition')
+    return res.json()
+  }
+
+  /** Notes that the owner read the edition; reading it again changes nothing. */
+  static async markRead(id: number): Promise<void> {
+    const res = await apiFetch(`${BASE}/issues/${id}/read`, { method: 'POST' })
+    if (!res.ok) throw await failureReason(res, 'mark the edition read')
   }
 
   /** Writes the edition now from what has been collected. */

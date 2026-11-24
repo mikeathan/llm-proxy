@@ -137,6 +137,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: RouteBriefMake},
 			{Method: http.MethodGet, Path: RouteBriefIssues},
 			{Method: http.MethodGet, Path: RouteBriefIssue},
+			{Method: http.MethodPost, Path: RouteBriefRead},
+			{Method: http.MethodGet, Path: RouteBriefLatest},
 			{Method: http.MethodGet, Path: RouteBriefSettings},
 			{Method: http.MethodPut, Path: RouteBriefSettings},
 			{Method: http.MethodGet, Path: RouteBriefSources},
