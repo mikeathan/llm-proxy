@@ -18,6 +18,8 @@ evidence: Branch briefs-quality-and-polish, cut from origin/main at bf9a6dc4 (#3
 ## Built on this branch (v0.128.0, ADR-0082, SPEC-013 1.21)
 - Reworded headlines fold into one candidate; outlets counted by `OutletKey`; prompts ask for one story per event; `Issue.outlets_read` and "read from N outlets" in the masthead.
 - Earlier briefs picker (newest first; only the newest is marked read); a section's source problem says what to do and opens Set up.
+- A status block at the top of the Briefs page says whether the brief is today's, how it was written and when the next comes (the owner could not tell a morning brief from yesterday's); the button reads "Write a new one now".
+- CI: the radio stack test `TestAWatchThatTheAdapterEndedEarly...` raced (the run clears Listening before the alert is told); it now waits for the alert.
 - Print hides the sidebar, header, tab bar, Briefs toolbar and picker; one visual test looks at the edition in nine themes and in print.
 - Looked at in the screenshots: retro-sand, retro-plum (desktop), print (desktop). Not looked at one by one: the other six presets (the test checks no sideways scroll in all nine), and the mobile project's screenshots.
 

@@ -25,6 +25,25 @@ beforeEach(() => {
   service.latest.mockResolvedValue([{ edition_id: 2, name: 'Morning', issue_id: 7, made_at: '2026-11-23T06:00:00Z', read: true }])
 })
 
+describe('NewsroomBriefs status', () => {
+  it('says plainly that today\'s brief needs nothing, and that an older one is not today\'s', async () => {
+    service.issues.mockResolvedValue([issue(7, 'Today', new Date().toISOString())])
+    let w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })
+    mounted.push(w)
+    await flushPromises()
+    expect(w.get('[data-test="brief-status"]').attributes('data-tone')).toBe('fresh')
+    expect(w.get('[data-test="brief-status"]').text()).toContain('Nothing to press')
+    expect(w.text()).toContain('Write a new one now')
+    w.unmount()
+    service.issues.mockResolvedValue([issue(7, 'Old', new Date(Date.now() - 30 * 3_600_000).toISOString())])
+    w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })
+    mounted.push(w)
+    await flushPromises()
+    expect(w.get('[data-test="brief-status"]').attributes('data-tone')).toBe('old')
+    expect(w.get('[data-test="brief-status"]').text()).toContain("not today's")
+  })
+})
+
 describe('NewsroomBriefs earlier briefs', () => {
   it('offers no picker while only one brief exists', async () => {
     service.issues.mockResolvedValue([issue(7, 'Today', '2026-11-23T06:00:00Z')])

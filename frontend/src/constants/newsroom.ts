@@ -258,6 +258,8 @@ export const NO_EDITIONS_BODY = 'An edition is a brief of the news topics you ch
 export const NO_ISSUE_TITLE = 'Not written yet'
 export const NO_ISSUE_BODY = 'This edition is written shortly before its ready time. You can write it now from what has been collected.'
 export const MAKE_NOW_LABEL = 'Write it now'
+/** When a brief already exists the button makes another: it says so, since the page writes one by itself at the ready time. */
+export const MAKE_ANOTHER_LABEL = 'Write a new one now'
 export const MAKING_LABEL = 'Writing…'
 export const TOP_STORIES_LABEL = 'Top stories'
 export const SECTION_EMPTY = 'Nothing new here since the last edition.'

@@ -9,12 +9,13 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import NewsroomEdition from "./NewsroomEdition.vue"
 import NewsroomBriefSetup from "./NewsroomBriefSetup.vue"
 import { editionJoining } from "../../utils/newsroom/briefForm"
+import { briefStatus } from "../../utils/newsroom/briefStatus"
 import { useBriefs } from "../../composables/newsroom/useBriefs"
 import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
-  BRIEF_EARLIER_LABEL, briefEarlierOption, BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
+  BRIEF_EARLIER_LABEL, MAKE_ANOTHER_LABEL, briefEarlierOption, BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
   NEW_BRIEF_LABEL, DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
@@ -42,6 +43,8 @@ function markShown() {
 watch([() => b.issue.value?.id, mode, () => b.loading.value, unread.loaded], markShown)
 onMounted(() => document.addEventListener("visibilitychange", markShown))
 onBeforeUnmount(() => document.removeEventListener("visibilitychange", markShown))
+// What the page says first: whether the brief on screen is today's, how it was made and when the next one comes. Re-read each minute's poll, so it turns "old" at midnight.
+const status = computed(() => (b.edition.value ? briefStatus(b.edition.value, b.issue.value) : briefStatus({ ready_by: "", days: [], enabled: false }, null)))
 const MODES = [{ value: "read", label: BRIEFS_TAB_LABELS.read }, { value: "setup", label: BRIEFS_TAB_LABELS.setup }]
 
 async function write() {
@@ -146,7 +149,15 @@ async function readTopic(t: BriefTopic) {
             <h2 class="m-0 text-[length:var(--text-h3,1.25rem)] font-semibold text-primary">{{ b.edition.value.name }}</h2>
             <span class="text-[length:var(--text-small)] text-faint">{{ READ_EDITION_READY(b.edition.value.ready_by, b.edition.value.sections.length) }}</span>
           </div>
-          <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : MAKE_NOW_LABEL }}</BaseButton>
+          <BaseButton class-name="ml-auto" size="sm" variant="secondary" :disabled="b.making.value" @click="write">{{ b.making.value ? MAKING_LABEL : b.issue.value ? MAKE_ANOTHER_LABEL : MAKE_NOW_LABEL }}</BaseButton>
+        </div>
+        <div
+          :class="['flex flex-col gap-0.5 rounded-[var(--radius-md)] border-l-4 bg-surface-raised px-4 py-3', status.tone === 'old' ? 'border-state-running' : status.tone === 'fresh' ? 'border-accent-brand' : 'border-hairline']"
+          :data-tone="status.tone"
+          data-test="brief-status"
+        >
+          <p class="m-0 text-[length:var(--text-body)] font-semibold text-primary">{{ status.title }}</p>
+          <p class="m-0 text-[length:var(--text-small)] text-muted">{{ status.detail }}</p>
         </div>
         <div v-if="b.editionIssues.value.length > 1" class="flex items-center gap-2 print:hidden" data-test="earlier-briefs">
           <span class="text-[length:var(--text-small)] text-faint">{{ BRIEF_EARLIER_LABEL }}</span>
