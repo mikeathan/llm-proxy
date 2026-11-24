@@ -5,13 +5,13 @@ last_reviewed: 2026-11-24
 related_specs: [SPEC-013, SPEC-003]
 constitution_references: [I.16, IV.6, V.2]
 related_plans: [morning-paper.md, topic-watch.md]
-evidence: Branch briefs-quality-and-polish, cut from origin/main at bf9a6dc4 (#303, v0.127.0) on 2026-11-24; commits local until pushed. Checks as listed below. This file replaces newsroom-briefs-handoff-2026-11-23.md, whose work is merged (#298 to #303).
+evidence: Branch briefs-quality-and-polish, cut from origin/main at bf9a6dc4 (#303, v0.127.0) on 2026-11-24; pushed as PR #304. Checks as listed below. This file replaces newsroom-briefs-handoff-2026-11-23.md, whose work is merged (#298 to #303).
 ---
 
 # Newsroom Briefs: handoff (2026-11-24, after #303)
 
 ## State
-- **Branch:** `briefs-quality-and-polish`, from origin/main at `bf9a6dc4`. Four commits (backend quality, front end, print and themes, docs). Version file says 0.128.0. Push and PR are the owner's call.
+- **Branch:** `briefs-quality-and-polish`, from origin/main at `bf9a6dc4`. Five commits, pushed, PR #304 (open; merge is the owner's call). Version file says 0.128.0.
 - Merged before this: edition page, Your watches, Home (#299), sections (#300 to #302), read state, dots and the dashboard Brief card (#303). Design, owner answers D1 to D10 and phases: `morning-paper.md`.
 - **Live check (2026-11-24, GET only):** vertex answers `/briefs/latest` through the core. Morning issue 3 was unread. The unread dot clearing on opening the page was not checked (it needs a POST to `/read`, which would clear the owner's state).
 
