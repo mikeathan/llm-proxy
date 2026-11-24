@@ -50,7 +50,7 @@ watch(open, async (isOpen) => {
 <template>
   <nav
     aria-label="Primary"
-    class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 bg-surface-raised pb-[env(safe-area-inset-bottom)]"
+    class="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 bg-surface-raised print:hidden pb-[env(safe-area-inset-bottom)]"
   >
     <RouterLink
       v-for="item in tabItems"

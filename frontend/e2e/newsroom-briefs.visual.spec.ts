@@ -165,6 +165,36 @@ test('the edition page: news beside Home and Your watches on a wide screen, unde
   await lookAt(page, testInfo, 'edition', true)
 })
 
+// The edition page in every theme and in print: nothing scrolls sideways, the masthead counts outlets, a source problem shows its fix, and printing hides the buttons.
+const PRESETS = ['retro-dark', 'retro-dark-soft', 'retro-dark-lifted', 'retro-midnight', 'retro-forest', 'retro-plum', 'retro-paper', 'retro-paper-cool', 'retro-sand']
+const PROBLEM_ISSUE = {
+  ...EDITION_ANSWERS['/briefs/issues'][0]!, outlets_read: 38,
+  sections: EDITION_ANSWERS['/briefs/issues'][0]!.sections.map((sec, i) => (i === 0 ? { ...sec, problems: ['News: Greece: internal: the server did not answer with HTTP 200'] } : sec)),
+}
+const EARLIER = { ...PROBLEM_ISSUE, id: 4, made_at: new Date(Date.now() - 26 * 3_600_000).toISOString() }
+
+test('the edition page in every theme and in print', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { ...EDITION_ANSWERS, '/briefs/issues': [PROBLEM_ISSUE, EARLIER] } })
+  await page.goto('newsroom/briefs')
+  await expect(page.locator('[data-test="edition"]')).toBeVisible()
+  await expect(page.locator('[data-test="masthead"]')).toBeVisible()
+  await expect(page.locator('header p', { hasText: 'read from 38 outlets' })).toBeVisible()
+  await expect(page.locator('[data-test="problems-fix"]').first()).toBeVisible()
+  await expect(page.locator('[data-test="earlier-briefs"] select')).toBeVisible()
+  for (const preset of PRESETS) {
+    await page.evaluate((id) => document.documentElement.setAttribute('data-theme', id), preset)
+    await expectNoSidewaysScroll(page)
+    await lookAt(page, testInfo, `edition-${preset}`, true)
+  }
+  await page.emulateMedia({ media: 'print' })
+  await expect(page.locator('[data-test="problems-open-setup"]').first()).toBeHidden()
+  await expect(page.locator('[data-test="earlier-briefs"]')).toBeHidden()
+  await expect(page.locator('#app-sidebar')).toBeHidden()
+  await expect(page.locator('[data-test="briefs-toolbar"]')).toBeHidden()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'edition-print', true)
+})
+
 // The dashboard's Newsroom board: a big Brief card while one is written, a dot on the tab while it is unread, and the whole edition opening inside the card.
 const issueOf = EDITION_ANSWERS['/briefs/issues'][0]!
 const LATEST = (read: boolean) => [{ edition_id: 2, name: 'Morning', issue_id: 5, made_at: issueOf.made_at, read }]

@@ -66,6 +66,68 @@ func TestCompose_AFabricatedCitationIsRemoved(t *testing.T) {
 	}
 }
 
+// The same outlet under two spellings ("The Guardian", "The Guardian UK") is one outlet, so "reported by N outlets" is not inflated.
+func TestOutlets_RegionalSpellingsOfOneOutletCountOnce(t *testing.T) {
+	p := PoolItem{Reports: []Report{{Publisher: "The Guardian"}, {Publisher: "The Guardian UK"}, {Publisher: "Guardian.com"}, {Publisher: "CNBC"}}}
+	if got := p.Outlets(); got != 2 {
+		t.Fatalf("Guardian spellings and CNBC are 2 outlets, got %d", got)
+	}
+	if got := storyOf(candidate{item: p}).Outlets; len(got) != 2 || got[0] != "The Guardian" {
+		t.Fatalf("the story names each outlet once under its first spelling: %v", got)
+	}
+}
+
+// One wire story reworded by a second outlet is one candidate: the model is shown it once, the outlets add up, and a later section does not repeat it.
+func TestCompose_ARewordedHeadlineOfTheSameStoryIsOneCandidate(t *testing.T) {
+	a := poolStory(1, "Nvidia board urged to resign after CEO reinstatement", "", 1, 7, time.Hour)
+	b := poolStory(2, "Nvidia board urged to resign after CEO's reinstatement - analysis", "", 2, 7, 2*time.Hour)
+	other := poolStory(3, "Tidal power plant opens off the Welsh coast", "", 1, 7, 3*time.Hour)
+	m := &fakeModel{answers: []string{"{}"}}
+	in := oneSection(a, b, other)
+	in.Model = m
+	got := Compose(context.Background(), in)
+	if strings.Count(m.prompts[0], "Nvidia board") != 1 {
+		t.Fatalf("the model is shown the reworded pair once:\n%s", m.prompts[0])
+	}
+	st := got.Sections[0].Stories
+	if len(st) != 2 || st[0].PoolID != 2 || len(st[0].Outlets) < 2 {
+		t.Fatalf("the pair is one story keeping the better reported item, with outlets of both: %+v", st)
+	}
+}
+
+// A story folded into another one is not shown as new the next morning: the earlier edition recorded only the shown story's key, so the rewording must
+// be recognised as that story.
+func TestCompose_AFoldedRewordingIsNotNewTheNextMorning(t *testing.T) {
+	a := poolStory(1, "Nvidia board urged to resign after CEO reinstatement", "", 1, 7, time.Hour)
+	b := poolStory(2, "Nvidia board urged to resign after CEO's reinstatement - analysis", "", 2, 7, 2*time.Hour)
+	first := Compose(context.Background(), oneSection(a, b))
+	var shown []Shown
+	for _, s := range first.Sections[0].Stories {
+		shown = append(shown, Shown{Key: s.Key, At: composeNow, Outlets: len(s.Outlets)})
+	}
+	next := oneSection(a, b)
+	next.Now = composeNow.Add(8 * time.Hour)
+	next.Shown = shown
+	if got := Compose(context.Background(), next).Sections[0].Stories; len(got) != 0 {
+		t.Fatalf("both wordings were shown yesterday as one story, nothing is new: %+v", got)
+	}
+}
+
+// Different angles on one event cannot be told apart by wording, so the prompts ask the model to pick one per event.
+func TestCompose_PromptsAskForOneStoryPerEvent(t *testing.T) {
+	if !strings.Contains(sectionSystem, "same event") || !strings.Contains(topSystem, "same event") {
+		t.Fatal("both prompts must tell the model to choose one story for an event")
+	}
+}
+
+// The edition says how many outlets it read, counted over the pool of its sections.
+func TestCompose_TheEditionCountsTheOutletsItRead(t *testing.T) {
+	in := oneSection(poolStory(1, "Alpha story one", "", 3, 7, time.Hour), poolStory(2, "Beta story two", "", 2, 7, time.Hour))
+	if got := Compose(context.Background(), in).OutletsRead; got != 3 {
+		t.Fatalf("Outlet 1..3 are the distinct outlets, got %d", got)
+	}
+}
+
 // A summary written from a bare headline is invention nothing can check, so a headline-only story keeps its own headline and gets no summary.
 func TestCompose_AHeadlineOnlyStoryHasNoModelSummary(t *testing.T) {
 	m := &fakeModel{answers: []string{`{"stories":[{"item":1,"headline":"Reworded","summary":"Made up detail."}]}`}}

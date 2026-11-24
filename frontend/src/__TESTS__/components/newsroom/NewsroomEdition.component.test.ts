@@ -17,6 +17,19 @@ describe('NewsroomEdition', () => {
     expect(w.text()).toContain('3 model calls')
   })
 
+  it('says how many outlets it read, and what to do about a source that could not be read', async () => {
+    const w = mount(NewsroomEdition, { props: { issue: issue({ outlets_read: 38, sections: [section({ problems: ['News: Greece: the server did not answer with HTTP 200'] })] }) } })
+    expect(w.text()).toContain('read from 38 outlets')
+    expect(w.get('[data-test="problems-fix"]').text()).toContain('Check the address')
+    await w.get('[data-test="problems-open-setup"]').trigger('click')
+    expect(w.emitted('open-setup')).toHaveLength(1)
+  })
+
+  it('leaves the outlet count out of an edition that did not store one', () => {
+    const w = mount(NewsroomEdition, { props: { issue: issue() } })
+    expect(w.text()).not.toContain('outlets')
+  })
+
   it('opens only the first two sections and lets the reader fold one by hand', async () => {
     const sections = [1, 2, 3].map((n) => section({ topic_id: n, name: `Topic ${n}`, stories: [story({ pool_id: n, headline: `Story of ${n}` })] }))
     const w = mount(NewsroomEdition, { props: { issue: issue({ sections }) } })

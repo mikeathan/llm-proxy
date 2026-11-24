@@ -1,9 +1,9 @@
 ---
 id: SPEC-013
 title: Newsroom
-version: "1.20"
+version: "1.21"
 status: stable
-last_updated: 2026-11-23
+last_updated: 2026-11-24
 constitution_references: [I.1, III.6, IV.6, V.2]
 related_specs: [SPEC-011, SPEC-009, SPEC-003]
 supersedes:
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **1.21 (2026-11-24)** — **Brief quality and polish** (ADR-0082). A story reworded by a second outlet (at least four content words in common and 60% of the two headlines' words) is one candidate when an edition is written; its reports add up and a later section does not repeat it. Outlets are counted by `OutletKey` ("The Guardian", "The Guardian UK" and "Guardian.com" are one). Both prompts ask for one story per event. `Issue.outlets_read` (distinct outlets over the recent pool of the edition's news topics) is stored and the masthead says "read from N outlets". The Briefs page lists the edition's earlier briefs in a picker (the newest first; only the newest is marked read), a section that could not read a source says what to do and opens Set up, and printing hides the app's sidebar, header, tab bar, the Briefs toolbar and the picker. The Briefs page opens with a status block: "Today's brief" (written automatically or by hand, at what time, nothing to press, when the next one comes) or, in the warning colour, "This brief is from <day>" with "it is not today's" and when the next is written; the button reads "Write a new one now" once a brief exists. Not built: a dot on the sidebar's Newsroom item (the rail's badge is a run-notification count with fixed words and feeds the page title), Your day, Telegram.
 - **1.20 (2026-11-23)** — **Read state, the dot and the dashboard Brief card** (ADR-0081). `Issue.read_at` is set once by `POST /admin/api/newsroom/briefs/issues/{id}/read` (idempotent); `GET .../briefs/latest` returns the newest issue of each existing edition as `{edition_id, name, issue_id, made_at, read}`. The Newsroom page's Briefs tab, the dashboard's Newsroom tab and the edition picker show a dot / "New" while that issue is unread (one shared 30 s poller); the Briefs page marks the edition on screen read, the dashboard never does. New dashboard card `newsroom-brief` (12 columns, first on the Newsroom board): masthead with a New tag, lead with art, top stories, a chip per section and "Show every section" opening the edition inside the card; medium and small sizes are the lead and one line. Cross-section repeats: the composer already de-duplicates by headline key across sections (`TestCompose_AStoryInTwoTopicsAppearsOnce`); the 2026-11-23 repeated headlines were not reproduced and are not explained by the code. Still not built: Your day, a source count in the masthead, Telegram.
 
 - **1.13 (2026-11-22)** — **Delete all briefs.** `DELETE /admin/api/newsroom/briefs/all` forgets every topic, edition, collected story, written edition and the owner's own sources (`Store.Erase`); the daily model-call limit stays. The Briefs tab has a "Delete all briefs" button behind a confirmation. Fix: the stack manifest now declares the `/briefs/sources` routes (GET, POST, DELETE), which the core answered with 404 until they were listed, so the whole tab showed "The briefs are unavailable"; `TestManifestDeclaresEveryBriefRoute` guards it.

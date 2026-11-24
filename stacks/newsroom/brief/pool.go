@@ -54,7 +54,7 @@ func (p PoolItem) HeadlineOnly() bool { return p.Text == "" }
 func (p PoolItem) Outlets() int {
 	seen := map[string]bool{}
 	for _, r := range p.Reports {
-		seen[r.Outlet()] = true
+		seen[OutletKey(r.Outlet())] = true
 	}
 	return len(seen)
 }

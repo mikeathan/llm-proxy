@@ -229,6 +229,8 @@ export interface BriefIssue {
   edition_id: number
   name: string
   made_at: string
+  /** The moment it was made for (its ready time); absent for one written by hand. */
+  ready_for?: string
   /** When the owner first read it; absent while unread. */
   read_at?: string
   top?: BriefStory[]
@@ -237,6 +239,8 @@ export interface BriefIssue {
   watches?: BriefWatchLine[]
   /** The core's fixed facts about the network and Radio: a count and the core's own sentence for an id; absent when the edition does not ask. */
   home?: BriefHomeLine[]
+  /** How many different outlets reported the stories the edition could choose from; absent on older editions. */
+  outlets_read?: number
   model_calls: number
 }
 
@@ -334,4 +338,12 @@ export interface SectionGroup {
   label: string
   topics: BriefTopic[]
   own: boolean
+}
+
+/** What the Briefs page says first about the brief on screen: is it today's, and does anything need pressing? */
+export interface BriefStatus {
+  /** 'fresh' is today's brief; 'old' is from an earlier day and says so loudly; 'none' has no brief yet. */
+  tone: 'fresh' | 'old' | 'none'
+  title: string
+  detail: string
 }
