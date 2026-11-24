@@ -79,6 +79,8 @@ func TestAWatchThatTheAdapterEndedEarlyTellsTheBellWithTheHoursLeft(t *testing.T
 	})
 	r.post(t, `{"adapter":"wlx00","hours":48}`)
 	waitFor(t, "the run to end", func() bool { return !r.state(t).Listening })
+	// The run clears Listening before endWatch tells the bell, so wait for the alert itself: reading it at once raced under -race.
+	waitFor(t, "the stopped alert", func() bool { return len(r.ev.got()) > 0 })
 	got := r.ev.got()
 	if len(got) != 1 || got[0].ID != AlertWatchStopped || got[0].Hours != 48 {
 		t.Fatalf("want one stopped alert with 48 hours left, got %+v", got)

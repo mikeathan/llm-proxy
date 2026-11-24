@@ -1,4 +1,4 @@
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { BriefService } from '../../services/newsroom/briefService'
 import { usePolling } from '../ui/usePolling'
 import { POLL_INTERVAL_MS } from '../../constants/api'
@@ -26,7 +26,12 @@ export function useBriefs() {
   const saving = ref(false)
 
   const edition = computed<BriefEdition | null>(() => editions.value.find((e) => e.id === pickedId.value) ?? editions.value[0] ?? null)
-  const issue = computed<BriefIssue | null>(() => issues.value.find((i) => i.edition_id === edition.value?.id) ?? null)
+  // The editions made for the picked edition, newest first (the server's order), and the one on screen: the newest unless the owner picked an earlier one.
+  const editionIssues = computed<BriefIssue[]>(() => issues.value.filter((i) => i.edition_id === edition.value?.id))
+  const pickedIssueId = ref<number | null>(null)
+  const issue = computed<BriefIssue | null>(() => editionIssues.value.find((i) => i.id === pickedIssueId.value) ?? editionIssues.value[0] ?? null)
+  const viewingEarlier = computed(() => issue.value !== null && issue.value.id !== editionIssues.value[0]?.id)
+  watch(pickedId, () => (pickedIssueId.value = null))
 
   async function load() {
     try {
@@ -94,7 +99,7 @@ export function useBriefs() {
   usePolling(load, POLL_INTERVAL_MS)
 
   return {
-    editions, topics, issues, settings, sources, addSource, removeSource, saveSettings, edition, issue, pickedId, loading, error, actionError, making, saving, load, makeNow,
+    editions, topics, issues, settings, sources, addSource, removeSource, saveSettings, edition, issue, editionIssues, pickedIssueId, viewingEarlier, pickedId, loading, error, actionError, making, saving, load, makeNow,
     createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition, deleteAll,
   }
 }

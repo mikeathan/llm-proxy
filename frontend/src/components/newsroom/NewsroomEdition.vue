@@ -8,8 +8,8 @@ import NewsroomEditionWatches from "./NewsroomEditionWatches.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
-  BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
-  briefAsOfWords, briefMadeWords, briefSectionCountWords, showMoreWords,
+  BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
+  briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, showMoreWords,
 } from "../../constants/newsroom"
 import type { BriefIssue, BriefSection, BriefStory } from "../../types/newsroom"
 
@@ -18,6 +18,8 @@ import type { BriefIssue, BriefSection, BriefStory } from "../../types/newsroom"
 // should know about it (collected long ago, not written by the model) and which sources could not be read, so a thin section explains itself.
 const OPEN_AT_FIRST = 2
 const props = defineProps<{ issue: BriefIssue }>()
+// A source that could not be read is fixed on Set up; the page that holds both views switches.
+defineEmits<{ (e: "open-setup"): void }>()
 
 // A section the reader opened or folded by hand overrides the default; "all" sets every card at once.
 const toggled = ref<Record<number, boolean>>({})
@@ -53,7 +55,7 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
     <header class="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-t-2 border-accent-brand pt-3">
       <div class="flex min-w-0 flex-col gap-1">
         <h2 class="m-0 break-words text-[length:var(--text-h2,1.75rem)] font-semibold leading-tight text-primary" data-test="masthead">{{ issue.name }}</h2>
-        <p class="m-0 text-[length:var(--text-small)] text-faint">{{ madeDate }} · {{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}</p>
+        <p class="m-0 text-[length:var(--text-small)] text-faint">{{ madeDate }} · {{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}<template v-if="issue.outlets_read"> · {{ briefOutletsWords(issue.outlets_read) }}</template></p>
       </div>
       <BaseButton v-if="issue.sections.length > 1" class-name="print:hidden" size="sm" variant="secondary" data-test="collapse-all" @click="setAll(!anyOpen)">{{ anyOpen ? COLLAPSE_ALL_LABEL : EXPAND_ALL_LABEL }}</BaseButton>
     </header>
@@ -94,6 +96,8 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
         <div v-if="sec.problems?.length" class="pt-2 text-[length:var(--text-small)] text-state-error" data-test="section-problems">
           <p class="m-0 font-medium">{{ BRIEF_PROBLEMS_LABEL }}</p>
           <ul class="m-0 list-none p-0"><li v-for="p in sec.problems" :key="p" class="break-words">{{ p }}</li></ul>
+          <p class="m-0 pt-1 text-faint" data-test="problems-fix">{{ BRIEF_PROBLEMS_FIX }}</p>
+          <BaseButton class-name="mt-1 print:hidden" size="sm" variant="secondary" data-test="problems-open-setup" @click="$emit('open-setup')">{{ BRIEF_PROBLEMS_ACTION }}</BaseButton>
         </div>
         <p v-if="headlinesOnly(sec)" class="m-0 pt-2 text-[length:var(--text-small)] text-faint" data-test="headlines-only">{{ SECTION_HEADLINES_ONLY }}</p>
         <ul v-if="storiesOf(sec).length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
