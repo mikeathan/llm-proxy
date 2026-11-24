@@ -15,11 +15,12 @@ import NewsroomWatchEditor from "../components/newsroom/NewsroomWatchEditor.vue"
 import NewsroomWatchRow from "../components/newsroom/NewsroomWatchRow.vue"
 import { useNewsroom } from "../composables/newsroom/useNewsroom"
 import { useNewsroomChannels } from "../composables/newsroom/useNewsroomChannels"
+import { useBriefUnread } from "../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import {
   clearedWords, clearMessage, clearTitle, deleteWatchMessage, deleteWatchTitle, FEED_EMPTY_BODY, FEED_EMPTY_TITLE, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
-  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords,
+  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords, unreadBriefWords,
 } from "../constants/newsroom"
 import { toNewsroom } from "../router/routes"
 import { dayEntries } from "../utils/newsroom/dayEntries"
@@ -34,12 +35,14 @@ const tab = computed<"feed" | "briefs" | "watches" | "settings">(() => {
   const asked = route.params.tab
   return asked === "briefs" || asked === "watches" || asked === "settings" ? asked : "feed"
 })
-const tabs: readonly StackTabItem[] = [
+// A dot on Briefs while a written brief has not been read (the state is the server's, shared with the dashboard).
+const { unreadCount } = useBriefUnread()
+const tabs = computed<readonly StackTabItem[]>(() => [
   { id: "feed", label: NEWSROOM_TAB_LABELS.feed, to: toNewsroom() },
-  { id: "briefs", label: NEWSROOM_TAB_LABELS.briefs, to: toNewsroom("briefs") },
+  { id: "briefs", label: NEWSROOM_TAB_LABELS.briefs, to: toNewsroom("briefs"), badge: { count: unreadCount.value, words: unreadBriefWords(unreadCount.value) } },
   { id: "watches", label: NEWSROOM_TAB_LABELS.watches, to: toNewsroom("watches") },
   { id: "settings", label: NEWSROOM_TAB_LABELS.settings, to: toNewsroom("settings") },
-]
+])
 
 const NEW = "new" as const
 const { watches, feed, filter, loading, error, actionError, saving, runningId, create, save, remove, markRead, clear, run } = useNewsroom()

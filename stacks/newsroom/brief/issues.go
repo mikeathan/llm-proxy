@@ -99,6 +99,50 @@ func (s *Store) Issue(id int64) (Issue, error) {
 	return Issue{}, ErrNotFound
 }
 
+// LatestIssue is the newest edition made for one edition, and whether it was read: what a tab's dot and the dashboard card ask, without the issue itself.
+type LatestIssue struct {
+	EditionID int64     `json:"edition_id"`
+	Name      string    `json:"name"`
+	IssueID   int64     `json:"issue_id"`
+	MadeAt    time.Time `json:"made_at"`
+	Read      bool      `json:"read"`
+}
+
+// Latest returns the newest issue of each edition that still exists, in edition id order. Older unread issues do not count: a morning paper missed
+// is not a pile of papers owed.
+func (s *Store) Latest() []LatestIssue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	newest := map[int64]Issue{}
+	for _, is := range s.doc.Issues {
+		if cur, ok := newest[is.EditionID]; !ok || is.ID > cur.ID {
+			newest[is.EditionID] = is
+		}
+	}
+	var out []LatestIssue
+	for _, e := range s.doc.Editions {
+		if is, ok := newest[e.ID]; ok {
+			out = append(out, LatestIssue{EditionID: e.ID, Name: e.Name, IssueID: is.ID, MadeAt: is.MadeAt, Read: !is.ReadAt.IsZero()})
+		}
+	}
+	return out
+}
+
+// MarkRead notes that the owner read the issue. Reading it again keeps the first time.
+func (s *Store) MarkRead(id int64, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.doc.Issues, func(is Issue) bool { return is.ID == id })
+	if i < 0 {
+		return ErrNotFound
+	}
+	if !s.doc.Issues[i].ReadAt.IsZero() {
+		return nil
+	}
+	s.doc.Issues[i].ReadAt = now.UTC()
+	return s.saveLocked()
+}
+
 // Made says whether the edition was already made for the ready time.
 func (s *Store) Made(editionID int64, readyFor time.Time) bool {
 	s.mu.Lock()

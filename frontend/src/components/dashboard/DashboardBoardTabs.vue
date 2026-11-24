@@ -5,6 +5,8 @@ import PopoverPanel from "../common/layout/PopoverPanel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import MicroLabel from "../common/display/MicroLabel.vue"
 import { useDismissable } from "../../composables/ui/useDismissable"
+import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
+import { unreadBriefWords } from "../../constants/newsroom"
 import { ADD_BOARD_LABEL, BOARD_ALREADY_ADDED, GROUP_LABELS, HOME_BOARD_ID, MAX_BOARD_NAME, REMOVE_BOARD_LABEL, RENAME_BOARD_LABEL, RESET_ALL_LABEL, SOURCE_LABELS, SUB_TABS_LABEL } from "../../constants/dashboard"
 import { boardTabs, groupOf } from "../../domain/dashboard"
 import type { DashboardBoard, DashboardBoardTemplate } from "../../types/dashboard"
@@ -22,6 +24,9 @@ const emit = defineEmits<{
   (e: "reset-all"): void
 }>()
 
+// A dot on the Newsroom tab while a written brief waits unread; the card inside it says which. The count is shared with the Newsroom page's tab.
+const NEWSROOM_BOARD_ID = "newsroom"
+const { unreadCount } = useBriefUnread()
 const menuOpen = ref(false)
 const root = ref<HTMLElement | null>(null)
 useDismissable(root, menuOpen)
@@ -49,7 +54,7 @@ function rename(event: Event) {
   <div class="flex flex-col gap-2">
     <div ref="root" class="relative flex items-center gap-2 border-b border-strong">
       <ScrollStrip label="Dashboard boards" :current="activeId" class="min-w-0 flex-1">
-        <button v-for="t in tabs" :key="t.id" type="button" :aria-current="isTabActive(t) ? 'page' : undefined" class="dash-tab" data-test="board-tab" @click="emit('open', t.id)">{{ t.label }}</button>
+        <button v-for="t in tabs" :key="t.id" type="button" :aria-current="isTabActive(t) ? 'page' : undefined" class="dash-tab" data-test="board-tab" @click="emit('open', t.id)">{{ t.label }}<template v-if="t.id === NEWSROOM_BOARD_ID && unreadCount > 0"><span class="dash-tab-dot" aria-hidden="true" data-test="board-tab-dot" /><span class="sr-only">, {{ unreadBriefWords(unreadCount) }}</span></template></button>
       </ScrollStrip>
       <BaseButton variant="ghost" size="sm" icon="plus" :disabled="atLimit" class-name="flex-none max-sm:!h-11" data-test="add-board" :aria-expanded="menuOpen" aria-controls="add-board-menu" @click="menuOpen = !menuOpen">{{ ADD_BOARD_LABEL }}</BaseButton>
       <PopoverPanel v-if="menuOpen" id="add-board-menu" :title="ADD_BOARD_LABEL" @close="menuOpen = false">
@@ -86,6 +91,9 @@ function rename(event: Event) {
 }
 .dash-tab[aria-current="page"] {
   @apply border-accent-brand font-medium text-primary;
+}
+.dash-tab-dot {
+  @apply ml-2 inline-block h-2 w-2 flex-none rounded-full bg-accent-brand;
 }
 .dash-pill {
   @apply inline-flex h-11 flex-none items-center rounded-full border border-hairline bg-transparent px-3.5 text-[length:var(--text-small)] text-muted hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 sm:h-8;

@@ -97,4 +97,6 @@ export interface StackTabItem {
   id: string
   label: string
   to: RouteLocationNamedRaw
+  /** How many new things wait in the tab: a dot shows while it is above zero, and a screen reader hears it. */
+  badge?: { count: number; words: string }
 }

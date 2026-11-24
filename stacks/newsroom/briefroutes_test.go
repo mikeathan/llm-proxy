@@ -286,3 +286,45 @@ func TestBriefRoutes_WatchesAndHomeFlagsRoundTripAndFillTheEdition(t *testing.T)
 		t.Fatalf("the edition carries the home block: %s %v", made.Body, err)
 	}
 }
+
+// The latest issue of each edition and whether it was read: marking reads is kept, and a missing issue is not found.
+func TestBriefRoutes_LatestAndMarkRead(t *testing.T) {
+	s := startBriefs(t, "", &rssFetch{}, time.Hour)
+	resp, _ := call(t, s, "POST", RouteBriefTopics, topicBody)
+	var topic struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &topic)
+	resp, err := call(t, s, "POST", RouteBriefEditions, editionBody(topic.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ed struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &ed)
+	if resp, err := call(t, s, "GET", RouteBriefLatest, ""); err != nil || string(resp.Body) != "[]" {
+		t.Fatalf("nothing made yet: %s %v", resp.Body, err)
+	}
+	if _, err := call(t, s, "POST", fmt.Sprintf("%stopics/%d/collect", RouteBriefs, topic.ID), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), ""); err != nil {
+		t.Fatal(err)
+	}
+	if resp, _ := call(t, s, "GET", RouteBriefLatest, ""); !strings.Contains(string(resp.Body), `"issue_id":1`) || !strings.Contains(string(resp.Body), `"read":false`) {
+		t.Fatalf("a made edition is unread: %s", resp.Body)
+	}
+	if resp, err := call(t, s, "POST", RouteBriefs+"issues/1/read", ""); err != nil || resp.Status != http.StatusNoContent {
+		t.Fatalf("mark read: %+v %v", resp, err)
+	}
+	if resp, _ := call(t, s, "GET", RouteBriefLatest, ""); !strings.Contains(string(resp.Body), `"read":true`) {
+		t.Fatalf("it stays read: %s", resp.Body)
+	}
+	if resp, _ := call(t, s, "GET", RouteBriefs+"issues/1", ""); !strings.Contains(string(resp.Body), "read_at") {
+		t.Fatalf("the issue carries when it was read: %s", resp.Body)
+	}
+	if _, err := call(t, s, "POST", RouteBriefs+"issues/99/read", ""); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+		t.Errorf("an unknown issue is not found, got %v", err)
+	}
+}

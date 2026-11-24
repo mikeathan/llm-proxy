@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
@@ -9,11 +9,12 @@ import NewsroomEdition from "./NewsroomEdition.vue"
 import NewsroomBriefSetup from "./NewsroomBriefSetup.vue"
 import { editionJoining } from "../../utils/newsroom/briefForm"
 import { useBriefs } from "../../composables/newsroom/useBriefs"
+import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
 import {
   BRIEFS_TAB_LABELS, BRIEFS_VIEW_LABEL, BRIEF_EDITION_LABEL, MAKE_NOW_LABEL, MAKING_LABEL, NEWSROOM_RELOAD_HINT, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE, READ_EDITION_READY,
-  DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
+  NEW_BRIEF_LABEL, DELETE_ALL_DONE, DELETE_ALL_LABEL, DELETE_ALL_MESSAGE, deleteAllTitle, deleteEditionMessage, deleteEditionTitle, deleteTopicMessage, deleteTopicTitle, topicReadWords,
 } from "../../constants/newsroom"
 import type { BriefEdition, BriefEditionEdit, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
 
@@ -23,6 +24,23 @@ const b = useBriefs()
 const { confirm } = useConfirm()
 const toast = useToast()
 const mode = ref<"read" | "setup">("read")
+// An edition on screen, in the read view, on a page the owner can see, counts as read: the server keeps it, and the dots on the tabs go. A brief written while the
+// page is open (by hand or on schedule) is read the same way, and a page left in a hidden tab does not read what arrives.
+const unread = useBriefUnread()
+// With several briefs the page opens on the first one that is unread (so a link from a dot lands on what the dot is about), and nothing is marked before
+// both lists are known: otherwise the first brief would flash up and be marked read before the switch.
+function markShown() {
+  if (mode.value !== "read" || b.loading.value || !unread.loaded.value || document.visibilityState !== "visible") return
+  if (b.pickedId.value === null) {
+    const first = b.editions.value.find((e) => unread.isUnread(e.id))
+    if (first) b.pickedId.value = first.id
+  }
+  const id = b.issue.value?.id
+  if (id !== undefined) void unread.markRead(id)
+}
+watch([() => b.issue.value?.id, mode, () => b.loading.value, unread.loaded], markShown)
+onMounted(() => document.addEventListener("visibilitychange", markShown))
+onBeforeUnmount(() => document.removeEventListener("visibilitychange", markShown))
 const MODES = [{ value: "read", label: BRIEFS_TAB_LABELS.read }, { value: "setup", label: BRIEFS_TAB_LABELS.setup }]
 
 async function write() {
@@ -118,7 +136,7 @@ async function readTopic(t: BriefTopic) {
           <SegmentedControl
             v-if="b.editions.value.length > 1"
             :model-value="String(b.edition.value.id)"
-            :options="b.editions.value.map((e) => ({ value: String(e.id), label: e.name }))"
+            :options="b.editions.value.map((e) => ({ value: String(e.id), label: unread.isUnread(e.id) ? `${e.name} · ${NEW_BRIEF_LABEL}` : e.name }))"
             :label="BRIEF_EDITION_LABEL"
             variant="compact"
             @update:model-value="b.pickedId.value = Number($event)"

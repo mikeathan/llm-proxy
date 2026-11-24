@@ -1,9 +1,9 @@
 ---
 id: SPEC-013
 title: Newsroom
-version: "1.19"
+version: "1.20"
 status: stable
-last_updated: 2026-11-22
+last_updated: 2026-11-23
 constitution_references: [I.1, III.6, IV.6, V.2]
 related_specs: [SPEC-011, SPEC-009, SPEC-003]
 supersedes:
@@ -12,6 +12,8 @@ supersedes:
 # SPEC: Newsroom
 
 ## Changelog
+
+- **1.20 (2026-11-23)** — **Read state, the dot and the dashboard Brief card** (ADR-0081). `Issue.read_at` is set once by `POST /admin/api/newsroom/briefs/issues/{id}/read` (idempotent); `GET .../briefs/latest` returns the newest issue of each existing edition as `{edition_id, name, issue_id, made_at, read}`. The Newsroom page's Briefs tab, the dashboard's Newsroom tab and the edition picker show a dot / "New" while that issue is unread (one shared 30 s poller); the Briefs page marks the edition on screen read, the dashboard never does. New dashboard card `newsroom-brief` (12 columns, first on the Newsroom board): masthead with a New tag, lead with art, top stories, a chip per section and "Show every section" opening the edition inside the card; medium and small sizes are the lead and one line. Cross-section repeats: the composer already de-duplicates by headline key across sections (`TestCompose_AStoryInTwoTopicsAppearsOnce`); the 2026-11-23 repeated headlines were not reproduced and are not explained by the code. Still not built: Your day, a source count in the masthead, Telegram.
 
 - **1.13 (2026-11-22)** — **Delete all briefs.** `DELETE /admin/api/newsroom/briefs/all` forgets every topic, edition, collected story, written edition and the owner's own sources (`Store.Erase`); the daily model-call limit stays. The Briefs tab has a "Delete all briefs" button behind a confirmation. Fix: the stack manifest now declares the `/briefs/sources` routes (GET, POST, DELETE), which the core answered with 404 until they were listed, so the whole tab showed "The briefs are unavailable"; `TestManifestDeclaresEveryBriefRoute` guards it.
 - **1.12 (2026-11-22)** — **Well-known sources for a brief topic** (ADR-0076). `GET|POST /admin/api/newsroom/briefs/sources` and `DELETE .../sources/{id}`: the built-in catalog (`sources/catalog.go`, feeds and publisher searches, each feed fetched and parsed when written) then the owner's own list (`my_sources` in `briefs.json`, at most 100, refused when it repeats an entry). A topic copies the pick with its name (`label`). The topic form's "Follow a website" is a chip box with suggestions while typing and a "Browse well-known sources" list; "My sources" is a card on Set up. A pasted feed link in neither list is read once with the source look-up and shown with what it gives or its problem (a hint; the topic still saves), a page that is not a feed offers the feeds it advertises, and a found feed can be kept in "My sources". The look-up routes now refuse only when Watches and Briefs are both off (they refused when Watches alone was off, which would have broken the check on a Briefs-only install). **"Write it now" first collects** the edition's topics never read or older than its interval (`Collector.CollectStale`); an edition section that was never read says so.
@@ -60,6 +62,7 @@ supersedes:
 | Capability | Where |
 |---|---|
 | RSS/Atom, Hacker News, Mastodon tag, page change, Telegram preview and news-search sources; one reader registry | `stacks/newsroom/sources/` (`spec.go`, `news.go`) |
+| Unread briefs: `read_at`, `/briefs/latest`, `/briefs/issues/{id}/read`, the tab dots and the dashboard Brief card | `stacks/newsroom/brief/issues.go`, `briefroutes.go`, `frontend/.../useBriefUnread.ts`, `StackTabs.vue`, `DashboardBoardTabs.vue`, `cards/NewsroomBriefCard.vue` |
 | Brief topics, editions, pool, collector, routes | `stacks/newsroom/brief/`, `briefroutes.go` |
 | Starter topics: suggestions in the topic form and a gallery on an empty page; the name comes from the first search | `frontend/.../NewsroomBriefTopicEditor.vue`, `NewsroomBriefStarterGallery.vue`, `constants/newsroom.ts` (`BRIEF_STARTERS`), `utils/newsroom/briefForm.ts` (`starterEdit`, `topicNameFrom`) |
 | Well-known sources (built-in catalog) and the owner's own list; suggestions while typing and a browser in the topic form; "My sources" on Set up | `sources/catalog.go`, `brief/mysources.go`, `briefsources.go`; `frontend/.../ChipInput.vue`, `NewsroomBriefSourceBrowser.vue`, `NewsroomBriefMySources.vue`, `NewsroomBriefCustomFeeds.vue` |

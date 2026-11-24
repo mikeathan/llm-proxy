@@ -448,3 +448,21 @@ export const removeSectionLabel = (name: string): string => `Remove ${name} from
 export const addSectionLabel = (name: string): string => `Add ${name} to this brief`
 export const EDITION_TOO_MANY = `A brief reads at most ${MAX_EDITION_TOPICS} topics. Take a section out, or delete topics you do not need.`
 export const EDITION_NEEDS_SOMETHING = 'Pick at least one thing for the brief.'
+
+// Unread briefs: the dot on the Briefs tab and the dashboard's Newsroom tab, and the dashboard's Brief card.
+export const NEW_BRIEF_LABEL = 'New'
+export const BRIEF_UNREAD_POLL_MS = 30000
+export const unreadBriefWords = (count: number): string => (count === 1 ? '1 new brief' : `${count} new briefs`)
+export const BRIEF_CARD_LOAD_FAILED = 'The brief could not be read.'
+export const BRIEF_CARD_RELOAD = 'It tries again by itself every minute.'
+export const BRIEF_CARD_NONE = 'No brief yet. A brief is the news you choose, written at a time you set.'
+export const BRIEF_CARD_SET_UP = 'Set up a brief'
+export const BRIEF_CARD_WAITING = (ready: string): string => `Not written yet. It is ready at ${ready}.`
+export const BRIEF_CARD_OPEN = 'Read the whole brief'
+export const BRIEF_CARD_EXPAND = 'Show every section'
+export const BRIEF_CARD_COLLAPSE = 'Show less'
+export const BRIEF_CARD_PICK_LABEL = 'Brief'
+export const BRIEF_CARD_EMPTY_ISSUE = 'This brief has no stories.'
+export const briefCardCountWords = (stories: number, sections: number): string =>
+  `${stories} ${stories === 1 ? 'story' : 'stories'}${sections > 1 ? ` in ${sections} sections` : ''}`
+export const briefCardLineWords = (name: string, stories: number): string => `${name} · ${stories} ${stories === 1 ? 'story' : 'stories'}`

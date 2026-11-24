@@ -29,6 +29,8 @@ const (
 	RouteBriefMake     = "/admin/api/newsroom/briefs/editions/{id}/issue"
 	RouteBriefIssues   = "/admin/api/newsroom/briefs/issues"
 	RouteBriefIssue    = "/admin/api/newsroom/briefs/issues/{id}"
+	RouteBriefRead     = "/admin/api/newsroom/briefs/issues/{id}/read"
+	RouteBriefLatest   = "/admin/api/newsroom/briefs/latest"
 	RouteBriefSettings = "/admin/api/newsroom/briefs/settings"
 	RouteBriefSources  = "/admin/api/newsroom/briefs/sources"
 	RouteBriefSource   = "/admin/api/newsroom/briefs/sources/{id}"
@@ -138,7 +140,7 @@ func (s *Stack) handleBriefs(ctx context.Context, req stacksdk.Request) (stacksd
 		return handleEraseBriefs(key, req, store)
 	case RouteBriefPool:
 		return briefPool(store, req.Query)
-	case RouteBriefIssues, RouteBriefIssue:
+	case RouteBriefIssues, RouteBriefIssue, RouteBriefRead, RouteBriefLatest:
 		return handleIssues(key, id, req.Query, store)
 	case RouteBriefSettings:
 		return s.briefSettings(ctx, req)
@@ -200,9 +202,14 @@ func (s *Stack) briefAction(ctx context.Context, route string, id int64, parts b
 	return jsonResponse(http.StatusOK, o)
 }
 
-// handleIssues answers the routes that read the editions already made: the newest few, or one by id. Reading asks nothing of the model.
+// handleIssues answers the routes that read the editions already made (the newest few, or one by id), say which are unread, and note one as read. Reading
+// asks nothing of the model.
 func handleIssues(key string, id int64, rawQuery string, store *brief.Store) (stacksdk.Response, error) {
 	switch key {
+	case "POST " + RouteBriefRead:
+		return noContent(store.MarkRead(id, time.Now()))
+	case "GET " + RouteBriefLatest:
+		return jsonResponse(http.StatusOK, nonNil(store.Latest()))
 	case "GET " + RouteBriefIssue:
 		is, err := store.Issue(id)
 		if err != nil {
@@ -262,8 +269,8 @@ func handleEditions(key string, id int64, req stacksdk.Request, store *brief.Sto
 
 // The shapes of a real path under RouteBriefs, by the number of segments: the collection, then the collection and an id, then an action on one item.
 var (
-	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "settings": RouteBriefSettings, "sources": RouteBriefSources, "all": RouteBriefAll}
-	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake}
+	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "latest": RouteBriefLatest, "settings": RouteBriefSettings, "sources": RouteBriefSources, "all": RouteBriefAll}
+	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake, "issues/read": RouteBriefRead}
 	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue, "sources": RouteBriefSource}
 )
 

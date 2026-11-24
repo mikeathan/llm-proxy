@@ -229,6 +229,8 @@ export interface BriefIssue {
   edition_id: number
   name: string
   made_at: string
+  /** When the owner first read it; absent while unread. */
+  read_at?: string
   top?: BriefStory[]
   sections: BriefSection[]
   /** What the watches found since the previous edition; absent when the edition does not ask. */
@@ -236,6 +238,15 @@ export interface BriefIssue {
   /** The core's fixed facts about the network and Radio: a count and the core's own sentence for an id; absent when the edition does not ask. */
   home?: BriefHomeLine[]
   model_calls: number
+}
+
+/** The newest edition made for one edition and whether the owner read it: what a tab's dot and the dashboard card ask, without the edition itself. */
+export interface BriefLatest {
+  edition_id: number
+  name: string
+  issue_id: number
+  made_at: string
+  read: boolean
 }
 
 export interface BriefEdition {

@@ -164,3 +164,49 @@ test('the edition page: news beside Home and Your watches on a wide screen, unde
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'edition', true)
 })
+
+// The dashboard's Newsroom board: a big Brief card while one is written, a dot on the tab while it is unread, and the whole edition opening inside the card.
+const issueOf = EDITION_ANSWERS['/briefs/issues'][0]!
+const LATEST = (read: boolean) => [{ edition_id: 2, name: 'Morning', issue_id: 5, made_at: issueOf.made_at, read }]
+const STACKS_WITH_NEWSROOM = { stacks: ['network', 'agents', 'radio', 'reminders', 'newsroom'].map((id) => ({ id, title: id, purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 })) }
+const dashboardAnswers = (read: boolean) => ({ ...EDITION_ANSWERS, '/stacks': STACKS_WITH_NEWSROOM, '/dashboard': { boards: [] }, '/briefs/latest': LATEST(read), '/briefs/issues/5': issueOf })
+
+test('the dashboard: a big Brief card with a dot on the tab while it is unread, expanding inside the card', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: dashboardAnswers(false) })
+  await page.goto('dashboard?board=newsroom')
+  const card = page.locator('[data-test="brief-card"]')
+  await expect(card.locator('[data-test="brief-card-large"]')).toBeVisible()
+  await expect(card).toHaveAttribute('data-unread', 'true')
+  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(1)
+  const before = await card.boundingBox()
+  await lookAt(page, testInfo, 'dashboard-brief-unread', true)
+  await card.locator('[data-test="brief-card-toggle"]').click()
+  await expect(card.locator('[data-test="brief-card-all"]')).toBeVisible()
+  const after = await card.boundingBox()
+  expect(after!.height, 'the card grows to show the edition').toBeGreaterThan(before!.height)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'dashboard-brief-open', true)
+})
+
+test('the dashboard: no dot and no New tag once the brief is read', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: dashboardAnswers(true) })
+  await page.goto('dashboard?board=newsroom')
+  await expect(page.locator('[data-test="brief-card-large"]')).toBeVisible()
+  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="brief-card"]')).not.toHaveAttribute('data-unread', 'true')
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'dashboard-brief-read', true)
+})
+
+test('opening the Briefs page reads the brief: the Newsroom tab loses its dot', async ({ page }) => {
+  await mockAdminApi(page, { answers: dashboardAnswers(false) })
+  const asked: string[] = []
+  // The server keeps what was read: once it is told, it answers "read".
+  await page.route('**/briefs/latest', (route) => route.fulfill({ json: LATEST(asked.length > 0) }))
+  page.on('request', (r) => { if (r.method() === 'POST' && r.url().includes('/briefs/issues/')) asked.push(new URL(r.url()).pathname) })
+  await page.goto('newsroom/briefs')
+  await expect(page.locator('[data-test="edition"]')).toBeVisible()
+  await expect.poll(() => asked.length).toBeGreaterThan(0)
+  expect(asked[0]).toMatch(/\/briefs\/issues\/5\/read$/)
+  await expect(page.locator('[data-test="tab-dot"]')).toHaveCount(0)
+})
