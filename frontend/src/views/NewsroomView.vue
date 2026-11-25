@@ -140,63 +140,66 @@ async function check(t: NewsroomWatch) {
       </template>
     </PageHeader>
     <StackTabs label="Newsroom" :tabs="tabs" :active="tab" />
-    <Panel v-if="tab === 'following' && followText !== null" :title="FOLLOW_TITLE">
-      <NewsroomFollowForm
-        :initial-text="followText"
-        :initial-mode="kind"
-        :sections="f.sections.value"
-        :channels="channels"
-        :saving="f.saving.value"
-        :error="f.error.value"
-        :preview="f.preview.value"
-        @save="saveFollow"
-        @preview="f.lookUp"
-        @cancel="closeFollow()"
-        @advanced="followAdvanced"
-      />
-    </Panel>
-    <StackModules v-if="tab === 'settings'" stack="newsroom" />
-    <NewsroomBriefs v-else-if="tab === 'brief'" />
-    <template v-else-if="tab === 'following' && kind === 'brief'">
-      <SegmentedControl v-model="kind" class="self-start" :options="KINDS" :label="FOLLOWING_VIEW_LABEL" variant="compact" />
-      <NewsroomBriefFollowing :key="followKey" />
-    </template>
-
-    <template v-else>
-      <SegmentedControl v-if="tab === 'following'" v-model="kind" class="self-start" :options="KINDS" :label="FOLLOWING_VIEW_LABEL" variant="compact" />
-      <LoadingState v-if="loading" label="Loading the Newsroom" :rows="3" />
-      <ErrorState v-else-if="error" title="The Newsroom is unavailable" :cause="error" :next="NEWSROOM_RELOAD_HINT" />
-
-      <template v-else-if="tab === 'alerts'">
-        <EmptyState v-if="!watches.length" :title="NO_WATCHES_TITLE" :body="NO_WATCHES_BODY">
-          <template #action>
-            <BaseButton size="sm" icon="plus" @click="startFollow">{{ NO_WATCHES_ACTION }}</BaseButton>
-          </template>
-        </EmptyState>
-        <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
-        <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
-        <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
+    <!-- The brief is a page to read and uses the whole width; the forms and lists of the other tabs keep the usual page width. -->
+    <div :class="['flex min-w-0 flex-col gap-4', tab === 'brief' ? '' : 'max-w-[1072px]']" data-test="newsroom-body">
+      <Panel v-if="tab === 'following' && followText !== null" :title="FOLLOW_TITLE">
+        <NewsroomFollowForm
+          :initial-text="followText"
+          :initial-mode="kind"
+          :sections="f.sections.value"
+          :channels="channels"
+          :saving="f.saving.value"
+          :error="f.error.value"
+          :preview="f.preview.value"
+          @save="saveFollow"
+          @preview="f.lookUp"
+          @cancel="closeFollow()"
+          @advanced="followAdvanced"
+        />
+      </Panel>
+      <StackModules v-if="tab === 'settings'" stack="newsroom" />
+      <NewsroomBriefs v-else-if="tab === 'brief'" />
+      <template v-else-if="tab === 'following' && kind === 'brief'">
+        <SegmentedControl v-model="kind" class="self-start" :options="KINDS" :label="FOLLOWING_VIEW_LABEL" variant="compact" />
+        <NewsroomBriefFollowing :key="followKey" />
       </template>
 
       <template v-else>
-        <Panel v-if="editing === NEW" :title="NEW_WATCH_LABEL">
-          <NewsroomWatchEditor :watch="null" :channels="channels" :saving="saving" :error="actionError" @save="submit(NEW, $event)" @cancel="editing = null" />
-        </Panel>
-        <EmptyState v-if="!watches.length && editing !== NEW" :title="NO_WATCHES_TITLE" :body="NO_WATCHES_BODY">
-          <template #action>
-            <BaseButton size="sm" icon="plus" @click="open(NEW)">{{ NO_WATCHES_ACTION }}</BaseButton>
-          </template>
-        </EmptyState>
-        <p v-if="actionError && editing === null" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
-        <Panel v-if="watches.length" title="Watches">
-          <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" aria-label="Watches you follow">
-            <li v-for="t in watches" :key="t.id" class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-              <NewsroomWatchEditor v-if="editing === t.id" :watch="t" :channels="channels" :saving="saving" :error="actionError" @save="submit(t.id, $event)" @cancel="editing = null" />
-              <NewsroomWatchRow v-else :watch="t" :busy="saving" :running="runningId === t.id" @run="check(t)" @edit="open(t.id)" @delete="askDelete(t)" />
-            </li>
-          </ul>
-        </Panel>
+        <SegmentedControl v-if="tab === 'following'" v-model="kind" class="self-start" :options="KINDS" :label="FOLLOWING_VIEW_LABEL" variant="compact" />
+        <LoadingState v-if="loading" label="Loading the Newsroom" :rows="3" />
+        <ErrorState v-else-if="error" title="The Newsroom is unavailable" :cause="error" :next="NEWSROOM_RELOAD_HINT" />
+
+        <template v-else-if="tab === 'alerts'">
+          <EmptyState v-if="!watches.length" :title="NO_WATCHES_TITLE" :body="NO_WATCHES_BODY">
+            <template #action>
+              <BaseButton size="sm" icon="plus" @click="startFollow">{{ NO_WATCHES_ACTION }}</BaseButton>
+            </template>
+          </EmptyState>
+          <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
+          <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
+          <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
+        </template>
+
+        <template v-else>
+          <Panel v-if="editing === NEW" :title="NEW_WATCH_LABEL">
+            <NewsroomWatchEditor :watch="null" :channels="channels" :saving="saving" :error="actionError" @save="submit(NEW, $event)" @cancel="editing = null" />
+          </Panel>
+          <EmptyState v-if="!watches.length && editing !== NEW" :title="NO_WATCHES_TITLE" :body="NO_WATCHES_BODY">
+            <template #action>
+              <BaseButton size="sm" icon="plus" @click="open(NEW)">{{ NO_WATCHES_ACTION }}</BaseButton>
+            </template>
+          </EmptyState>
+          <p v-if="actionError && editing === null" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
+          <Panel v-if="watches.length" title="Watches">
+            <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" aria-label="Watches you follow">
+              <li v-for="t in watches" :key="t.id" class="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+                <NewsroomWatchEditor v-if="editing === t.id" :watch="t" :channels="channels" :saving="saving" :error="actionError" @save="submit(t.id, $event)" @cancel="editing = null" />
+                <NewsroomWatchRow v-else :watch="t" :busy="saving" :running="runningId === t.id" @run="check(t)" @edit="open(t.id)" @delete="askDelete(t)" />
+              </li>
+            </ul>
+          </Panel>
+        </template>
       </template>
-    </template>
+    </div>
   </div>
 </template>
