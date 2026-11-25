@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectNoSidewaysScroll, lookAt, mockAdminApi } from './support/adminApi'
+import { expectNoSidewaysScroll, expectTapArea, lookAt, mockAdminApi } from './support/adminApi'
 
 // The dashboard: boards of cards. Home ships minimal (nothing a stack board repeats; the person adds more), a stack ships its own board, and a board re-flows from its
 // layout menu. On a phone every card is one full-width block, one after another. The screenshots are for looking at.
@@ -29,6 +29,11 @@ test('Home ships minimal: one card no stack board repeats', async ({ page }, tes
     const grid = await page.locator('[data-test="dashboard-grid"]').boundingBox()
     for (const card of await page.locator('[data-test="dashboard-grid"] > div').all()) expect((await card.boundingBox())?.width).toBeGreaterThan((grid?.width ?? 0) - 2)
     for (const tab of await page.locator('[data-test="board-tab"]').all()) expect((await tab.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    // One row of head: the title and Edit, then the tabs; the first card starts soon under the title (measured from the title, not the top,
+    // because the mocked API shows a model warning above the page).
+    await expectTapArea(page.locator('[data-test="arrange"]'))
+    const [title, first] = [await page.getByRole('heading', { name: 'Dashboard', level: 1 }).boundingBox(), await page.locator('[data-test="dashboard-grid"] > div').first().boundingBox()]
+    expect(first!.y - title!.y).toBeLessThan(130)
   }
 })
 
@@ -56,13 +61,19 @@ test('arranging: a layout re-flows the board, a card is resized, and the board o
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
   await page.goto('dashboard?board=host')
   await expect(page.locator('[data-test="host-health-card"]')).toBeVisible() // the cards load as they are first shown
-  await page.locator('[data-test="layout-select"]').selectOption('two-columns')
-  await expect(page.locator('[data-test="reset-board"]')).toBeVisible()
+  // Every control that changes the board waits behind Edit; the layout menu is for wide screens (a phone shows every card full width).
+  await page.locator('[data-test="arrange"]').click()
+  await expect(page.locator('[data-test="arrange"]')).toHaveText('Done')
   if (testInfo.project.name === 'desktop') {
+    await page.locator('[data-test="layout-select"]').selectOption('two-columns')
+    await expect(page.locator('[data-test="reset-board"]')).toBeVisible()
     const [a, b] = await page.locator('[data-test="dashboard-grid"] > div').all()
     expect((await a!.boundingBox())?.y).toBe((await b!.boundingBox())?.y) // two to a row
+  } else {
+    await expect(page.locator('[data-test="layout-select"]')).toBeHidden()
+    await page.locator('[data-test="card-remove"]').first().click()
+    await expect(page.locator('[data-test="reset-board"]')).toBeVisible()
   }
-  await page.locator('[data-test="arrange"]').click()
   await expect(page.locator('[data-test="card-controls"]').first()).toBeVisible()
   await expect(page.locator('[data-test="card-remove"]').first()).toBeVisible()
   await lookAt(page, testInfo, 'dashboard-arrange', true)

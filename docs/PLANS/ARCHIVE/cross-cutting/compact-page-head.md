@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-11-25
 last_reviewed: 2026-11-25
 related_specs: [SPEC-003, SPEC-013]
@@ -10,10 +10,10 @@ evidence: Phone screenshots of the dashboard (Home) and the Newsroom brief at 39
 
 # Compact page heads: less above the first card or headline
 
-**Status:** proposed. Mocks only, nothing built. The owner picks the options below before any code.
+**Status:** complete. Built in v0.140.0 (PR #313) with the owner's picks below; SPEC-003 2.75 and SPEC-013 1.34 hold the result.
 
 Mocks: [`compact-page-head-mocks/index.html`](compact-page-head-mocks/index.html) (`?theme=light` for paper). Renders: `case-1.png`
-to `case-5.png` (dark).
+to `case-5.png` (dark). The head-action variants: `head-actions.html` and `head-actions-1.png` to `-3.png`.
 
 ## The problem (measured in the mocks, 390 × 844, no callout above the page)
 
@@ -43,13 +43,20 @@ to `case-5.png` (dark).
    view beside it. The date is the earlier-briefs menu, on one line with "12 h ago · 395 outlets". ⋯ holds Write a new one now and Delete.
    "N model calls" leaves the dateline, since the Model use block shows it.
 
-## Decisions for the owner
+## Decisions (taken 2026-11-25)
 
 - D1: On a wide screen, does Add card also move into arrange mode, or stay in read mode? The mock moves it (one rule at every width).
 - D2: On a wide screen, does the brief keep the "Morning" nameplate (newspaper look, mock section 5) or use the phone's switch-as-masthead?
 - D3: ⋯ for Write a new one now and Delete, or two labelled buttons on a second row? The mock uses ⋯ because both are rare, and the
   scheduled brief comes on its own. Material Design's overflow-menu rule ("when actions exceed the space, use a more menu instead of
   cramming") supports ⋯; keep Delete last and in the danger colour, apart from the other items, and give ⋯ an accessible name.
+
+- **Taken:** D1 every board control waits behind Edit at every width (Layout included, shown from `sm`); D2 the wide screen keeps
+  the "Morning" nameplate; D3 ⋯ (the mock's default; the owner did not pick otherwise); D4 "Edit" with a pencil as a text button (the owner's
+  pick); D5 the small outline Follow (the owner's pick; they did not like pills).
+- D4: The dashboard head action: "Edit" with a pencil as a text button (recommended), "Customize", "Edit board" or an icon. Variants in
+  `compact-page-head-mocks/head-actions.html`.
+- D5: The Newsroom "Follow": a small soft pill (recommended), a text action, a small outline or a round icon. Same file.
 
 ## Phases (after the decisions)
 
@@ -63,4 +70,5 @@ to `case-5.png` (dark).
 
 ## Remaining Work
 
-- The owner answers D1 to D3; then phases 1 to 4.
+None. Not done on purpose: the "+" at the end of the board tabs while editing (Add board is in the edit bar), and the other pages'
+primary head buttons (New reminder, Add model, New automation) keep their size; the owner can ask for the Follow treatment there.

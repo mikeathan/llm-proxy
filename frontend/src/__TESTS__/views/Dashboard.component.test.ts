@@ -131,8 +131,19 @@ describe('DashboardView', () => {
     expect((w.get('[data-test="layout-select"]').element as HTMLSelectElement).value).toBe('custom')
   })
 
+  // Reading shows only Edit in the head; everything that changes the board waits behind it, in one bar under the tabs.
+  it('reads with only Edit in the head, and editing shows the board controls with Done', async () => {
+    const { w } = await open()
+    expect(w.get('[data-test="arrange"]').text()).toBe('Edit')
+    for (const id of ['dashboard-toolbar', 'layout-select', 'add-card', 'add-board']) expect(w.find(`[data-test="${id}"]`).exists()).toBe(false)
+    await w.get('[data-test="arrange"]').trigger('click')
+    expect(w.get('[data-test="arrange"]').text()).toBe('Done')
+    for (const id of ['dashboard-toolbar', 'layout-select', 'add-card', 'add-board']) expect(w.find(`[data-test="${id}"]`).exists()).toBe(true)
+  })
+
   it('re-flows the board from the layout menu and can put it back', async () => {
     const { w } = await open()
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="layout-select"]').setValue('one-column')
     expect((saved(0) as DashboardLayout).boards[0]!.cards.every((c) => c.cols === 12)).toBe(true)
     await w.get('[data-test="reset-board"]').trigger('click')
@@ -141,6 +152,7 @@ describe('DashboardView', () => {
 
   it('adds a blank board and opens it', async () => {
     const { w } = await open()
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-board"]').trigger('click')
     await w.get('[data-test="add-blank-board"]').trigger('click')
     await flushPromises()
@@ -150,6 +162,7 @@ describe('DashboardView', () => {
 
   it('adds a card from the catalogue to the open board', async () => {
     const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-card"]').trigger('click')
     await w.get('[data-test="catalogue-radio-around"] button').trigger('click')
     await flushPromises()
@@ -161,6 +174,7 @@ describe('DashboardView', () => {
   it('offers only the cards and boards of a stack that has a module on', async () => {
     stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }, { id: 'reminders', title: 'Reminders', purpose: '', on: 1, total: 1, stopped: 0, blocked: 0 }])
     const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-card"]').trigger('click')
     expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(true) // the reminders stack is on
     expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(false) // the radio stack has nothing on
@@ -172,6 +186,7 @@ describe('DashboardView', () => {
   it('hides the Reminders card while the Reminders stack is off', async () => {
     stacksService.list.mockResolvedValue([{ id: 'reminders', title: 'Reminders', purpose: '', on: 0, total: 1, stopped: 0, blocked: 0 }])
     const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-card"]').trigger('click')
     expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(false)
   })
@@ -212,6 +227,7 @@ describe('DashboardView', () => {
   it('puts every board back as shipped from the Add board menu, after asking', async () => {
     service.layout.mockResolvedValue({ boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }] })
     const { w } = await open()
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-board"]').trigger('click')
     await w.get('[data-test="reset-all-boards"]').trigger('click')
     await flushPromises()
@@ -259,6 +275,7 @@ describe('DashboardView', () => {
   it('offers everything when the list of stacks cannot be read', async () => {
     stacksService.list.mockRejectedValue(new Error('down'))
     const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="arrange"]').trigger('click')
     await w.get('[data-test="add-card"]').trigger('click')
     expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(true)
   })

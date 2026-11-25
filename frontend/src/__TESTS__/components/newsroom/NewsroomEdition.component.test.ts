@@ -35,6 +35,17 @@ describe('NewsroomEdition', () => {
     expect(w.text()).toContain('Reported by BBC, Reuters')
   })
 
+  // With the edition switch beside it the switch names the brief, so on a phone the nameplate is left to screen readers; the model calls are for wide screens.
+  it('hands the name to the edition switch on a phone, puts a picker in place of the date, and keeps model calls to wide screens', () => {
+    const w = mount(NewsroomEdition, { props: { issue: issue(), status: STATUS, nameInSwitch: true }, slots: { when: '<span data-test="picker">Mon 22 Nov</span>' }, global })
+    expect(w.get('[data-test="masthead"]').classes()).toContain('max-sm:sr-only')
+    expect(w.get('[data-test="dateline"]').element.tagName).toBe('DIV')
+    expect(w.get('[data-test="dateline"] [data-test="picker"]').text()).toBe('Mon 22 Nov')
+    expect(w.get('[data-test="dateline"] .print\\:inline').text()).toContain('2026') // the full date only prints
+    expect(w.get('[data-test="model-calls"]').classes()).toContain('max-sm:hidden')
+    expect(mountIt(issue()).get('[data-test="masthead"]').classes()).not.toContain('max-sm:sr-only')
+  })
+
   it('leaves the outlet count out of an edition that did not store one', () => {
     expect(mountIt(issue()).get('[data-test="dateline"]').text()).not.toContain('outlets')
   })

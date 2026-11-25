@@ -1,9 +1,9 @@
 
-@font-face{font-family:Inter;font-weight:100 900;src:url('../../../../frontend/src/assets/fonts/InterVariable.woff2') format('woff2')}
-@font-face{font-family:'JetBrains Mono';font-weight:400;src:url('../../../../frontend/src/assets/fonts/JetBrainsMono-Regular.woff2') format('woff2')}
-@font-face{font-family:'JetBrains Mono';font-weight:700;src:url('../../../../frontend/src/assets/fonts/JetBrainsMono-SemiBold.woff2') format('woff2')}
-@font-face{font-family:'JetBrains Mono';font-weight:500;src:url('../../../../frontend/src/assets/fonts/JetBrainsMono-Medium.woff2') format('woff2')}
-@font-face{font-family:'JetBrains Mono';font-weight:700;src:url('../../../../frontend/src/assets/fonts/JetBrainsMono-Bold.woff2') format('woff2')}
+@font-face{font-family:Inter;font-weight:100 900;src:url('../../../../../frontend/src/assets/fonts/InterVariable.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:400;src:url('../../../../../frontend/src/assets/fonts/JetBrainsMono-Regular.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:700;src:url('../../../../../frontend/src/assets/fonts/JetBrainsMono-SemiBold.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:500;src:url('../../../../../frontend/src/assets/fonts/JetBrainsMono-Medium.woff2') format('woff2')}
+@font-face{font-family:'JetBrains Mono';font-weight:700;src:url('../../../../../frontend/src/assets/fonts/JetBrainsMono-Bold.woff2') format('woff2')}
 :root,[data-theme=dark]{color-scheme:dark;--canvas:34 32 29;--surface:34 32 29;--raised:43 41 38;--hover:51 49 46;--hair:58 56 53;--strong:82 80 77;--control:138 132 122;--t1:242 237 227;--t2:212 206 195;--t3:178 172 162;--t4:172 166 156;--deco:100 96 89;--onacc:12 11 10;--brand:255 106 61;--info:150 174 255;--ok:47 212 163;--run:232 207 74;--err:255 112 124;--track:70 68 65}
 [data-theme=light]{color-scheme:light;--canvas:243 239 228;--surface:243 239 228;--raised:235 229 214;--hover:226 219 202;--hair:217 209 189;--strong:196 187 164;--control:122 114 98;--t1:28 26 23;--t2:58 54 47;--t3:80 75 66;--t4:100 93 80;--deco:160 151 132;--onacc:243 239 228;--brand:168 52 16;--info:47 73 184;--ok:8 104 78;--run:104 90 0;--err:168 24 64;--track:196 187 164}
 *{box-sizing:border-box}

@@ -40,6 +40,7 @@ export type TokenName =
   | 'text-small'
   | 'text-heading'
   | 'text-display'
+  | 'text-title'
   | 'text-numeral'
   | 'leading-body'
   | 'radius-sm'

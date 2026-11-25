@@ -16,10 +16,11 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
 ## Branch and commit state
 
 - #308 to #312 are merged and deployed; vertex reports v0.138.0 (commit 2e72cdcc, built 2026-11-25 18:42 UTC).
-- **v0.139.0, branch `newsroom-copy-fix-and-compact-page-heads`, PR open:** the brief's index row no longer
+- **v0.139.0 and v0.140.0, branch `newsroom-copy-fix-and-compact-page-heads`, PR #313 open:** the brief's index row no longer
   shows the "j and k move between stories · o opens one" hint (the owner: no instructions on the page; the keys still work), and "Copy as text" goes through `utils/clipboard.ts` `copyText`, so it works on plain HTTP (vertex.local had no
   clipboard API, so the copy always failed there). Plus the
-  mocks of [`../cross-cutting/compact-page-head.md`](../cross-cutting/compact-page-head.md), which also cover the brief's head on a phone.
+  compact page heads ([`../ARCHIVE/cross-cutting/compact-page-head.md`](../ARCHIVE/cross-cutting/compact-page-head.md), SPEC-013 1.34): a
+  small outline Follow, the brief head on two lines with ⋯ for Write and Delete, and the dashboard behind Edit (SPEC-003 2.75).
 
 ## Checked on vertex (2026-11-25, after the v0.135.0 deploy)
 

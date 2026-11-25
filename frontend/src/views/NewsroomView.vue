@@ -164,7 +164,8 @@ async function check(t: NewsroomWatch) {
   <div class="flex flex-col gap-4">
     <PageHeader eyebrow="Stacks" :title="NEWSROOM_TITLE" :subtitle="NEWSROOM_SUBTITLE">
       <template v-if="tab !== 'settings'" #actions>
-        <BaseButton size="sm" icon="plus" :disabled="followText !== null" data-test="follow-open" @click="startFollow">{{ FOLLOW_LABEL }}</BaseButton>
+        <!-- A small outline, not the page's loudest thing; the area around it answers a finger (44 px: the inset counts from inside the border). -->
+        <BaseButton size="sm" variant="secondary" icon="plus" :disabled="followText !== null" class-name="relative before:absolute before:-inset-x-1 before:-inset-y-[10px] before:content-['']" data-test="follow-open" @click="startFollow">{{ FOLLOW_LABEL }}</BaseButton>
       </template>
     </PageHeader>
     <StackTabs label="Newsroom" :tabs="tabs" :active="tab" />

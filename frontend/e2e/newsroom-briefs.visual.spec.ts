@@ -172,6 +172,13 @@ test('the edition page: news beside Home and Your watches on a wide screen, betw
     expect(s!.y, 'the side column follows the top stories').toBeGreaterThan(top!.y + top!.height - 1)
     expect(s!.y + s!.height, 'and comes before the first section').toBeLessThanOrEqual(first!.y + 1)
     expect(Math.abs(s!.width - m!.width)).toBeLessThanOrEqual(1)
+    // The head is short: Follow is a small outline that still answers a finger, and the first headline starts soon under the title.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect(page.locator('.route-enter-active')).toHaveCount(0) // measured after the page has slid in
+    await expectTapArea(page.locator('[data-test="follow-open"]'))
+    await expectTapArea(page.locator('[data-test="brief-more"]'))
+    const [title, headline] = [await page.getByRole('heading', { name: 'Newsroom', level: 1 }).boundingBox(), await page.locator('[data-test="lead-story"]').boundingBox()]
+    expect(headline!.y - title!.y).toBeLessThan(270)
   } else {
     expect(s!.x, 'the side column sits to the right').toBeGreaterThan(m!.x + m!.width - 1)
     expect(Math.abs(s!.y - m!.y)).toBeLessThanOrEqual(2)
@@ -228,9 +235,9 @@ test('the edition page in every theme and in print', async ({ page }, testInfo) 
   await page.goto('newsroom')
   await expect(page.locator('[data-test="edition"]')).toBeVisible()
   await expect(page.locator('[data-test="masthead"]')).toBeVisible()
-  await expect(page.locator('header p', { hasText: 'read from 38 outlets' })).toBeVisible()
+  await expect(page.locator('[data-test="dateline"]', { hasText: 'read from 38 outlets' })).toBeVisible()
   await expect(page.locator('[data-test="problems-fix"]').first()).toBeVisible()
-  await expect(page.locator('[data-test="earlier-briefs"] select')).toBeVisible()
+  await expect(page.locator('[data-test="dateline"] [data-test="earlier-briefs"] select')).toBeVisible()
   for (const preset of PRESETS) {
     await page.evaluate((id) => document.documentElement.setAttribute('data-theme', id), preset)
     await expectNoSidewaysScroll(page)
@@ -240,7 +247,8 @@ test('the edition page in every theme and in print', async ({ page }, testInfo) 
   await expect(page.locator('[data-test="problems-open-setup"]').first()).toBeHidden()
   await expect(page.locator('[data-test="earlier-briefs"]')).toBeHidden()
   await expect(page.locator('#app-sidebar')).toBeHidden()
-  await expect(page.locator('[data-test="write-now"]')).toBeHidden()
+  await expect(page.locator('[data-test="brief-more"]')).toBeHidden()
+  await expect(page.locator('[data-test="dateline"]')).toContainText(String(new Date().getFullYear())) // the date prints in place of the picker
   await expect(page.locator('[data-test="index-row"]')).toBeHidden()
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'edition-print', true)

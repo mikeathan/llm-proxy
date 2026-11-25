@@ -29,7 +29,7 @@ const tabs: readonly StackTabItem[] = [
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :title="AGENTS_TITLE" :subtitle="AGENTS_SUBTITLE" subtitle-hidden-on-phone />
+    <PageHeader :title="AGENTS_TITLE" :subtitle="AGENTS_SUBTITLE" />
     <StackTabs :label="AGENTS_TITLE" :tabs="tabs" :active="tab ?? 'lockdown'" />
     <StackBoardLink stack="agents" />
     <StackModules v-if="tab === 'modules'" stack="agents" />
