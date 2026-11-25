@@ -40,3 +40,7 @@ The owner asked for a panel under Home in the brief that says how many calls the
 ## Links
 
 - `backend/internal/platform/modelstats/`, `backend/internal/core/proxy/usagecount/`, `backend/internal/app/bootstrap.go` (`newClientFactory`, `openModelStats`), `handlers/model_stats_handlers.go`; `frontend/src/components/newsroom/NewsroomEditionModelUse.vue`, `utils/modelUse.ts`; ADR-0084, ADR-0083.
+
+## Amendment (2026-11-25): calls by hour
+
+Each day also keeps its calls by the hour they ended (24 local and 24 cloud counters, in the same file under `hours`, absent in an older file, which loads with zeros). Only today's hours are served, in `hours` of the same answer. Cost for cloud models was considered and skipped by the owner: the repo holds no price of its own.

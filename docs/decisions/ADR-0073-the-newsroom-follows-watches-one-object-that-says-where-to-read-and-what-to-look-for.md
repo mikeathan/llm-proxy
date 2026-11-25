@@ -37,4 +37,4 @@ Proposed: in force when the owner merges the pull request that carries it. It ch
 - **Fail closed on a bad model answer** — would hide items on every model hiccup.
 
 ## Links
-- `stacks/newsroom/watches/` (`watch.go` Gate, `analyst.go`, `runner.go` baseline and showFirst), `frontend/src/components/newsroom/NewsroomWatchEditor.vue`, SPEC-013, `docs/PLANS/autonomy/newsroom-briefs-handoff-2026-11-24.md`.
+- `stacks/newsroom/watches/` (`watch.go` Gate, `analyst.go`, `runner.go` baseline and showFirst), `frontend/src/components/newsroom/NewsroomWatchEditor.vue`, SPEC-013, `docs/PLANS/autonomy/newsroom-briefs-handoff-2026-11-25.md`.

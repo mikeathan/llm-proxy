@@ -52,8 +52,9 @@ var homeWords = map[string]string{
 	HomeRadioUnreadable: "Radio could not be read.",
 }
 
-// homeLevels ranks every fact the core can word (ADR-0084). Critical is kept to what is serious on its own: an access point of the owner's that is open or uses an
-// outdated protection. A device the owner has not marked is "check", not critical, because a new install has many. Everything routine is info. A test holds the
+// homeLevels ranks every fact the core can word (ADR-0084). Critical is kept to what is serious on its own: an access point of the owner's that is open or
+// uses an outdated protection, and an unconfirmed access point that broadcasts the name of one of the owner's own networks (the owner approved both,
+// 2026-11-25). A device the owner has not marked is "check", not critical, because a new install has many. Everything routine is info. A test holds the
 // table to the words, so a new id cannot be left unranked.
 var homeLevels = map[string]string{
 	HomeNetworkOnline:            stacksdk.HomeLevelInfo,
@@ -64,7 +65,7 @@ var homeLevels = map[string]string{
 	HomeRadioOff:                 stacksdk.HomeLevelInfo,
 	HomeRadioQuiet:               stacksdk.HomeLevelInfo,
 	HomeRadioUnreadable:          stacksdk.HomeLevelCheck,
-	"radio_rogue_twin":           stacksdk.HomeLevelCheck,
+	"radio_rogue_twin":           stacksdk.HomeLevelCritical,
 	"radio_deauth_burst":         stacksdk.HomeLevelCheck,
 	"radio_open_or_weak_ap":      stacksdk.HomeLevelCritical,
 	"radio_pmf_off":              stacksdk.HomeLevelCheck,
@@ -93,6 +94,14 @@ func HomeWords(id string) (string, bool) {
 	}
 	w, _, ok := radiodigest.Words(id)
 	return w, ok
+}
+
+// HomeShortWords is the sentence for a home fact on a phone: Radio's short form when it has one, else the same words as everywhere.
+func HomeShortWords(id string) (string, bool) {
+	if w, ok := radiodigest.ShortWords(id); ok {
+		return w, true
+	}
+	return HomeWords(id)
 }
 
 func homeCount(n int) int { return max(0, min(n, maxHomeCount)) }

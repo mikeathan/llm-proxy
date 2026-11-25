@@ -6,6 +6,7 @@ const service = vi.hoisted(() => ({ digest: vi.fn() }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioFindings from '../../../components/radio/RadioFindings.vue'
+import { routeLocationKey } from 'vue-router'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 
 const digest = (over: Partial<RadioDigest> = {}): RadioDigest => ({
@@ -62,5 +63,24 @@ describe('RadioFindings', () => {
     service.digest.mockRejectedValue(new Error('down'))
     const w = await show()
     expect(w.get('[data-test="radio-findings-error"]').text()).toBe('down')
+  })
+})
+
+describe('RadioFindings: a link from the brief', () => {
+  const mountAt = (finding: string) => mount(RadioFindings, { global: { provide: { [routeLocationKey as symbol]: { query: { finding } } } } })
+
+  it('scrolls to and marks the finding the link names', async () => {
+    const w = mountAt('radio_rogue_twin')
+    await flushPromises()
+    expect(w.get('[data-test="radio-finding"]').attributes('data-flash')).toBeDefined()
+    expect(w.find('[data-test="radio-focus-missing"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('says so when the finding is not in the report any more', async () => {
+    const w = mountAt('radio_pmf_off')
+    await flushPromises()
+    expect(w.get('[data-test="radio-focus-missing"]').text()).toContain('not in the latest report')
+    w.unmount()
   })
 })

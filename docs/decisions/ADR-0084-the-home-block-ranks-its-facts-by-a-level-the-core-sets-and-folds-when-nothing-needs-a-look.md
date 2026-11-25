@@ -39,3 +39,7 @@ The owner found the Home block of a brief boring: every fact was a count and a f
 ## Links
 
 - SPEC-013 1.23; `stacks/sdk/ports.go` (`HomeLine`, `HomeLevel*`), `backend/internal/core/stackport/home.go` (`homeLevels`, `HomeLevel`), `notice.go` (`briefHomeLines`); `frontend/src/components/newsroom/NewsroomEditionHome.vue`, `NewsroomEdition.vue`, `NewsroomBriefs.vue`, `utils/newsroom/homeLines.ts`, the dashboard `NewsroomBriefCard.vue`; ADR-0077, ADR-0083.
+
+## Amendment (2026-11-25): the sidebar dot
+
+The Network dot named under "Not done" is built: the latest-issue list carries the ids of the newest issue's critical facts, and while that issue is unread the sidebar dots Radio (a `radio_` id) or Network (any other). Reading the edition clears it, so a fact that has since cleared leaves no dot until the next edition. Built later the same day (SPEC-013 1.26): the critical set also holds `radio_rogue_twin` (the owner approved it); a fact links to its own place (a fact is a kind of finding, so the link marks that kind, not one instance); the phone message uses a short sentence per radio finding (the full words are the card's and the assistant's; the Radio page uses neither); and the chip row is live and frontend only (failed runs, alerts no connector took).

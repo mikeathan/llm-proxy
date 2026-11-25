@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { RouterLinkStub, mount } from '@vue/test-utils'
 import NewsroomEdition from '../../../components/newsroom/NewsroomEdition.vue'
 import NewsroomEditionHome from '../../../components/newsroom/NewsroomEditionHome.vue'
-import { toNetwork, toRadio } from '../../../router/routes'
+import { toNetwork, toNetworkCard, toRadio, toRadioFinding } from '../../../router/routes'
 import type { BriefHomeLine, BriefIssue } from '../../../types/newsroom'
 
 vi.mock('../../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
@@ -54,7 +54,7 @@ describe('Home by level', () => {
     const rows = w.findAll('[data-test="home-attention"]')
     expect(rows.map((r) => r.text())).toEqual([expect.stringContaining('Confirmed WPA2'), expect.stringContaining('not marked as yours')])
     const links = w.findAllComponents(RouterLinkStub).filter((l) => l.attributes('data-test') === 'home-attention')
-    expect(links.map((l) => l.props('to'))).toEqual([toRadio(), toNetwork()])
+    expect(links.map((l) => l.props('to'))).toEqual([toRadioFinding('radio_pmf_off'), toNetworkCard('network-devices')])
     expect(w.get('[data-test="home-routine"]').text()).toContain('Devices the network sees right now.')
     expect(w.get('[data-test="home-routine"]').find('a').exists()).toBe(false)
   })

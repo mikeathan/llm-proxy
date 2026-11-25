@@ -2,6 +2,7 @@ package brief
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -33,11 +34,60 @@ func (s *Store) Unsent(since time.Time) []Issue {
 	defer s.mu.Unlock()
 	var out []Issue
 	for _, is := range s.doc.Issues {
-		if !is.ReadyFor.IsZero() && is.SentAt.IsZero() && !is.MadeAt.Before(since) {
+		if !is.ReadyFor.IsZero() && is.SentAt.IsZero() && is.SendState != SendNothing && !is.MadeAt.Before(since) {
 			out = append(out, is)
 		}
 	}
 	return out
+}
+
+// The fixed words for why a summary has not gone out; the Briefs page words each itself.
+const (
+	SendRefused = "refused"
+	SendFailed  = "failed"
+	SendGaveUp  = "gave_up"
+	// SendNothing marks an issue with nothing to say: no send was made, so SentAt stays empty and the page does not claim one.
+	SendNothing = "nothing"
+)
+
+// setSendState records why a summary has not gone out, and writes only when it changes: Deliver runs on every pass, and a send that keeps failing must not
+// rewrite the file each time.
+func (s *Store) setSendState(id int64, state string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.doc.Issues, func(is Issue) bool { return is.ID == id })
+	if i < 0 {
+		return ErrNotFound
+	}
+	if s.doc.Issues[i].SendState == state {
+		return nil
+	}
+	s.doc.Issues[i].SendState = state
+	return s.saveLocked()
+}
+
+// expireSends marks the issues made before the cutoff whose send kept failing as given up, so the page stops saying "trying again". A refusal is left as it is:
+// it is the owner's connector setting, and the fix it names stays useful however late the brief is read.
+func (s *Store) expireSends(before time.Time) {
+	var ids []int64
+	s.mu.Lock()
+	for _, is := range s.doc.Issues {
+		if is.SendState == SendFailed && is.MadeAt.Before(before) {
+			ids = append(ids, is.ID)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		_ = s.setSendState(id, SendGaveUp)
+	}
+}
+
+// sendStateOf is the state an error leaves: a refusal is the owner's connector setting, anything else is a failure to try again.
+func sendStateOf(err error) string {
+	if stacksdk.CodeOf(err) == stacksdk.CodeInvalid {
+		return SendRefused
+	}
+	return SendFailed
 }
 
 // MarkSent notes that the summary of the issue went out, so it is not sent again. Marking it again keeps the first time.
@@ -52,6 +102,7 @@ func (s *Store) MarkSent(id int64, now time.Time) error {
 		return nil
 	}
 	s.doc.Issues[i].SentAt = now.UTC()
+	s.doc.Issues[i].SendState = ""
 	return s.saveLocked()
 }
 
@@ -64,7 +115,7 @@ type Sent struct {
 
 // Deliver sends the summary of every scheduled issue that is not yet sent, for an edition that names a connector. A manual issue ("write a new one now")
 // is never sent: the owner is looking at it. An issue is marked sent only after the connector took it, so a refused or failed send is tried again on the
-// next pass for PublishCatchUp, then given up. An issue with nothing to say (no story, no home fact) is marked and sends nothing.
+// next pass for PublishCatchUp, then given up. An issue with nothing to say (no story, no home fact) is marked "nothing" (not as sent) and sends nothing.
 func (p *Publisher) Deliver(ctx context.Context) []Sent {
 	if p.Send == nil {
 		return nil
@@ -72,6 +123,7 @@ func (p *Publisher) Deliver(ctx context.Context) []Sent {
 	now := p.now()
 	editions := p.Store.Editions()
 	var out []Sent
+	p.Store.expireSends(now.Add(-PublishCatchUp))
 	for _, is := range p.Store.Unsent(now.Add(-PublishCatchUp)) {
 		if ctx.Err() != nil {
 			break
@@ -82,12 +134,14 @@ func (p *Publisher) Deliver(ctx context.Context) []Sent {
 		}
 		req := Summary(is)
 		if len(req.Stories) == 0 && len(req.Home) == 0 {
-			_ = p.Store.MarkSent(is.ID, now)
+			_ = p.Store.setSendState(is.ID, SendNothing)
 			continue
 		}
 		err := p.Send(ctx, editions[i].SendTo, req)
 		if err == nil {
 			err = p.Store.MarkSent(is.ID, now)
+		} else if serr := p.Store.setSendState(is.ID, sendStateOf(err)); serr != nil {
+			err = errors.Join(err, serr)
 		}
 		out = append(out, Sent{IssueID: is.ID, Err: err})
 	}

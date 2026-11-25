@@ -103,8 +103,10 @@ func TestHome_IsBoundedAndClamped(t *testing.T) {
 	if len(lines) > stacksdk.MaxHomeLines {
 		t.Errorf("%d lines", len(lines))
 	}
-	if lines[0].Count != maxHomeCount {
-		t.Errorf("count %d not clamped", lines[0].Count)
+	// The lines are ranked, so the network's facts are found by id, not by position.
+	i := slices.IndexFunc(lines, func(l stacksdk.HomeLine) bool { return l.ID == HomeNetworkNotMine })
+	if i < 0 || lines[i].Count != maxHomeCount {
+		t.Errorf("count not clamped: %+v", lines)
 	}
 }
 
@@ -136,15 +138,17 @@ func TestHomeLevel_EveryWordedIDHasOne(t *testing.T) {
 	}
 }
 
-// Critical is kept to what is serious on its own: an open or outdated access point of the owner's. Nothing else interrupts.
-func TestHomeLevel_OnlyAnOwnAccessPointThatIsOpenOrWeakIsCritical(t *testing.T) {
+// Critical is kept to what is serious on its own: an open or outdated access point of the owner's, and an unconfirmed access point using the name of one of
+// the owner's networks. Nothing else interrupts.
+func TestHomeLevel_OnlyAnOpenOrWeakOwnAccessPointAndARogueTwinAreCritical(t *testing.T) {
 	var critical []string
 	for id, lv := range homeLevels {
 		if lv == stacksdk.HomeLevelCritical {
 			critical = append(critical, id)
 		}
 	}
-	if !reflect.DeepEqual(critical, []string{"radio_open_or_weak_ap"}) {
+	slices.Sort(critical)
+	if !reflect.DeepEqual(critical, []string{"radio_open_or_weak_ap", "radio_rogue_twin"}) {
 		t.Errorf("critical ids: %v", critical)
 	}
 }

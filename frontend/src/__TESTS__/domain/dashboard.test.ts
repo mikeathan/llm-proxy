@@ -205,6 +205,17 @@ describe('visibleLayout and newShippedCards', () => {
   })
 })
 
+describe('the Today card reaches a Home saved before it existed', () => {
+  const defs = new Map([['assistant-recent', { id: 'assistant-recent', source: 'assistant' } as DashboardCardDef], ['newsroom-today', { id: 'newsroom-today', source: 'newsroom' } as DashboardCardDef]])
+  const saved: DashboardBoard = { id: 'home', name: 'Home', cards: [{ id: 'assistant-recent', cols: 6, rows: 1 }] }
+
+  it('is offered through the "New on this board" notice while the Newsroom is on, and not while it is off', () => {
+    expect(newShippedCards(saved, [], new Set(['newsroom']), defs)).toEqual(['newsroom-today'])
+    expect(newShippedCards(saved, [], new Set(['network']), defs)).toEqual([])
+    expect(newShippedCards(saved, ['newsroom-today'], new Set(['newsroom']), defs)).toEqual([])
+  })
+})
+
 describe("boardTabs: a stack's boards are one tab with sub-tabs", () => {
   const shipped = shippedLayout()
   const on = new Set(['network', 'radio'])

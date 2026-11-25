@@ -67,6 +67,9 @@ export const toNetworkCard = (card?: string): RouteLocationNamedRaw => toDashboa
 /** The Findings card, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
 export const toFinding = (key: string): RouteLocationNamedRaw => withQuery(toNetworkCard('network-findings'), { finding: key })
 
+/** The Radio board's Things to look at card, scrolled to one finding kind (a radio finding id) and marked for a moment. */
+export const toRadioFinding = (id: string): RouteLocationNamedRaw => withQuery(toRadioCard('radio-findings'), { finding: id })
+
 /** The Findings card, scrolled to the first finding of one device (its address) with all of that device's findings marked. */
 export const toDeviceFindings = (device: string): RouteLocationNamedRaw => withQuery(toNetworkCard('network-findings'), { device })
 

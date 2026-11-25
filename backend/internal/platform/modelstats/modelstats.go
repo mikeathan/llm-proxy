@@ -64,6 +64,14 @@ type entry struct {
 type document struct {
 	Version int                `json:"version"`
 	Days    map[string][]entry `json:"days"`
+	// Hours is each day's calls by the hour they ended (24 entries). It is absent in a file written before it existed, which loads with every hour at zero.
+	Hours map[string][]HourTotal `json:"hours,omitempty"`
+}
+
+// HourTotal is the calls that ended in one hour of a day, local and cloud apart.
+type HourTotal struct {
+	Local int `json:"local"`
+	Cloud int `json:"cloud"`
 }
 
 // DayTotal is one day's call counts, local and cloud apart.
@@ -88,6 +96,8 @@ type ModelUse struct {
 type Report struct {
 	Days  []DayTotal `json:"days"`
 	Today []ModelUse `json:"today"`
+	// Hours is today's calls by the hour they ended, 24 entries from midnight in the service's own time zone.
+	Hours []HourTotal `json:"hours"`
 }
 
 // Store holds the counts in memory and the file on disk. It starts no goroutine: a write happens inside Record at most once every saveEvery, and Flush writes the
@@ -97,6 +107,7 @@ type Store struct {
 	path     string
 	now      func() time.Time
 	days     map[string]map[string]*entry
+	hours    map[string]*[24]HourTotal
 	dirty    bool
 	lastSave time.Time
 	// gen numbers each snapshot taken for writing and written is the newest one on disk, so a snapshot that was taken earlier but reaches the disk later (two
@@ -109,7 +120,7 @@ type Store struct {
 // Open reads the file at path, or starts empty when there is none. A file that cannot be read or understood is not an error for the service: Open starts
 // empty and returns the reason, for the caller to log, and the next write replaces the file.
 func Open(path string, now func() time.Time) (*Store, error) {
-	s := &Store{path: path, now: now, days: map[string]map[string]*entry{}, lastSave: now()}
+	s := &Store{path: path, now: now, days: map[string]map[string]*entry{}, hours: map[string]*[24]HourTotal{}, lastSave: now()}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -132,6 +143,11 @@ func Open(path string, now func() time.Time) (*Store, error) {
 			}
 		}
 		s.days[date] = table
+		if h := doc.Hours[date]; len(h) == 24 {
+			var day [24]HourTotal
+			copy(day[:], h)
+			s.hours[date] = &day
+		}
 	}
 	return s, nil
 }
@@ -160,6 +176,16 @@ func (s *Store) Record(c Call) {
 	if c.TokensPerSec > 0 {
 		e.SpeedSum += c.TokensPerSec
 		e.SpeedCount++
+	}
+	day := s.hours[now.Format(dayLayout)]
+	if day == nil {
+		day = &[24]HourTotal{}
+		s.hours[now.Format(dayLayout)] = day
+	}
+	if c.Local {
+		day[now.Hour()].Local++
+	} else {
+		day[now.Hour()].Cloud++
 	}
 	s.dirty = true
 	var snapshot []byte
@@ -193,6 +219,7 @@ func (s *Store) pruneLocked(today string) {
 	for d := range s.days {
 		if d < oldest {
 			delete(s.days, d)
+			delete(s.hours, d)
 		}
 	}
 }
@@ -203,7 +230,10 @@ func (s *Store) Snapshot(days int) Report {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	rep := Report{Days: make([]DayTotal, 0, days), Today: []ModelUse{}}
+	rep := Report{Days: make([]DayTotal, 0, days), Today: []ModelUse{}, Hours: make([]HourTotal, 24)}
+	if h := s.hours[now.Format(dayLayout)]; h != nil {
+		copy(rep.Hours, h[:])
+	}
 	for i := days - 1; i >= 0; i-- {
 		date := now.AddDate(0, 0, -i).Format(dayLayout)
 		total := DayTotal{Date: date}
@@ -246,7 +276,10 @@ func (s *Store) Flush() error {
 
 // encodeLocked marks the counts as saved and returns the file's bytes; the caller writes them without the lock, so a slow disk never holds up a call.
 func (s *Store) encodeLocked(now time.Time) ([]byte, int) {
-	doc := document{Version: fileVersion, Days: map[string][]entry{}}
+	doc := document{Version: fileVersion, Days: map[string][]entry{}, Hours: map[string][]HourTotal{}}
+	for date, h := range s.hours {
+		doc.Hours[date] = h[:]
+	}
 	for date, table := range s.days {
 		rows := make([]entry, 0, len(table))
 		for _, e := range table {

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { RouterLink } from "vue-router"
+import { toSettings } from "../../router/routes"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Icon from "../icons/Icon.vue"
 import NewsroomBriefStory from "./NewsroomBriefStory.vue"
@@ -10,8 +12,8 @@ import NewsroomEditionWatches from "./NewsroomEditionWatches.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
-  BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
-  briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, showMoreWords,
+  BRIEF_PROBLEMS_ACTION, BRIEF_SEND_FIX, BRIEF_SEND_PROBLEM, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
+  briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, briefSentWords, showMoreWords,
 } from "../../constants/newsroom"
 import type { BriefIssue, BriefSection, BriefStory } from "../../types/newsroom"
 
@@ -47,6 +49,10 @@ const headlinesOnly = (sec: BriefSection): boolean => storiesOf(sec).length > 0 
 const sectionOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.name] as const))))
 const inTopCount = (sec: BriefSection): number => sec.stories.length - storiesOf(sec).length
 
+// "nothing" is an issue with nothing to say: no send was made, so neither a problem nor a sent line.
+const sendProblem = computed(() => (props.issue.send_state && props.issue.send_state !== "nothing" ? props.issue.send_state : null))
+const sentClock = computed(() => (props.issue.sent_at ? new Date(props.issue.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""))
+
 const lead = computed(() => props.issue.top?.[0])
 const otherTop = computed(() => props.issue.top?.slice(1) ?? [])
 const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))
@@ -58,6 +64,11 @@ const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString
       <div class="flex min-w-0 flex-col gap-1">
         <h2 class="m-0 break-words text-[length:var(--text-h2,1.75rem)] font-semibold leading-tight text-primary" data-test="masthead">{{ issue.name }}</h2>
         <p class="m-0 text-[length:var(--text-small)] text-faint">{{ madeDate }} · {{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}<template v-if="issue.outlets_read"> · {{ briefOutletsWords(issue.outlets_read) }}</template></p>
+        <p v-if="sendProblem" class="m-0 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-warning print:hidden" role="status" data-test="send-problem">
+          {{ BRIEF_SEND_PROBLEM[sendProblem] }}
+          <RouterLink v-if="sendProblem === 'refused'" :to="toSettings('communication')" class="text-accent-info-text hover:underline" data-test="send-fix">{{ BRIEF_SEND_FIX }}</RouterLink>
+        </p>
+        <p v-else-if="sentClock" class="m-0 text-[length:var(--text-small)] text-faint print:hidden" data-test="send-sent">{{ briefSentWords(sentClock) }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-3 print:hidden">
         <slot name="masthead-end" />

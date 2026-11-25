@@ -127,7 +127,10 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
     id: HOME_BOARD_ID,
     name: 'Home',
     source: null,
-    cards: [{ id: 'assistant-recent', cols: 6, rows: 1 }],
+    cards: [
+      { id: 'assistant-recent', cols: 6, rows: 1 },
+      { id: 'newsroom-today', cols: 6, rows: 1 },
+    ],
   },
   {
     id: 'host',

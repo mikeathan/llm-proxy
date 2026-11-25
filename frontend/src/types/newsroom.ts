@@ -1,3 +1,5 @@
+import type { RouteLocationNamedRaw } from 'vue-router'
+
 // The Newsroom as /admin/api/newsroom/* reports it (stacks/newsroom: watches, the watch view and the feed view model).
 
 export const SOURCE_KINDS = ['feed', 'hackernews', 'mastodon', 'newssearch', 'page', 'telegram'] as const
@@ -249,6 +251,17 @@ export interface BriefIssue {
   /** How many different outlets reported the stories the edition could choose from; absent on older editions. */
   outlets_read?: number
   model_calls: number
+  /** When the short summary went to the edition's connector; absent while it has not. */
+  sent_at?: string
+  /** Why the summary has not gone: the connector refused it, it failed (tried again), or it gave up; "nothing" is an issue with nothing to say (no send was made); absent otherwise. */
+  send_state?: 'refused' | 'failed' | 'gave_up' | 'nothing'
+}
+
+/** A chip for something that needs a look outside the brief (failed automation runs, alerts no connector took), with the page that fixes it. */
+export interface BriefChip {
+  key: 'failed_runs' | 'blocked'
+  label: string
+  to: RouteLocationNamedRaw
 }
 
 /** The newest edition made for one edition and whether the owner read it: what a tab's dot and the dashboard card ask, without the edition itself. */
@@ -258,6 +271,8 @@ export interface BriefLatest {
   issue_id: number
   made_at: string
   read: boolean
+  /** Ids of the critical home facts of that edition (fixed ids, no sentence); absent when there is none. */
+  critical?: string[]
 }
 
 /** One of the owner's own reminders for the day: the time it falls due as "15:04" and the owner's own words. */

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"llm-proxy-stacks/sdk"
 )
 
 // The topic takes id 1, so the two editions are 2 (Morning) and 3 (Evening).
@@ -40,6 +42,19 @@ func TestStore_LatestIsTheNewestEditionOfEachAndItsReadState(t *testing.T) {
 	}
 	if got[0].Read || got[1].Read {
 		t.Fatalf("a new edition must be unread: %+v", got)
+	}
+}
+
+// The newest edition carries the ids of its critical home facts, so the sidebar can dot the page they belong to without reading the edition.
+func TestStore_LatestCarriesTheCriticalHomeFactIds(t *testing.T) {
+	s, _, t0 := twoEditions(t)
+	in := Issue{EditionID: morning, Name: "Morning", MadeAt: t0, Home: []stacksdk.HomeLine{
+		{ID: "network_online", Level: stacksdk.HomeLevelInfo}, {ID: "radio_open_or_weak_ap", Level: stacksdk.HomeLevelCritical}, {ID: "network_not_marked_mine", Level: stacksdk.HomeLevelCheck}}}
+	if _, err := s.SaveIssue(in, t0); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Latest(); len(got) != 1 || len(got[0].Critical) != 1 || got[0].Critical[0] != "radio_open_or_weak_ap" {
+		t.Fatalf("Latest = %+v, want the one critical id", got)
 	}
 }
 

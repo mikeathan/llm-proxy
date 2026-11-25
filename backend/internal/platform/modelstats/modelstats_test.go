@@ -46,6 +46,53 @@ func TestRecord_CountsCallsTokensFailuresAndSpeedPerModel(t *testing.T) {
 	}
 }
 
+// The calls of today are also counted by the hour they ended, local and cloud apart, so the panel can show when the day was busy.
+func TestSnapshot_CountsTodaysCallsByHourAndKeepsThemAcrossARestart(t *testing.T) {
+	s, c, path := newStore(t)
+	s.Record(Call{Model: "a", Local: true}) // 10:00
+	c.t = c.t.Add(30 * time.Minute)
+	s.Record(Call{Model: "a", Local: true})
+	c.t = c.t.Add(3 * time.Hour) // 13:30
+	s.Record(Call{Model: "b"})
+	rep := s.Snapshot(1)
+	if len(rep.Hours) != 24 || rep.Hours[10] != (HourTotal{Local: 2}) || rep.Hours[13] != (HourTotal{Cloud: 1}) || rep.Hours[0] != (HourTotal{}) {
+		t.Fatalf("hours: %+v", rep.Hours)
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Open(path, c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := back.Snapshot(1).Hours; got[10].Local != 2 || got[13].Cloud != 1 {
+		t.Errorf("hours after a restart: %+v", got)
+	}
+	// Tomorrow starts empty.
+	c.t = c.t.AddDate(0, 0, 1)
+	if got := back.Snapshot(1).Hours; got[10].Local != 0 {
+		t.Errorf("a new day has no hours: %+v", got)
+	}
+}
+
+// A file written before the hours existed has no "hours" key; it still loads, with the day's counts intact and every hour at zero.
+func TestOpen_ReadsAFileFromBeforeTheHoursExisted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model-stats.json")
+	old := `{"version":1,"days":{"2026-11-24":[{"model":"Qwen3.5","local":true,"calls":4,"failed":0,"prompt_tokens":10,"completion_tokens":5}]}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &clock{t: time.Date(2026, 11, 24, 10, 0, 0, 0, time.Local)}
+	s, err := Open(path, c.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := s.Snapshot(1)
+	if rep.Days[0].Local != 4 || len(rep.Hours) != 24 || rep.Hours[10] != (HourTotal{}) {
+		t.Errorf("old file: %+v", rep)
+	}
+}
+
 func TestSnapshot_GivesEachDayOldestFirstWithZeroDaysFilledIn(t *testing.T) {
 	s, c, _ := newStore(t)
 	s.Record(Call{Model: "a", Local: true})

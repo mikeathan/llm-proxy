@@ -1,5 +1,5 @@
 import { MODEL_USE_NO_VALUE, MODEL_USE_SPEED_UNIT } from '../constants/modelStats'
-import type { ChartColumn, ModelStatsDay, ModelStatsReport, ModelUse } from '../types/modelStats'
+import type { ChartColumn, ModelStatsDay, ModelStatsHour, ModelStatsReport, ModelUse } from '../types/modelStats'
 
 const PERCENT = 100
 
@@ -23,6 +23,9 @@ export function chartColumns(days: ModelStatsDay[]): ChartColumn[] {
     }
   })
 }
+
+/** The columns of today's chart by hour: the busiest hour fills the chart; the column's `date` is the hour number. */
+export const hourColumns = (hours: ModelStatsHour[]): ChartColumn[] => chartColumns(hours.map((h, i) => ({ date: String(i), local: h.local, cloud: h.cloud })))
 
 /** The short weekday of a YYYY-MM-DD day (a day is read as a day in this browser's zone, never as a moment, so it cannot slip to the day before). */
 export function weekdayOf(date: string): string {
