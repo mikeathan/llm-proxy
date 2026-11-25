@@ -14,7 +14,7 @@ import { CARD_DEFS, CARD_DEFS_BY_ID, KNOWN_CARD_IDS } from "../components/dashbo
 import { useEnabledStacks } from "../composables/stacks/useEnabledStacks"
 import { useDashboard } from "../composables/dashboard/useDashboard"
 import { cardsToOffer, groupOf, newShippedCards, templateOf } from "../domain/dashboard"
-import { CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS, RESET_ALL_CONFIRM, NEW_CARDS_ADD, NEW_CARDS_DISMISS, NEW_CARDS_TITLE } from "../constants/dashboard"
+import { ARRANGE_DONE_LABEL, ARRANGE_LABEL, CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS, RESET_ALL_CONFIRM, NEW_CARDS_ADD, NEW_CARDS_DISMISS, NEW_CARDS_TITLE } from "../constants/dashboard"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { usePersistedState } from "../composables/ui/usePersistedState"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
@@ -82,12 +82,19 @@ function openFromAddress() {
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :eyebrow="DASHBOARD_EYEBROW" :title="DASHBOARD_TITLE" :subtitle="DASHBOARD_SUBTITLE" subtitle-hidden-on-phone />
-    <DashboardToolbar v-if="d.board.value" :preset="d.preset.value" :arrange="d.arrange.value" :can-reset="canReset" @preset="d.setPreset" @arrange="d.arrange.value = $event" @reset="d.resetBoard">
-      <template #catalogue="{ close }">
-        <CardCatalogue :defs="offeredCards" :on-board="onBoard" @add="(def) => { addCard(def); close() }" @close="close" />
+    <!-- Reading shows only Edit; it turns into Done while the edit bar under the tabs holds everything that changes the board. -->
+    <PageHeader :eyebrow="DASHBOARD_EYEBROW" :title="DASHBOARD_TITLE" :subtitle="DASHBOARD_SUBTITLE">
+      <template v-if="d.board.value" #actions>
+        <BaseButton
+          :variant="d.arrange.value ? 'primary' : 'ghost'"
+          :icon="d.arrange.value ? undefined : 'edit'"
+          :aria-pressed="d.arrange.value"
+          class-name="max-sm:!h-11"
+          data-test="arrange"
+          @click="d.arrange.value = !d.arrange.value"
+        >{{ d.arrange.value ? ARRANGE_DONE_LABEL : ARRANGE_LABEL }}</BaseButton>
       </template>
-    </DashboardToolbar>
+    </PageHeader>
 
     <Callout v-if="missingCard" tone="info" :title="CARD_MISSING(missingCard.title)">
       <template #actions><BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="add-wanted-card" @click="addCard(missingCard)">{{ CARD_MISSING_ADD }}</BaseButton></template>
@@ -105,17 +112,29 @@ function openFromAddress() {
         :boards="d.boards.value"
         :active-id="d.board.value.id"
         :arrange="d.arrange.value"
-        :offered="d.offeredBoards.value"
-        :at-limit="d.boards.value.length >= MAX_BOARDS"
         :stacks-on="stacks.on.value"
         @open="d.open"
-        @add="d.addBoardFrom"
         @remove="d.removeBoardById"
         @rename="d.rename"
-        @reset-all="resetEverything"
       >
         <template #trailing><DashboardStackToolbar :board="d.board.value" :defs="CARD_DEFS_BY_ID" /></template>
       </DashboardBoardTabs>
+      <DashboardToolbar
+        v-if="d.arrange.value"
+        :preset="d.preset.value"
+        :can-reset="canReset"
+        :board-name="d.board.value.name"
+        :offered="d.offeredBoards.value"
+        :at-limit="d.boards.value.length >= MAX_BOARDS"
+        @preset="d.setPreset"
+        @reset="d.resetBoard"
+        @add-board="d.addBoardFrom"
+        @reset-all="resetEverything"
+      >
+        <template #catalogue="{ close }">
+          <CardCatalogue :defs="offeredCards" :on-board="onBoard" @add="(def) => { addCard(def); close() }" @close="close" />
+        </template>
+      </DashboardToolbar>
       <DashboardStackChrome :board="d.board.value" :defs="CARD_DEFS_BY_ID" :toolbar="!groupOf(d.board.value.id)" />
       <DashboardGrid
         :board="d.board.value"

@@ -5,25 +5,22 @@ last_reviewed: 2026-11-25
 related_specs: [SPEC-013, SPEC-003]
 constitution_references: [IV.6, V.2]
 related_plans: [../ARCHIVE/autonomy/morning-paper.md, ../ARCHIVE/autonomy/topic-watch.md, ../ARCHIVE/autonomy/newsroom-review-2026-11-25.md, ../cross-cutting/email-connector.md, attention-policy.md]
-evidence: Read of vertex (v0.135.0, commit 90a08290) through the admin API on 2026-11-25 16:42-16:43 UTC, GETs plus one "Check now" on watch 1.
+evidence: Read of vertex (v0.135.0, commit 90a08290) through the admin API on 2026-11-25 16:42-16:43 UTC, GETs plus one "Check now" on watch 1; GETs of /version and the brief issues on vertex (v0.138.0) at 18:52 UTC.
 ---
 
-# Newsroom: what is left after v0.135.0 (handoff, 2026-11-25)
+# Newsroom: what is left after v0.138.0 (handoff, 2026-11-25)
 
 **Status:** partial. The Newsroom plans are built and archived: Topic Watch (the Alerts), Briefs (was Morning Paper) and the 2026-11-25
 review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only what is left.
 
 ## Branch and commit state
 
-- #308, #309, #310 and #311 are merged and deployed; vertex reports v0.135.0.
-- **Uncommitted, on branch `newsroom-brief-card-fit` (already merged, so it needs a new branch):** v0.136.0, SPEC-013 1.31: one click each way
-  between reading and setting up. Alerts → "Set up alerts →"; the brief's masthead → "Set up the brief →"; Following → "Read the brief →" /
-  "See alerts →" and a "New watch" button on its Alerts half; Follow on the Brief tab too. Before it the watches sat behind Following's
-  "In your brief / Alerts" switch, linked from Alerts only when a watch had a problem, so the owner thought the page was gone. It also
-  moves these plans to the archive. Checks run: `npm test` (393 files, 3629 tests, pass), `npm run build` (pass),
-  `e2e/newsroom-briefs.visual.spec.ts` (22 pass; screenshots of the brief at desktop and phone and of Following looked at),
-  `go build ./...` in `backend` and `stacks/newsroom` (comment edits only), `./scripts/check-agent-harness.sh`.
-  **Not run:** the full `npm run test:visual`; the visual spec has no Alerts-tab case.
+- #308 to #312 are merged and deployed; vertex reports v0.138.0 (commit 2e72cdcc, built 2026-11-25 18:42 UTC).
+- **v0.139.0 and v0.140.0, branch `newsroom-copy-fix-and-compact-page-heads`, PR #313 open:** the brief's index row no longer
+  shows the "j and k move between stories · o opens one" hint (the owner: no instructions on the page; the keys still work), and "Copy as text" goes through `utils/clipboard.ts` `copyText`, so it works on plain HTTP (vertex.local had no
+  clipboard API, so the copy always failed there). Plus the
+  compact page heads ([`../ARCHIVE/cross-cutting/compact-page-head.md`](../ARCHIVE/cross-cutting/compact-page-head.md), SPEC-013 1.34): a
+  small outline Follow, the brief head on two lines with ⋯ for Write and Delete, and the dashboard behind Edit (SPEC-003 2.75).
 
 ## Checked on vertex (2026-11-25, after the v0.135.0 deploy)
 
@@ -34,15 +31,6 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
   ("Google Releases Gemini Neon for Empathy Tasks" from a Reddit post titled "Gemini Neon on Empathy") were written before the deploy and
   are the overclaiming the new prompt is meant to stop.
 
-## Built on branch `newsroom-setup-links-and-learning`
-
-- `8a9259ba` v0.136.0: the set-up/read links (SPEC-013 1.31) and the plan archive.
-- `36335455` v0.137.0: stories with text keep a third of a section's candidates (SPEC-013 1.32).
-- v0.138.0: a watch learns from "Should have matched" and the new "Not for me" (ADR-0088, SPEC-013 1.33); the two old redirects removed.
-- Checks: `GOWORK=off go test -race -count=1 ./...` in `stacks/newsroom`; `go build ./...`, `go test ./...` and `go run ./tools/check-complexity/`
-  in `backend`; frontend `npm test` and `npm run build`; `e2e/newsroom-briefs.visual.spec.ts` with a new Alerts case (touch target, no sideways
-  scroll, desktop and phone); `./scripts/check-agent-harness.sh`. **Not run:** anything on vertex; the full `npm run test:visual`.
-
 ## After the deploy, on vertex
 
 1. Mark two or three alerts "Not for me" and one left-out post "Should have matched"; after the next check, read the watch's prompt result: do
@@ -51,7 +39,8 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
 
 ## Left, in order
 
-1. **Owner:** review and merge the PR for this branch, then deploy; then the two vertex checks above.
+1. **Owner:** the two vertex checks above. On 2026-11-25 18:52 UTC the latest issues (8, 7, 6) were all written before the v0.138.0
+   deploy (3, 1 and 4 of 14 stories with a summary), so check 2 waits for the next edition.
 2. **Still unchecked on vertex** (they need new posts or a browser): no "Changed" without a citation; headlines of user posts say they are posts;
    the sidebar dot clears when alerts are read; "Write a new one" shows its steps; a real Telegram send.
 3. **Owner's separate work:** an https address so the Telegram summary can carry a link (text only until then).

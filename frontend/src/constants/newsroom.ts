@@ -299,7 +299,9 @@ export const SECTION_NEVER_READ = 'Nothing has been read for this topic yet. Pre
 export const UPDATE_LABEL = 'Update'
 export const HEADLINE_ONLY_LABEL = 'Headline only'
 export const BRIEF_EDITION_LABEL = 'Edition'
-export const briefMadeWords = (when: string, calls: number): string => `Written ${when} · ${calls} model ${calls === 1 ? 'call' : 'calls'}`
+export const briefWrittenWords = (when: string): string => `Written ${when}`
+export const briefCallsWords = (calls: number): string => `${calls} model ${calls === 1 ? 'call' : 'calls'}`
+export const briefMadeWords = (when: string, calls: number): string => `${briefWrittenWords(when)} · ${briefCallsWords(calls)}`
 export const briefSentWords = (clock: string): string => `Summary sent to Telegram at ${clock}`
 export const BRIEF_SEND_PROBLEM: Record<'refused' | 'failed' | 'gave_up', string> = {
   refused: 'Telegram did not take the summary. Check that Telegram is switched on as a connector.',
@@ -331,6 +333,7 @@ export const BRIEF_PROBLEMS_ACTION = 'Open Following'
 export const BRIEF_EARLIER_LABEL = 'Earlier briefs'
 // Deleting written briefs: the one on screen, or the older ones of the same brief.
 export const BRIEF_DELETE_LABEL = 'Delete briefs'
+export const BRIEF_MORE_LABEL = 'More for this brief'
 export const BRIEF_DELETE_THIS_LABEL = 'Delete this brief'
 // No count: the page lists only the newest briefs, so it cannot know how many older ones the server keeps. The toast says how many went.
 export const briefDeleteOlderWords = (name: string): string => `Delete every older ${name} brief`
@@ -569,7 +572,6 @@ export const daysOrHoursWords = (h: number): string => (h % 24 === 0 ? `${h / 24
 // The brief as a page to read.
 export const BRIEF_INDEX_LABEL = 'In this brief'
 export const BRIEF_BESIDE_LABEL = 'Beside the news'
-export const BRIEF_KEYS_HINT = 'j and k move between stories · o opens one'
 export const BRIEF_END_WORDS = 'You are up to date.'
 export const BRIEF_PRINT_LABEL = 'Print'
 export const BRIEF_COPY_LABEL = 'Copy as text'

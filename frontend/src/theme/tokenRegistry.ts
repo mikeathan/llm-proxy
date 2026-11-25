@@ -46,6 +46,7 @@ export const TOKEN_REGISTRY: Readonly<Record<TokenName, TokenSpec>> = {
   'text-small': typeLength,
   'text-heading': typeLength,
   'text-display': typeLength,
+  'text-title': typeLength,
   'text-numeral': typeLength,
   'leading-body': number,
   'radius-sm': length,

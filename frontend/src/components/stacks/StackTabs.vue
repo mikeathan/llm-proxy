@@ -15,7 +15,7 @@ defineProps<{ label: string; tabs: readonly StackTabItem[]; active: string }>()
 
 <style scoped lang="postcss">
 .stack-tab {
-  @apply inline-flex h-11 flex-none items-center border-b-2 border-transparent px-3.5 text-muted no-underline hover:text-primary focus-visible:outline-none focus-visible:ring-2;
+  @apply inline-flex h-11 flex-none items-center border-b-2 border-transparent px-3.5 text-muted max-sm:px-3 no-underline hover:text-primary focus-visible:outline-none focus-visible:ring-2;
 }
 .stack-tab-dot {
   @apply ml-2 inline-block h-2 w-2 flex-none rounded-full bg-accent-brand;

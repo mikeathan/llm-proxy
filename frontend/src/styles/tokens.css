@@ -309,6 +309,8 @@
   --text-small: 12px;
   --text-heading: 18px;
   --text-display: 30px;
+  /* A page title on a phone, where it shares its row with the page's actions. */
+  --text-title: 24px;
   --text-numeral: 28px;
   --leading-body: 1.5;
 

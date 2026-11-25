@@ -8,7 +8,7 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import NewsroomEdition from "./NewsroomEdition.vue"
-import NewsroomBriefDelete from "./NewsroomBriefDelete.vue"
+import NewsroomBriefMenu from "./NewsroomBriefMenu.vue"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { briefStatus } from "../../utils/newsroom/briefStatus"
 import { motionScroll } from "../../utils/motion"
@@ -22,8 +22,9 @@ import {
   briefEarlierOption, writeStepWords, STORY_TUNE_FULL, storyTunedWords, BRIEF_DELETE_TITLE, briefDeleteMessage, briefDeletedWords,
 } from "../../constants/newsroom"
 
-// The Brief tab: the edition the owner picked, as it was last written. Reading asks nothing of the model; "Write a new one" starts a write on the server and
-// the button says how far it has got. Setting up topics and editions is on the Following tab. A link can name the edition, a section or a story
+// The Brief tab: the edition the owner picked, as it was last written. Reading asks nothing of the model; "Write a new one now" (in the ⋯ menu) starts a
+// write on the server and a status line in the masthead row says how far it has got. The masthead row is the edition switch, "Set up the brief" and
+// ⋯; the date in the dateline is the earlier-briefs picker. Setting up topics and editions is on the Following tab. A link can name the edition, a section or a story
 // (?edition=&section=&story=): the page opens that edition and scrolls to the place.
 const b = useBriefs()
 const route = useRoute()
@@ -117,15 +118,17 @@ watch(() => b.job.value?.state, (state) => { if (state === "failed" && b.actionE
       <template #action><RouterLink :to="toFollowing('brief')" class="text-accent-brand hover:underline">{{ BRIEF_SETUP_LINK }} →</RouterLink></template>
     </EmptyState>
     <template v-else-if="b.edition.value">
-      <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" :status="status" :is-new="isNew" :topics="topicNames" @tune="tune" @follow="followStory">
+      <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" :name-in-switch="b.editions.value.length > 1" :status="status" :is-new="isNew" :topics="topicNames" @tune="tune" @follow="followStory">
         <template #masthead-end>
           <SegmentedControl v-if="b.editions.value.length > 1" :model-value="String(b.edition.value.id)" :options="editionOptions" :label="BRIEF_EDITION_LABEL" variant="compact" @update:model-value="b.pickedId.value = Number($event)" />
-          <div v-if="b.editionIssues.value.length > 1" data-test="earlier-briefs">
-            <SelectInput :model-value="String(b.issue.value.id)" :options="earlierOptions" :label="BRIEF_EARLIER_LABEL" @update:model-value="b.pickedIssueId.value = Number($event)" />
-          </div>
-          <BaseButton size="sm" variant="secondary" :disabled="b.making.value" data-test="write-now" @click="write">{{ writeLabel }}</BaseButton>
-          <RouterLink :to="toFollowing('brief')" class="text-[length:var(--text-small)] text-accent-info-text hover:underline" data-test="brief-setup">{{ BRIEF_SETUP_LINK }} →</RouterLink>
-          <NewsroomBriefDelete :older-count="b.olderCount.value" :edition-name="b.edition.value.name" @delete="askDelete" />
+          <RouterLink :to="toFollowing('brief')" class="ml-auto inline-flex min-h-11 items-center text-[length:var(--text-small)] text-accent-info-text hover:underline sm:min-h-0" data-test="brief-setup">{{ BRIEF_SETUP_LINK }} →</RouterLink>
+          <NewsroomBriefMenu :older-count="b.olderCount.value" :edition-name="b.edition.value.name" :writing="b.making.value" @write="write" @delete="askDelete" />
+          <span v-if="b.making.value" role="status" class="basis-full text-right text-[length:var(--text-small)] text-muted max-sm:text-left" data-test="write-status">{{ writeLabel }}</span>
+        </template>
+        <template v-if="b.editionIssues.value.length > 1" #when>
+          <span class="print:hidden" data-test="earlier-briefs">
+            <SelectInput :model-value="String(b.issue.value.id)" :options="earlierOptions" :label="BRIEF_EARLIER_LABEL" class="!h-auto !border-0 !bg-transparent !px-0 font-mono uppercase tracking-wider !text-primary max-sm:!h-11" @update:model-value="b.pickedIssueId.value = Number($event)" />
+          </span>
         </template>
       </NewsroomEdition>
       <LoadingState v-else-if="b.editionIssues.value.length" label="Reading the brief" :rows="3" />

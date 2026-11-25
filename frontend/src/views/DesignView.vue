@@ -14,6 +14,7 @@ import PrimitivesGallery from './design/PrimitivesGallery.vue'
 
 const TYPE_SAMPLES: { token: TokenName; label: string; mono?: boolean }[] = [
   { token: 'text-display', label: 'Display — page titles' },
+  { token: 'text-title', label: 'Title — page titles on a phone' },
   { token: 'text-numeral', label: '48.6 tok/s', mono: true },
   { token: 'text-heading', label: 'Heading — panels and dialogs' },
   { token: 'text-body', label: 'Body — the default reading size' },

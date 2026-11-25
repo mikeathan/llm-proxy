@@ -36,7 +36,7 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :title="STACKS_GROUP_LABEL" :subtitle="STACKS_INTRO" subtitle-hidden-on-phone />
+    <PageHeader :title="STACKS_GROUP_LABEL" :subtitle="STACKS_INTRO" />
     <p v-if="error" role="alert" class="m-0 text-state-error">{{ error }}</p>
     <LoadingState v-else-if="!stacks" label="Reading the stacks" :rows="3" />
     <Panel v-for="s in rows" v-else :key="s.id" :title="s.title">

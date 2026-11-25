@@ -50,7 +50,7 @@ describe('NewsroomBriefs status', () => {
     await flushPromises()
     // Today's brief says nothing beyond the dateline: no "written automatically, nothing to press" line.
     expect(w.find('[data-test="brief-status"]').exists()).toBe(false)
-    expect(w.text()).toContain('Write a new one now')
+    expect(w.find('[data-test="brief-more"]').exists()).toBe(true) // writing a new one waits in the brief's menu
     w.unmount()
     service.issues.mockResolvedValue([issue(7, 'Old', new Date(Date.now() - 30 * 3_600_000).toISOString())])
     w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })
@@ -76,7 +76,8 @@ describe('NewsroomBriefs earlier briefs', () => {
     mounted.push(w)
     await flushPromises()
     expect(w.get('[data-test="masthead"]').text()).toBe('Today')
-    const options = w.get('[data-test="earlier-briefs"] select').findAll('option')
+    // The date in the dateline is the picker, so the picker and the date are one line.
+    const options = w.get('[data-test="dateline"] [data-test="earlier-briefs"] select').findAll('option')
     expect(options).toHaveLength(2)
     expect(options[0]!.text()).toContain('(latest)')
     await w.get('[data-test="earlier-briefs"] select').setValue('6')

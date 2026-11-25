@@ -32,7 +32,7 @@ const tabs: readonly StackTabItem[] = [
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :title="RADIO_TITLE" :subtitle="RADIO_SUBTITLE" subtitle-hidden-on-phone />
+    <PageHeader :title="RADIO_TITLE" :subtitle="RADIO_SUBTITLE" />
     <StackTabs :label="RADIO_TITLE" :tabs="tabs" :active="tab ?? 'listening'" />
     <StackBoardLink stack="radio" />
     <StackModules v-if="tab === 'modules'" stack="radio" />

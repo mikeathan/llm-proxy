@@ -48,4 +48,15 @@ describe('PageHeader', () => {
     expect(w.text()).toContain('What is running now')
     expect(w.text()).toContain('New')
   })
+
+  // On a phone the title and the page's own actions share one row: the eyebrow and the subtitle are left out below sm.
+  it('leaves the eyebrow and the subtitle out on a phone, unless they carry the page context', () => {
+    const props = { title: 'Overview', eyebrow: 'Health', subtitle: 'What is running now' }
+    const compact = mount(PageHeader, { props })
+    expect(compact.get('[data-test="page-eyebrow"]').classes()).toContain('max-sm:hidden')
+    expect(compact.get('[data-test="page-subtitle"]').classes()).toContain('max-sm:hidden')
+    const context = mount(PageHeader, { props: { ...props, phoneContext: true } })
+    expect(context.get('[data-test="page-eyebrow"]').classes()).not.toContain('max-sm:hidden')
+    expect(context.get('[data-test="page-subtitle"]').classes()).not.toContain('max-sm:hidden')
+  })
 })

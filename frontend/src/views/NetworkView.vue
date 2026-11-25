@@ -37,7 +37,7 @@ const tabs: readonly StackTabItem[] = NETWORK_TABS.map((t) => ({ id: t, label: N
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :title="NETWORK_TITLE" :subtitle="NETWORK_SUBTITLE" subtitle-hidden-on-phone>
+    <PageHeader :title="NETWORK_TITLE" :subtitle="NETWORK_SUBTITLE">
       <template #actions><NetauditToolbar /></template>
     </PageHeader>
     <StackTabs label="Network" :tabs="tabs" :active="tab" />

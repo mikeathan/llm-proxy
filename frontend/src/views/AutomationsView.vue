@@ -330,7 +330,7 @@ usePolling(() => {
 
     <!-- One automation -->
     <template v-else-if="page === 'detail' && selectedAutomation">
-      <PageHeader :eyebrow="`Automations · ${selectedAutomation.workspace}`" :title="selectedAutomation.name" :subtitle="triggerLabel(selectedAutomation)">
+      <PageHeader :eyebrow="`Automations · ${selectedAutomation.workspace}`" :title="selectedAutomation.name" :subtitle="triggerLabel(selectedAutomation)" phone-context>
         <template #actions>
           <StatusTag v-if="headerStatus" v-bind="headerStatus" />
           <BaseButton v-if="selectedAutomation.is_running" variant="danger" icon="stop" @click="handleStop">Stop</BaseButton>

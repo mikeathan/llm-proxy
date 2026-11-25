@@ -16,11 +16,12 @@ import { useStoryKeys } from "../../composables/newsroom/useStoryKeys"
 import { useToast } from "../../composables/useToast"
 import { formatRelativeTime } from "../../utils/format/time"
 import { briefText } from "../../utils/newsroom/briefText"
+import { copyText } from "../../utils/clipboard"
 import { splitHome } from "../../utils/newsroom/homeLines"
 import {
-  BRIEF_BESIDE_LABEL, BRIEF_COPIED, BRIEF_COPY_FAILED, BRIEF_COPY_LABEL, BRIEF_END_WORDS, BRIEF_INDEX_LABEL, BRIEF_KEYS_HINT, BRIEF_PRINT_LABEL, BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL,
+  BRIEF_BESIDE_LABEL, BRIEF_COPIED, BRIEF_COPY_FAILED, BRIEF_COPY_LABEL, BRIEF_END_WORDS, BRIEF_INDEX_LABEL, BRIEF_PRINT_LABEL, BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL,
   BRIEF_SECTION_SHOWN, BRIEF_SEND_FIX, BRIEF_SEND_PROBLEM, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
-  briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, briefSentWords, showMoreWords,
+  briefAsOfWords, briefCallsWords, briefOutletsWords, briefWrittenWords, briefSectionCountWords, briefSentWords, showMoreWords,
 } from "../../constants/newsroom"
 import type { BriefIssue, BriefSection, BriefStatus, BriefStory } from "../../types/newsroom"
 
@@ -29,7 +30,10 @@ import type { BriefIssue, BriefSection, BriefStatus, BriefStory } from "../../ty
 // the right (needs a look, your day, alerts, home, model use), and on a phone the side column follows the top stories. Every
 // section and story is an anchor, so a card links straight to it, and j and k move between the stories.
 // `topics` names the topic behind each section (its first topic's id), so a story there can be tuned; without it the stories carry no actions.
-const props = defineProps<{ issue: BriefIssue; status: BriefStatus; isNew?: boolean; topics?: Record<number, string> }>()
+// nameInSwitch: an edition switch beside the nameplate already names the brief, so on a phone the nameplate is left to screen readers.
+const props = defineProps<{ issue: BriefIssue; status: BriefStatus; isNew?: boolean; topics?: Record<number, string>; nameInSwitch?: boolean }>()
+// masthead-end: the page's controls beside the nameplate; when: a picker that stands in for the date in the dateline (the date still prints).
+defineSlots<{ 'masthead-end'?(): unknown; when?(): unknown }>()
 const emit = defineEmits<{ (e: "tune", topicId: number, more: boolean, words: string[]): void; (e: "follow", words: string[]): void }>()
 // The topic each story came from: the section that holds it.
 const topicOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.topic_id] as const))))
@@ -76,14 +80,13 @@ const sectionAnchor = (sec: BriefSection) => `brief-section-${sec.topic_id}`
 const sendProblem = computed(() => (props.issue.send_state && props.issue.send_state !== "nothing" ? props.issue.send_state : null))
 const sentClock = computed(() => (props.issue.sent_at ? new Date(props.issue.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""))
 const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))
+// On a phone the dateline stays one line: the short date, and the model calls are left to wide screens.
+const madeDateShort = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))
 
+// Through the shared helper: on plain HTTP (vertex.local) the browser has no clipboard API, and the helper falls back to the copy command.
 async function copy() {
-  try {
-    await navigator.clipboard.writeText(briefText(props.issue, madeDate.value))
-    toast.success(BRIEF_COPIED)
-  } catch {
-    toast.error(BRIEF_COPY_FAILED)
-  }
+  if (await copyText(briefText(props.issue, madeDate.value))) toast.success(BRIEF_COPIED)
+  else toast.error(BRIEF_COPY_FAILED)
 }
 const print = () => window.print()
 </script>
@@ -92,17 +95,19 @@ const print = () => window.print()
   <div ref="root" class="flex flex-col gap-5 print:gap-3" data-test="edition">
     <header class="flex flex-col" data-test="nameplate">
       <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <h2 class="m-0 flex min-w-0 flex-wrap items-center gap-3 break-words text-[length:var(--text-display,2.5rem)] font-bold leading-none tracking-tight text-primary" data-test="masthead">
+        <h2 :class="['m-0 flex min-w-0 flex-wrap items-center gap-3 break-words text-[length:var(--text-display,2.5rem)] font-bold leading-none tracking-tight text-primary max-sm:text-[length:var(--text-title)]', nameInSwitch ? 'max-sm:sr-only' : '']" data-test="masthead">
           {{ issue.name }}<StatusTag v-if="isNew" state="info" :label="NEW_BRIEF_LABEL" />
         </h2>
-        <div class="ml-auto flex flex-wrap items-center gap-2 print:hidden"><slot name="masthead-end" /></div>
+        <div :class="['ml-auto flex flex-wrap items-center gap-2 print:hidden', nameInSwitch ? 'max-sm:ml-0 max-sm:w-full' : '']"><slot name="masthead-end" /></div>
       </div>
-      <p class="m-0 mt-3 flex flex-wrap gap-x-4 gap-y-1 border-y border-hairline py-1.5 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-muted" data-test="dateline">
-        <span>{{ madeDate }}</span>
-        <span>{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}</span>
+      <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-hairline py-1.5 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-muted max-sm:mt-1" data-test="dateline">
+        <template v-if="$slots.when"><slot name="when" /><span class="hidden print:inline">{{ madeDate }}</span></template>
+        <template v-else><span class="max-sm:hidden">{{ madeDate }}</span><span class="sm:hidden">{{ madeDateShort }}</span></template>
+        <span>{{ briefWrittenWords(formatRelativeTime(issue.made_at)) }}</span>
+        <span class="max-sm:hidden" data-test="model-calls">{{ briefCallsWords(issue.model_calls) }}</span>
         <span v-if="issue.outlets_read">{{ briefOutletsWords(issue.outlets_read) }}</span>
         <span v-if="!sendProblem && sentClock" class="print:hidden" data-test="send-sent">{{ briefSentWords(sentClock) }}</span>
-      </p>
+      </div>
       <p v-if="sendProblem" class="m-0 mt-2 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-running print:hidden" role="status" data-test="send-problem">
         {{ BRIEF_SEND_PROBLEM[sendProblem] }}
         <RouterLink v-if="sendProblem === 'refused'" :to="toSettings('communication')" class="text-accent-info-text hover:underline" data-test="send-fix">{{ BRIEF_SEND_FIX }}</RouterLink>
@@ -117,7 +122,6 @@ const print = () => window.print()
     <nav v-if="issue.sections.length > 1" class="sticky top-0 z-10 -mx-1 flex items-center gap-0 overflow-x-auto border-b border-hairline bg-canvas print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-row">
       <a v-if="lead" href="#brief-top" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ TOP_STORIES_LABEL }}</a>
       <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ sec.name }} <span class="font-mono text-faint">{{ sec.stories.length }}</span></a>
-      <span class="ml-auto hidden flex-none whitespace-nowrap px-3 text-[length:var(--text-small)] text-faint lg:inline">{{ BRIEF_KEYS_HINT }}</span>
     </nav>
 
     <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:gap-8 print:block" data-test="edition-body">
