@@ -10,8 +10,8 @@ import NewsroomBriefChips from "../../newsroom/NewsroomBriefChips.vue"
 import NewsroomBriefHeadline from "../../newsroom/NewsroomBriefHeadline.vue"
 import NewsroomBriefIndex from "../../newsroom/NewsroomBriefIndex.vue"
 import {
-  BRIEF_ATTENTION_LABEL, BRIEF_CARD_EMPTY_ISSUE, BRIEF_CARD_NONE, BRIEF_CARD_OPEN, BRIEF_CARD_PICK_LABEL, BRIEF_CARD_RELOAD, BRIEF_CARD_SET_UP, BRIEF_CARD_WAITING, LEAD_STORY_LABEL, NEW_BRIEF_LABEL,
-  briefCardCountWords, briefCardLineWords, briefMadeWords,
+  BRIEF_ATTENTION_LABEL, BRIEF_CARD_EMPTY_ISSUE, BRIEF_CARD_NONE, BRIEF_CARD_OPEN, BRIEF_CARD_PICK_LABEL, BRIEF_CARD_RELOAD, BRIEF_CARD_SET_UP, BRIEF_CARD_WAITING, NEW_BRIEF_LABEL,
+  briefCardCountWords, briefCardLineWords, briefMadeWords, leadStoryWords,
 } from "../../../constants/newsroom"
 import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useBriefCard } from "../../../composables/newsroom/useBriefCard"
@@ -19,27 +19,38 @@ import { toBrief, toNewsroom } from "../../../router/routes"
 import { formatRelativeTime } from "../../../utils/format/time"
 import type { BriefSection, BriefStory } from "../../../types/newsroom"
 
-// Dashboard card · Brief: the newest written brief as a front page. Large: what needs a look, the lead, two headlines from each of up to three sections and the
-// sections as links. Smaller sizes: the lead, then one line. Every headline and section opens the brief at that place (ADR-0064, ADR-0086): the card shows and
-// links, and reading is on the Newsroom. A brief counts as read when the Newsroom shows it, never from here.
+// Dashboard card · Brief: the newest written brief as a front page. Large: what needs a look, the lead, a column of headlines for each of up to three sections
+// (as many columns as there are sections, so none stands empty) and the sections without a column as links. Smaller sizes: the lead, then one line. Every
+// headline and section opens the brief at that place (ADR-0064, ADR-0086): the card shows and links, and reading is on the Newsroom. A brief counts as read
+// when the Newsroom shows it, never from here. The edition's name is said once: by its tab when there are tabs, else as the card's heading.
 const COLUMNS = 3
-const PER_COLUMN = 2
+// Fewer columns, more headlines in each, so the front page keeps its width filled.
+const PER_COLUMN: Record<number, number> = { 1: 4, 2: 3, 3: 2 }
+const COLUMN_GRID: Record<number, string> = { 1: "", 2: "md:grid-cols-2", 3: "md:grid-cols-3" }
 const size = useCardSize()
 const { unread, editions, issue, error, picked, edition, latestOf, isNew, critical, needsAttention, lead, sectionOf, storyCount, sections } = useBriefCard()
 const options = computed(() => (editions.value ?? []).map((e) => ({ value: String(e.id), label: unread.isUnread(e.id) ? `${e.name} · ${NEW_BRIEF_LABEL}` : e.name })))
-// The columns of the front page: the sections with stories other than the lead, two headlines each, no story twice on the card.
+const tabs = computed(() => size.value !== 'xs' && (editions.value?.length ?? 0) > 1)
+// The columns of the front page: the sections with stories other than the lead, no story twice on the card.
 const columns = computed(() => {
   const used = new Set(lead.value ? [lead.value.pool_id] : [])
+  const candidates = sections.value.filter((sec) => sec.stories.some((s) => !used.has(s.pool_id))).length
+  const perColumn = PER_COLUMN[Math.min(candidates, COLUMNS)] ?? 0
   const out: { sec: BriefSection; stories: BriefStory[] }[] = []
   for (const sec of sections.value) {
     if (out.length === COLUMNS) break
-    const stories = sec.stories.filter((s) => !used.has(s.pool_id)).slice(0, PER_COLUMN)
+    const stories = sec.stories.filter((s) => !used.has(s.pool_id)).slice(0, perColumn)
     stories.forEach((s) => used.add(s.pool_id))
     if (stories.length) out.push({ sec, stories })
   }
   return out
 })
-const leadSection = computed(() => (lead.value ? sectionOf.value.get(lead.value.pool_id)?.name : undefined))
+const leadLabel = computed(() => leadStoryWords(lead.value ? sectionOf.value.get(lead.value.pool_id)?.name : undefined))
+// The footer lists only what the columns do not already show.
+const rest = computed(() => {
+  const shown = new Set(size.value === 'sm' ? [] : columns.value.map((c) => c.sec.topic_id))
+  return sections.value.filter((sec) => !shown.has(sec.topic_id))
+})
 </script>
 
 <template>
@@ -51,7 +62,16 @@ const leadSection = computed(() => (lead.value ? sectionOf.value.get(lead.value.
       <RouterLink :to="toNewsroom('following')" class="text-accent-brand hover:underline">{{ BRIEF_CARD_SET_UP }}</RouterLink>
     </p>
     <template v-else>
-      <SegmentedControl v-if="size !== 'xs' && editions.length > 1" :model-value="String(edition.id)" :options="options" :label="BRIEF_CARD_PICK_LABEL" variant="compact" @update:model-value="picked = Number($event)" />
+      <!-- One row: the tabs (or the name), what needs a look, and when it was written. -->
+      <header v-if="size !== 'xs' && (tabs || issue)" class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <SegmentedControl v-if="tabs" :model-value="String(edition.id)" :options="options" :label="BRIEF_CARD_PICK_LABEL" variant="compact" @update:model-value="picked = Number($event)" />
+          <h3 v-if="issue" class="m-0 flex flex-wrap items-center gap-2 break-words font-semibold text-primary" data-test="brief-card-name">
+            <span :class="tabs ? 'sr-only' : ''">{{ issue.name }}</span><StatusTag v-if="isNew && !tabs" state="info" :label="NEW_BRIEF_LABEL" /><StatusTag v-if="needsAttention" state="error" :label="BRIEF_ATTENTION_LABEL" />
+          </h3>
+        </div>
+        <span v-if="issue" class="font-mono text-[length:var(--text-small)] uppercase tracking-wider text-faint">{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }} · {{ briefCardCountWords(storyCount, sections.length) }}</span>
+      </header>
       <p v-if="!latestOf" class="m-0 text-muted" data-test="brief-card-waiting">{{ BRIEF_CARD_WAITING(edition.ready_by) }}</p>
       <p v-else-if="!issue" class="m-0 text-muted">…</p>
 
@@ -62,30 +82,23 @@ const leadSection = computed(() => (lead.value ? sectionOf.value.get(lead.value.
       </p>
 
       <template v-else>
-        <header class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t-2 border-text-primary pt-2">
-          <h3 class="m-0 flex flex-wrap items-center gap-2 break-words text-[length:var(--text-h3,1.25rem)] font-bold leading-tight text-primary" data-test="brief-card-name">
-            {{ issue.name }}<StatusTag v-if="isNew" state="info" :label="NEW_BRIEF_LABEL" /><StatusTag v-if="needsAttention" state="error" :label="BRIEF_ATTENTION_LABEL" />
-          </h3>
-          <span class="font-mono text-[length:var(--text-small)] uppercase tracking-wider text-faint">{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }} · {{ briefCardCountWords(storyCount, sections.length) }}</span>
-        </header>
         <NewsroomBriefAttention :lines="critical" />
         <NewsroomBriefChips />
         <p v-if="!lead" class="m-0 text-muted">{{ BRIEF_CARD_EMPTY_ISSUE }}</p>
         <div v-else :class="['grid min-w-0 items-start gap-x-6 gap-y-2', size === 'sm' ? '' : 'lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]']" data-test="brief-card-front">
           <div class="min-w-0" data-test="brief-card-lead">
-            <span class="font-mono text-[length:var(--text-small)] uppercase tracking-wider text-accent-brand">{{ LEAD_STORY_LABEL }}<template v-if="leadSection"> · {{ leadSection }}</template></span>
-            <NewsroomBriefHeadline :story="lead" :edition="edition.id" lead />
+            <NewsroomBriefHeadline :story="lead" :edition="edition.id" :section="leadLabel" lead />
             <p v-if="lead.summary" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ lead.summary }}</p>
           </div>
-          <ul v-if="size !== 'sm' && columns.length" class="m-0 grid min-w-0 list-none gap-x-6 p-0 md:grid-cols-3" data-test="brief-card-columns">
+          <ul v-if="size !== 'sm' && columns.length" :class="['m-0 grid min-w-0 list-none gap-x-6 p-0', COLUMN_GRID[columns.length]]" data-test="brief-card-columns">
             <li v-for="c in columns" :key="c.sec.topic_id" class="flex min-w-0 flex-col divide-y divide-hairline">
-              <NewsroomBriefHeadline v-for="(s, i) in c.stories" :key="s.pool_id" :story="s" :edition="edition.id" :section="i === 0 ? c.sec.name : undefined" />
+              <NewsroomBriefHeadline v-for="(s, i) in c.stories" :key="s.pool_id" :story="s" :edition="edition.id" :section="i === 0 ? c.sec.name : undefined" :section-id="c.sec.topic_id" />
             </li>
           </ul>
         </div>
-        <div class="flex flex-wrap items-center justify-between gap-x-4">
-          <NewsroomBriefIndex v-if="size !== 'sm'" class="flex-1" :sections="sections" :edition="edition.id" />
-          <RouterLink :to="toBrief({ edition: edition.id })" class="inline-flex min-h-11 items-center text-[length:var(--text-small)] text-accent-brand hover:underline sm:min-h-8" data-test="brief-card-open">{{ BRIEF_CARD_OPEN }} →</RouterLink>
+        <div class="flex flex-wrap items-center justify-between gap-x-4 border-t border-hairline pt-1">
+          <NewsroomBriefIndex v-if="size !== 'sm' && rest.length" :sections="rest" :edition="edition.id" />
+          <RouterLink :to="toBrief({ edition: edition.id })" class="ml-auto inline-flex min-h-11 items-center text-[length:var(--text-small)] text-accent-brand hover:underline sm:min-h-8" data-test="brief-card-open">{{ BRIEF_CARD_OPEN }} →</RouterLink>
         </div>
       </template>
     </template>

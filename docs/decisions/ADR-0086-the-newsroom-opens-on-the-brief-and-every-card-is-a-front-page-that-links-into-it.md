@@ -29,7 +29,8 @@ without the generated halftone art.
    (amended 2026-11-25: a left column of its own left most of a wide page empty, and the Brief tab now uses the whole page width). Beside the news, in reading order: what needs a look (critical home facts, said once), the chips, your day, alerts, the rest of Home,
    Model use. Model use no longer depends on the Home switch (amends ADR-0085's placement). Each story shows a tick per outlet.
 3. **Cards are front pages and only link (ADR-0064 held).** The Brief card shows what needs a look, the lead, two headlines from each of up to
-   three sections and the sections as links; no tabs. The Today card keeps its short form. Every headline, section and "read" link opens the
+   three sections and the sections as links; no tabs. (Amended 2026-11-25, v0.135.0: as many columns as sections, up to three, with more
+   headlines when there are fewer, the edition named once, a section label links to its section, and the footer lists only the sections without a column.) The Today card keeps its short form. Every headline, section and "read" link opens the
    brief at that place: `/newsroom?edition=&section=&story=` (`toBrief`). Cards share one store for the editions and each written issue,
    one for the chips and one for Model use (`sharedPoll`), so a board asks once however many cards show it.
 4. **One way in to follow.** The Follow form on Following makes a brief topic, a watch, or both, from one set of words; a story offers more or less

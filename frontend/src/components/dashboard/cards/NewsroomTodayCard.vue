@@ -57,7 +57,7 @@ const second = computed(() => otherTop.value[0])
         <NewsroomBriefHeadline :story="lead" :edition="edition.id" :section="sectionOf.get(lead.pool_id)?.name" />
         <NewsroomBriefHeadline v-if="second && size !== 'sm' && size !== 'xs'" :story="second" :edition="edition.id" :section="sectionOf.get(second.pool_id)?.name" />
       </div>
-      <NewsroomBriefIndex v-if="size !== 'xs'" :sections="sections" :edition="edition.id" data-test="today-sections" />
+      <NewsroomBriefIndex v-if="size !== 'xs'" class="border-t border-hairline pt-1" :sections="sections" :edition="edition.id" data-test="today-sections" />
     </template>
   </div>
 </template>
