@@ -5,14 +5,14 @@ last_reviewed: 2026-11-25
 related_specs: [SPEC-013, SPEC-003]
 constitution_references: [IV.6, V.2]
 related_plans: [morning-paper.md, topic-watch.md]
-evidence: Review read at 0f941c49 (v0.131.0); built on branch newsroom-reader-and-fixes (v0.132.0), uncommitted. Checks listed under "Handoff". Nothing measured on vertex.
+evidence: Review read at 0f941c49 (v0.131.0); built on branch newsroom-reader-and-fixes (v0.132.0), PR #308. Checks listed under "Handoff". Nothing measured on vertex.
 ---
 
 # Newsroom review and redesign (2026-11-25)
 
 ## Handoff
 
-- **Branch:** `newsroom-reader-and-fixes`, from origin/main `0f941c49` (v0.131.0, #307 merged), **uncommitted, not pushed**. Version 0.132.0.
+- **Branch:** `newsroom-reader-and-fixes`, from origin/main `0f941c49` (v0.131.0, #307 merged), committed, pushed, **PR #308 open** (merge is the owner's call). Version 0.132.0.
   `frontend_dist/index.html` rebuilt from the final tree. ADR-0086, SPEC-013 1.27. Supersedes the deleted `newsroom-briefs-handoff-2026-11-25.md`.
 - **Owner's choices:** option C built as B first; **no halftone or other generated story art** (only the line-art section marks); the tab names
   Brief · Alerts · Following · Settings; Model use shown without the Home switch; no serif font.
@@ -25,7 +25,7 @@ evidence: Review read at 0f941c49 (v0.131.0); built on branch newsroom-reader-an
   hangs `TestFetch_ASlowBodyRunsOutOfTimeInsteadOfHoldingTheCaller`; a `border-state-warning` class fails `tokenClasses.test.ts`.
   **Not run:** anything on vertex; a real Telegram send; the size of `briefs.json` before and after.
 - **Left, in order (each needs the owner):**
-  1. Review, commit, merge and deploy. After deploy: the inline pool of the old `briefs.json` is not read, and with no pool file every topic
+  1. Review and merge PR #308, then deploy. After deploy: the inline pool of the old `briefs.json` is not read, and with no pool file every topic
      is marked due, so the first pass collects them all (check the next brief is full); open `/newsroom/briefs` from an old Telegram summary and check it lands on the brief; press "Write a new one" and watch the steps.
   2. Carried from the deleted handoff, not confirmed done: approve the short radio sentences (`radiodigest` `shortWords`); Telegram
      needs an https address for a link; add direct feeds (BBC, the Guardian) in Set up so more stories carry text.
