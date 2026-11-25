@@ -49,4 +49,4 @@ delete old briefs; written briefs only aged out (30 days, 100 at most).
   `brief/issues.go` (`DeleteIssues`, `DeletedSlot`), tests `TestAChangeMustCiteWhereTheEarlierFactWasWritten`,
   `TestWhatTheModelLeftOutIsKeptAsideWithItsReason`, `TestLeftOutEntriesHaveTheirOwnBound`, `TestStore_DeleteAnIssueOrTheOlderOnesOfItsEdition`
   (each fails when its rule is removed).
-- Plan: `docs/PLANS/autonomy/newsroom-review-2026-11-25.md` (Alerts follow-up).
+- Plan: `docs/PLANS/ARCHIVE/autonomy/newsroom-review-2026-11-25.md` (Alerts follow-up).

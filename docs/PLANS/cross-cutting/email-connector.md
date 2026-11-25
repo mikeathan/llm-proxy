@@ -4,7 +4,7 @@ date: 2026-11-20
 last_reviewed: 2026-11-20
 related_specs: [SPEC-009, SPEC-006]
 constitution_references: [I.1, III.6, V.2]
-related_plans: [sources-and-more-connectors.md, ../autonomy/topic-watch.md, ../autonomy/morning-paper.md, connector-auto-reply.md]
+related_plans: [sources-and-more-connectors.md, ../ARCHIVE/autonomy/topic-watch.md, ../ARCHIVE/autonomy/morning-paper.md, connector-auto-reply.md]
 evidence: Read 2026-11-20 - CONSTITUTION.md (secrets encrypted III.6, step-up for stored secrets, connector webhooks carry a mandatory secret), models/config.go (ConnectorTypeTelegram is the only type), core/tools/notifiers (telegram.go only), sources-and-more-connectors.md, ADR-0068 (the notify port names a channel type, never an address). SMTP and TLS behaviour below is general knowledge, not re-checked; Go's net/smtp was not read for this plan.
 ---
 

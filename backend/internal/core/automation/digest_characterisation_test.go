@@ -12,7 +12,7 @@ import (
 // heartbeat audit (five items in run 1; the same items again in run 2, one of them
 // under a different source link), not copies of the real run history, which is not
 // in the repo. They pin what buildDigest does today, so the Topic Watch plan
-// (docs/PLANS/autonomy/topic-watch.md) knows what the URL-keyed ledger can and
+// (docs/PLANS/ARCHIVE/autonomy/topic-watch.md) knows what the URL-keyed ledger can and
 // cannot do before a changed-fact step is built on top of it.
 const watchRun1 = `Five items found this run.
 

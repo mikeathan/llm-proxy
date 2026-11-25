@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 date: 2026-11-25
 last_reviewed: 2026-11-25
 related_specs: [SPEC-013, SPEC-003]
@@ -143,5 +143,6 @@ display face for the nameplate: it would be a new self-hosted font file, so it i
 
 ## Remaining work
 
-Nothing is built. Order when the owner chooses: B1 → B2 (with a lint rule that refuses a colour class that is not a token) → B3 and deep
-links → B4 → P1/P2 → the chosen design option → P4/P5 → settings → features.
+None in this plan (archived 2026-11-25). The review was built in #308 (B1-B4, P1, P2, P4, P5, the settings of section 4 and features 1-9), the
+Alerts follow-up in #310 and the card fit in #311; all merged and deployed (v0.135.0 on vertex). What is left (vertex checks, owner calls, P3
+unmeasured) is in `../../autonomy/newsroom-handoff-2026-11-25.md`.

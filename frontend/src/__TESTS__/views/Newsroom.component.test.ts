@@ -139,6 +139,39 @@ describe('NewsroomView', () => {
     expect(w.text()).toContain('Go 1.25.5 released')
   })
 
+  it('links the Alerts tab to the watches and their sources, so their setup is never hidden behind a switch', async () => {
+    const { w, router } = await mountView()
+    const link = w.get('[data-test="alerts-setup"]')
+    expect(link.text()).toContain('Set up alerts')
+    await link.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/newsroom/following')
+    expect(router.currentRoute.value.query.kind).toBe('alerts')
+    expect(w.text()).toContain('Go releases')
+  })
+
+  it('links each half of Following back to where it is read, and adds a watch from the Alerts half in one click', async () => {
+    const brief = await mountView('/newsroom/following?kind=brief')
+    await brief.w.get('[data-test="following-read"]').trigger('click')
+    await flushPromises()
+    expect(brief.router.currentRoute.value.path).toBe('/newsroom')
+    brief.w.unmount()
+    const { w, router } = await mountWatches()
+    await w.get('[data-test="new-watch"]').trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('New watch')
+    await w.get('[data-test="following-read"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/newsroom/alerts')
+  })
+
+  it('offers Follow on the Brief tab too, opening the form on "In your brief"', async () => {
+    const { w, router } = await mountView('/newsroom')
+    await w.get('[data-test="follow-open"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toMatchObject({ kind: 'brief', follow: '' })
+  })
+
   it('stays quiet while every watch works, and names the one that needs a look', async () => {
     const quiet = await mountView()
     expect(quiet.w.find('[data-test="alert-problems"]').exists()).toBe(false)

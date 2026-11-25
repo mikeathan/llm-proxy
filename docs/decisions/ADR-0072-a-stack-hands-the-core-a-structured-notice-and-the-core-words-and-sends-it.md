@@ -34,4 +34,4 @@ Proposed: in force when the owner merges the pull request that carries it. It ad
 - **Give the Newsroom the notify port** — it would let a stack send its own text, which ADR-0036 rules out.
 
 ## Links
-- `stacks/sdk/ports.go` (`Notice`), `backend/internal/core/stackport/notice.go`, `backend/internal/app/stacks.go` (`notifyPort`), `stacks/newsroom/newsroom.go` (`noticeSender`); plan `docs/PLANS/autonomy/topic-watch.md`.
+- `stacks/sdk/ports.go` (`Notice`), `backend/internal/core/stackport/notice.go`, `backend/internal/app/stacks.go` (`notifyPort`), `stacks/newsroom/newsroom.go` (`noticeSender`); plan `docs/PLANS/ARCHIVE/autonomy/topic-watch.md`.

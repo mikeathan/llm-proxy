@@ -16,7 +16,7 @@ After v0.131.0 the same brief was drawn three times, each with its own code and 
 Newsroom board (by then a second reader with tabs, a side column and Model use), and the Briefs tab. Every link from a card went to the top of
 the Briefs tab, without the edition, so picking an edition on a card and opening it could show (and mark read) another one. The Newsroom opened
 on the Feed, and a watch and a brief topic were set up in two tabs. The review is in
-`docs/PLANS/autonomy/newsroom-review-2026-11-25.md`, with mocks in `newsroom-redesign-mocks/`. The owner chose option C, built as B first,
+`docs/PLANS/ARCHIVE/autonomy/newsroom-review-2026-11-25.md`, with mocks in `newsroom-redesign-mocks/`. The owner chose option C, built as B first,
 without the generated halftone art.
 
 ## Decision
@@ -55,5 +55,5 @@ without the generated halftone art.
 
 ## Links
 
-- Plan: `docs/PLANS/autonomy/newsroom-review-2026-11-25.md`
+- Plan: `docs/PLANS/ARCHIVE/autonomy/newsroom-review-2026-11-25.md`
 - SPEC-013 1.27

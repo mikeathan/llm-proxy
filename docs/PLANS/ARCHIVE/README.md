@@ -45,6 +45,9 @@ Archiving: `git mv` the plan here under the same folder name, add a row below, a
 | [`automation/memory-and-heartbeat-simplification.md`](automation/memory-and-heartbeat-simplification.md) | Memory defaults + overrides (assistant/automation) and a simple per-workspace Heartbeat section | complete | 2026-10-04 | SPEC-004, SPEC-007, SPEC-003 |
 | [`autonomy/reminders-design.md`](autonomy/reminders-design.md) | Reminders — design (v1) | draft | 2026-10-11 | SPEC-011 |
 | [`autonomy/reminders-implementation.md`](autonomy/reminders-implementation.md) | Reminders Implementation Plan (built; SPEC-011 is the contract) | complete | 2026-10-11 | SPEC-011 |
+| [`autonomy/morning-paper.md`](autonomy/morning-paper.md) | Briefs (was Morning Paper): editions of news, your watches, your day and Home (phases 0-6, 8 built; 7 dropped) | complete | 2026-11-25 | SPEC-013, SPEC-011, SPEC-007, SPEC-003 |
+| [`autonomy/topic-watch.md`](autonomy/topic-watch.md) | Topic Watch: follow a topic and say only what changed (built as the Newsroom's watches / Alerts) | complete | 2026-11-25 | SPEC-013, SPEC-007, SPEC-009 |
+| [`autonomy/newsroom-review-2026-11-25.md`](autonomy/newsroom-review-2026-11-25.md) | Newsroom review and redesign (built in #308-#311) | complete | 2026-11-25 | SPEC-013, SPEC-003 |
 | [`cross-cutting/agent-os-sandboxing.md`](cross-cutting/agent-os-sandboxing.md) | Agent OS Sandboxing (rev 2 — network-first, uid-first; one action pipeline with OS jail + egress proxy; Phases 0–4 implemented + post-review hardening) | complete | 2026-09-06 | SPEC-006, SPEC-009 |
 | [`cross-cutting/assistant-automation-parity.md`](cross-cutting/assistant-automation-parity.md) | Plan: Assistant-Automation Parity + Frontend UX Improvements | complete | — | — |
 | [`cross-cutting/assistant-cancel-endpoint.md`](cross-cutting/assistant-cancel-endpoint.md) | Add explicit /assistant/cancel endpoint + in-process agent registry | superseded | — | — |

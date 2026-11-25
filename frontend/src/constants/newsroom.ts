@@ -49,6 +49,11 @@ export const leftOutViewWords = (count: number): string => (count > 0 ? `${LEFT_
 export const ALERT_PROBLEM_WORDS = { failing: 'source failing', send_failed: 'send failed', no_channel: 'no channel', analysis_failed: 'could not compare' } as const
 export const sourcesDownWords = (n: number): string => (n === 1 ? '1 source not answering' : `${n} sources not answering`)
 export const ALERT_PROBLEMS_LINK = 'Open in Following'
+// Always on the Alerts tab: the watches and their sources live on Following, behind its "Alerts" switch, so the way there is said, not known.
+export const ALERTS_SETUP_LINK = 'Set up alerts'
+// Every setup view links back to where its result is read, and the brief to where it is set up: one click each way.
+export const FOLLOWING_READ_LINKS = { brief: 'Read the brief', alerts: 'See alerts' } as const
+export const BRIEF_SETUP_LINK = 'Set up the brief'
 export const leftOutWords = (why: string): string => `Left out: ${why}`
 export const KEEP_LABEL = 'Should have matched'
 export const KEPT_TOAST = 'Put in Alerts'
