@@ -1,5 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { NETWORK_CARD_BOARD } from '../constants/dashboard'
+import { NETWORK_CARD_BOARD, NEWSROOM_BRIEF_BOARD, NEWSROOM_FEED_BOARD } from '../constants/dashboard'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
 import type { BriefPlace } from '../types/newsroom'
@@ -99,7 +99,7 @@ export const toRadioDevice = (id: string): RouteLocationNamedRaw => ({ name: ROU
 export const toRequirementFix = (section: RequirementFixSection): RouteLocationNamedRaw =>
   section === 'network-scan' ? toNetwork('settings') : toSettings(section)
 
-/** The Newsroom page; without a tab it is the feed. */
+/** The Newsroom's stack page, where it is set up: Following (the page without a tab) and Settings. The brief and the feed are read on the dashboard. */
 export const toNewsroom = (tab?: NewsroomTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.newsroom, params: tab ? { tab } : {} })
 
 /** The Following tab on one kind: the brief's topics and editions, or the watches that alert. */
@@ -111,8 +111,11 @@ export const toFollow = (text = '', mode: 'brief' | 'alerts' = 'alerts'): RouteL
 /** The brief, at an edition and in it a section or a story when given, so a link from a card lands where it points. */
 export const toBrief = (place: BriefPlace = {}): RouteLocationNamedRaw => {
   const query = Object.fromEntries(Object.entries(place).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))
-  return { name: ROUTE_NAMES.newsroom, params: {}, ...(Object.keys(query).length ? { query } : {}) }
+  return withQuery(toDashboard(NEWSROOM_BRIEF_BOARD), query)
 }
+
+/** The feed: what the watches found, on the dashboard's Newsroom tab. */
+export const toFeed = (): RouteLocationNamedRaw => toDashboard(NEWSROOM_FEED_BOARD)
 
 /** The Reminders page; without a tab it is the list of reminders. */
 export const toReminders = (tab?: RemindersTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders, params: tab ? { tab } : {} })

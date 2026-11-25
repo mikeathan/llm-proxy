@@ -111,8 +111,8 @@ func TestBriefText_StaysUnderWhatAPhoneMessageAllowsAndKeepsTheAddress(t *testin
 
 func TestBriefPage_IsTheHTTPSOriginOfTheConnectorsWebhookOrNothing(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://home.example.com/api/v1/webhooks/telegram":      "https://home.example.com/newsroom",
-		"https://home.example.com:8443/api/v1/webhooks/telegram": "https://home.example.com:8443/newsroom",
+		"https://home.example.com/api/v1/webhooks/telegram":      "https://home.example.com/admin/dashboard?board=newsroom",
+		"https://home.example.com:8443/api/v1/webhooks/telegram": "https://home.example.com:8443/admin/dashboard?board=newsroom",
 		"http://192.168.1.5:4001/api/v1/webhooks/telegram":       "",
 		"":                                   "",
 		"not a url":                          "",

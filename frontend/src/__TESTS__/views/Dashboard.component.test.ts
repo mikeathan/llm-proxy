@@ -9,6 +9,15 @@ const service = vi.hoisted(() => ({ layout: vi.fn(), save: vi.fn(), reset: vi.fn
 vi.mock('../../services/dashboard/dashboardService', () => ({ DashboardService: service }))
 const stacksService = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('../../services/stacks/stacksService', () => ({ StacksService: stacksService }))
+// The Newsroom's dots read two counts; each test sets them.
+const counts = vi.hoisted(() => ({ alerts: vi.fn(), latest: vi.fn() }))
+vi.mock('../../services/newsroom/newsroomService', () => ({ NewsroomService: { alertCounts: counts.alerts } }))
+vi.mock('../../services/newsroom/briefService', () => ({ BriefService: { latest: counts.latest } }))
+// The Newsroom's two boards are pages (ADR-0089); stand-ins show which one is drawn.
+vi.mock('../../components/dashboard/boardViews', () => {
+  const page = (name: string) => defineComponent({ setup: () => () => h('p', { 'data-test': 'fake-view' }, name) })
+  return { BOARD_VIEWS: { 'newsroom-brief': { component: page('the brief'), wide: true }, 'newsroom-feed': { component: page('the feed'), wide: false } } }
+})
 
 // Two cards stand in for the catalogue: the view places cards, it does not read their data.
 vi.mock('../../components/dashboard/cardRegistry', () => {
@@ -23,6 +32,8 @@ vi.mock('../../components/dashboard/cardRegistry', () => {
 })
 
 import DashboardView from '../../views/DashboardView.vue'
+import { resetAlertsUnread } from '../../composables/newsroom/useAlertsUnread'
+import { resetBriefUnread } from '../../composables/newsroom/useBriefUnread'
 import { ROUTE_NAMES } from '../../types/routes'
 
 const empty = { template: '<div />' }
@@ -39,7 +50,12 @@ const cardTitles = (w: Awaited<ReturnType<typeof show>>['w']) => w.findAll('[dat
 
 let mounted: Array<{ unmount: () => void }> = []
 beforeEach(() => {
+  // The unread counts are module-level pollers: start each test from none, before the mount (an afterEach reset would race the unmount).
+  resetAlertsUnread()
+  resetBriefUnread()
   vi.clearAllMocks()
+  counts.alerts.mockResolvedValue({ unread: 0, leftOut: 0 })
+  counts.latest.mockResolvedValue([])
   vi.stubGlobal('localStorage', memoryStorage())
   service.layout.mockResolvedValue({ boards: [] })
   service.save.mockImplementation(async (l: DashboardLayout) => l)
@@ -285,6 +301,46 @@ describe('DashboardView', () => {
     const { w } = await open()
     expect(w.get('[data-test="dashboard-error"]').text()).toBe('the server is down')
     expect(tabs(w)).toHaveLength(5)
+  })
+
+  describe('the Newsroom tab (ADR-0089)', () => {
+    const withNewsroom = () => stacksService.list.mockResolvedValue([{ id: 'newsroom', title: 'Newsroom', purpose: '', on: 2, total: 3, stopped: 0, blocked: 0 }])
+
+    it('is one tab with Brief and Feed, each a page in place of cards', async () => {
+      withNewsroom()
+      const { w } = await open('/dashboard?board=newsroom')
+      expect(current(w)).toEqual(['Newsroom'])
+      expect(w.findAll('[data-test="sub-tab"]').map((s) => s.text())).toEqual(['Brief', 'Feed'])
+      expect(w.get('[data-test="fake-view"]').text()).toBe('the brief')
+      expect(w.find('[data-test="dashboard-grid"]').exists()).toBe(false)
+      await w.findAll('[data-test="sub-tab"]')[1]!.trigger('click')
+      await flushPromises()
+      expect(w.get('[data-test="fake-view"]').text()).toBe('the feed')
+      expect(w.get('[data-test="board-view-newsroom-feed"]').classes()).toContain('max-w-[1072px]')
+    })
+
+    it('leaves the card controls out of the edit bar on a page board, and keeps adding a board', async () => {
+      withNewsroom()
+      const { w } = await open('/dashboard?board=newsroom')
+      await w.get('[data-test="arrange"]').trigger('click')
+      expect(w.find('[data-test="dashboard-toolbar"]').exists()).toBe(true)
+      expect(w.find('[data-test="add-card"]').exists()).toBe(false)
+      expect(w.find('[data-test="layout-select"]').exists()).toBe(false)
+      expect(w.find('[data-test="reset-board"]').exists()).toBe(false)
+    })
+
+    it('dots Brief while a brief waits unread and Feed while alerts do, and the Newsroom tab says both', async () => {
+      withNewsroom()
+      counts.latest.mockResolvedValue([{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: false }])
+      counts.alerts.mockResolvedValue({ unread: 3, leftOut: 0 })
+      const { w } = await open('/dashboard?board=newsroom')
+      const subs = w.findAll('[data-test="sub-tab"]')
+      expect(subs.map((s) => s.find('[data-test="sub-tab-dot"]').exists())).toEqual([true, true])
+      expect(subs[1]!.text()).toContain('3 unread alerts')
+      const tab = tabs(w).find((t) => t.text().startsWith('Newsroom'))!
+      expect(tab.find('[data-test="board-tab-dot"]').exists()).toBe(true)
+      expect(tab.text()).toMatch(/brief.*3 unread alerts/i)
+    })
   })
 })
 

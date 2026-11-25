@@ -56,8 +56,9 @@ const (
 
 const msgBriefEmpty = "a brief summary needs a name and at least one story or home fact"
 
-// BriefPagePath is where the Briefs page lives in the admin UI.
-const BriefPagePath = "/newsroom"
+// BriefPagePath is where the brief is read in the admin UI: the dashboard's Newsroom tab (ADR-0089). The Newsroom's own page is where it is set up.
+// The admin UI is served only under /admin/ (handlers.serveAdminUI), so the address carries that prefix.
+const BriefPagePath = "/admin/dashboard?board=newsroom"
 
 // BriefPage is the address of the Briefs page for a connector whose stored webhook address is given: that address's own origin, and only when it is https,
 // since a plain address cannot be opened safely from a phone away from home. A webhook address that is empty, not https or without a host gives "" and the

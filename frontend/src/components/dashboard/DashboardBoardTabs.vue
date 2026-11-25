@@ -3,8 +3,9 @@ import { computed } from "vue"
 import ScrollStrip from "../common/layout/ScrollStrip.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
-import { unreadBriefWords } from "../../constants/newsroom"
-import { GROUP_LABELS, HOME_BOARD_ID, MAX_BOARD_NAME, REMOVE_BOARD_LABEL, RENAME_BOARD_LABEL, SUB_TABS_LABEL } from "../../constants/dashboard"
+import { useAlertsUnread } from "../../composables/newsroom/useAlertsUnread"
+import { unreadAlertsWords, unreadBriefWords } from "../../constants/newsroom"
+import { GROUP_LABELS, HOME_BOARD_ID, NEWSROOM_BRIEF_BOARD, NEWSROOM_FEED_BOARD, MAX_BOARD_NAME, REMOVE_BOARD_LABEL, RENAME_BOARD_LABEL, SUB_TABS_LABEL } from "../../constants/dashboard"
 import { boardTabs, groupOf } from "../../domain/dashboard"
 import type { DashboardBoard } from "../../types/dashboard"
 
@@ -19,9 +20,16 @@ const emit = defineEmits<{
   (e: "rename", id: string, name: string): void
 }>()
 
-// A dot on the Newsroom tab while a written brief waits unread; the card inside it says which. The count is shared with the Newsroom page's tab.
-const NEWSROOM_BOARD_ID = "newsroom"
+// A dot on the Brief sub-tab while a written brief waits unread, and on Feed while alerts do; the Newsroom tab has one while either does. The counts are
+// the server's, shared with every other dot of the Newsroom.
 const { unreadCount } = useBriefUnread()
+const { unread: unreadAlerts } = useAlertsUnread()
+const dots = computed<Record<string, string>>(() => ({
+  ...(unreadCount.value > 0 ? { [NEWSROOM_BRIEF_BOARD]: unreadBriefWords(unreadCount.value) } : {}),
+  ...(unreadAlerts.value > 0 ? { [NEWSROOM_FEED_BOARD]: unreadAlertsWords(unreadAlerts.value) } : {}),
+}))
+// A tab's dot: its own board's, or for a group every sub-tab's, said together.
+const tabDot = (t: { id: string; subTabs: { id: string }[] }): string => (t.subTabs.length ? t.subTabs.map((s) => dots.value[s.id]).filter(Boolean).join(", ") : (dots.value[t.id] ?? ""))
 const active = () => props.boards.find((b) => b.id === props.activeId)
 const tabs = computed(() => boardTabs(props.boards, props.stacksOn))
 const activeGroup = computed(() => groupOf(props.activeId))
@@ -42,12 +50,12 @@ function rename(event: Event) {
     <!-- relative: the screen-reader words of the tab dot are absolutely placed and must stay inside the strip, not widen the page. -->
     <div class="relative flex items-center gap-2 border-b border-strong">
       <ScrollStrip label="Dashboard boards" :current="activeId" class="min-w-0 flex-1">
-        <button v-for="t in tabs" :key="t.id" type="button" :aria-current="isTabActive(t) ? 'page' : undefined" class="dash-tab" data-test="board-tab" @click="emit('open', t.id)">{{ t.label }}<template v-if="t.id === NEWSROOM_BOARD_ID && unreadCount > 0"><span class="dash-tab-dot" aria-hidden="true" data-test="board-tab-dot" /><span class="sr-only">, {{ unreadBriefWords(unreadCount) }}</span></template></button>
+        <button v-for="t in tabs" :key="t.id" type="button" :aria-current="isTabActive(t) ? 'page' : undefined" class="dash-tab" data-test="board-tab" @click="emit('open', t.id)">{{ t.label }}<template v-if="tabDot(t)"><span class="dash-tab-dot" aria-hidden="true" data-test="board-tab-dot" /><span class="sr-only">, {{ tabDot(t) }}</span></template></button>
       </ScrollStrip>
     </div>
     <div v-if="subTabs.length" class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch" data-test="sub-tabs">
       <ScrollStrip :label="SUB_TABS_LABEL(GROUP_LABELS[activeGroup!])" :current="activeId" class="min-w-0 flex-1">
-        <button v-for="s in subTabs" :key="s.id" type="button" :aria-current="s.id === activeId ? 'page' : undefined" class="dash-pill" data-test="sub-tab" @click="emit('open', s.id)">{{ s.label }}</button>
+        <button v-for="s in subTabs" :key="s.id" type="button" :aria-current="s.id === activeId ? 'page' : undefined" class="dash-pill" data-test="sub-tab" @click="emit('open', s.id)">{{ s.label }}<template v-if="dots[s.id]"><span class="dash-tab-dot" aria-hidden="true" data-test="sub-tab-dot" /><span class="sr-only">, {{ dots[s.id] }}</span></template></button>
       </ScrollStrip>
       <div class="flex flex-none justify-end"><slot name="trailing" /></div>
     </div>

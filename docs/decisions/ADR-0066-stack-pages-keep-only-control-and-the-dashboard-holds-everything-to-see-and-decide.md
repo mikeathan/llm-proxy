@@ -41,3 +41,7 @@ ADR-0065, `router/index.ts`, `components/dashboard/cardRegistry.ts`.
 - Simple/Advanced, Help and the "what is missing before a scan" banner moved to the top of any board that holds a Network or Radio card.
 - Pitfall 75 is rewritten. The browser spec asserts no hole under a short card.
 - Rejected: a drag-and-drop grid library (ask-first dependency); keeping the tabs and hiding them (two ways to the same view).
+
+## Amendment (2026-11-25): the rule for every stack
+
+ADR-0089 makes decision 1 the rule for every stack, present and future, in the owner's words: the stack page is for configuration, setup, tweaking and modules. Reading has no exception: the Newsroom's brief and feed moved to its dashboard tab, and its page keeps Following and Settings.

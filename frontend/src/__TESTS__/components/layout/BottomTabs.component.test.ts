@@ -48,13 +48,13 @@ describe('BottomTabs', () => {
     expect(more(wrapper).text()).toContain('More')
   })
 
-  it('puts a dot on More while a brief waits unread, since Newsroom sits under it', async () => {
+  it('puts a dot on Dashboard while a brief waits unread, since the brief is read there (ADR-0089)', async () => {
     briefs.latest = [{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: false }]
     const { wrapper } = await mountAt('/models')
-    expect(more(wrapper).find('[data-test="nav-dot"]').exists()).toBe(true)
-    expect(more(wrapper).attributes('aria-label')).toMatch(/^More, .*brief/i)
-    await more(wrapper).trigger('click')
-    expect(document.body.querySelector('#more-sheet [data-test="nav-dot"]')).not.toBeNull()
+    const dashboard = tabs(wrapper).find((a) => a.attributes('aria-label')?.startsWith('Dashboard'))!
+    expect(dashboard.find('[data-test="nav-dot"]').exists()).toBe(true)
+    expect(dashboard.attributes('aria-label')).toMatch(/^Dashboard, .*brief/i)
+    expect(more(wrapper).find('[data-test="nav-dot"]').exists()).toBe(false)
   })
 
   it('marks the current tab', async () => {

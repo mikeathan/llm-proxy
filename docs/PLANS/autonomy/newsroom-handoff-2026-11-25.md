@@ -43,7 +43,7 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
    deploy (3, 1 and 4 of 14 stories with a summary), so check 2 waits for the next edition.
 2. **Still unchecked on vertex** (they need new posts or a browser): no "Changed" without a citation; headlines of user posts say they are posts;
    the sidebar dot clears when alerts are read; "Write a new one" shows its steps; a real Telegram send.
-3. **Owner's separate work:** an https address so the Telegram summary can carry a link (text only until then).
+3. **Owner's separate work:** an https address so the Telegram summary can carry a link (text only until then). Since v0.141.0 the link is `/admin/dashboard?board=newsroom` (it lacked the `/admin` prefix before, ADR-0089).
 4. **Not built, waiting on a design or on the owner:** Telegram channels as brief sources (the shared slot keyed by channel,
    `stacks/newsroom/brief/types.go`); keyed sources (Reddit, Bluesky, X) when the owner brings credentials; email as a channel (own plan,
    `../cross-cutting/email-connector.md`); held notices as a brief section (`attention-policy.md`, D9 of Briefs).
@@ -53,7 +53,7 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
 ## Traps
 
 - A control beside a link needs its own 44 px box; padding that overlaps the link loses the tap (learnings, 2026-11-25).
-- The Following tab opens on "In your brief"; the watches are on `?kind=alerts`. Link there with `toFollowing('alerts')`.
+- The Following tab opens on "In your brief"; the watches are on `?kind=alerts`. Link there with `toFollowing('alerts')`. Since v0.141.0 the brief and the feed are read on the dashboard (`toBrief`, `toFeed`) and the Newsroom page is Following and Settings (ADR-0089).
 - The 16 `/design` visual cases have failed on every branch since 2026-11-24; they render none of the Newsroom code.
 
 ## Start here

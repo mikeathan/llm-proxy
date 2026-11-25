@@ -23,6 +23,9 @@ export const DASHBOARD_TITLE = 'Dashboard'
 export const DASHBOARD_EYEBROW = 'Control center'
 export const DASHBOARD_SUBTITLE = 'Your boards, made of cards from every part of the system'
 export const HOME_BOARD_ID = 'home'
+/** The Newsroom's two boards: the brief, and the feed of what the watches found. */
+export const NEWSROOM_BRIEF_BOARD = 'newsroom'
+export const NEWSROOM_FEED_BOARD = 'newsroom-feed'
 
 export const MAX_BOARDS = 20
 export const MAX_CARDS_PER_BOARD = 40
@@ -63,7 +66,7 @@ export const SOURCE_CHIPS: Record<DashboardSource, string> = {
   newsroom: 'NEWSROOM',
 }
 /** The tab a group of boards has in the strip. */
-export const GROUP_LABELS: Record<DashboardGroup, string> = { network: 'Network' }
+export const GROUP_LABELS: Record<DashboardGroup, string> = { network: 'Network', newsroom: 'Newsroom' }
 /** The name of the row of sub-tabs, for screen readers. */
 export const SUB_TABS_LABEL = (group: string): string => `${group} views`
 export const SOURCE_ORDER: readonly DashboardSource[] = ['host', 'assistant', 'automations', 'reminders', 'network', 'radio', 'agents', 'newsroom']
@@ -85,8 +88,8 @@ export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; boar
   network: { text: 'Devices, findings, audits, traffic and the timeline are on the dashboard.', link: 'Open the Network tab', board: 'network' },
   agents: { text: 'What the agents did, and where they fetched from, is on the dashboard.', link: 'Open the Agents board', board: 'agents' },
   radio: { text: 'The radar, your devices, your networks and what changed are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
-}
-/** The Network sub-tab (board) each Network card is on, so a link to a card opens the board that holds it. */
+  newsroom: { text: 'The brief and the feed are read on the dashboard.', link: 'Open the Newsroom tab', board: NEWSROOM_BRIEF_BOARD },
+}/** The Network sub-tab (board) each Network card is on, so a link to a card opens the board that holds it. */
 export const NETWORK_CARD_BOARD: Readonly<Record<string, string>> = {
   'network-overview': 'network',
   'network-devices': 'network-devices',
@@ -171,15 +174,9 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
   },
-  {
-    id: 'newsroom',
-    name: 'Newsroom',
-    source: 'newsroom',
-    cards: [
-      { id: 'newsroom-brief', cols: 12, rows: 1 },
-      { id: 'newsroom-latest', cols: 12, rows: 1 },
-    ],
-  },
+  // The Newsroom is read here (ADR-0089): one tab with two sub-tabs, each a page in place of cards. The first keeps the id `newsroom`, which the brief's links use.
+  { id: NEWSROOM_BRIEF_BOARD, name: 'Brief', group: 'newsroom', source: 'newsroom', view: 'newsroom-brief', cards: [] },
+  { id: NEWSROOM_FEED_BOARD, name: 'Feed', group: 'newsroom', source: 'newsroom', view: 'newsroom-feed', cards: [] },
   {
     id: 'agents',
     name: 'Agents',

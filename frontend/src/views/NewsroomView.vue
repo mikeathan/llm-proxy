@@ -9,59 +9,45 @@ import EmptyState from "../components/common/feedback/EmptyState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
-import NewsroomBriefs from "../components/newsroom/NewsroomBriefs.vue"
+import StackBoardLink from "../components/stacks/StackBoardLink.vue"
 import NewsroomBriefFollowing from "../components/newsroom/NewsroomBriefFollowing.vue"
 import NewsroomFollowForm from "../components/newsroom/NewsroomFollowForm.vue"
 import { useFollow } from "../composables/newsroom/useFollow"
 import SegmentedControl from "../components/common/forms/SegmentedControl.vue"
-import NewsroomFeed from "../components/newsroom/NewsroomFeed.vue"
-import NewsroomLeftOut from "../components/newsroom/NewsroomLeftOut.vue"
-import { useAlertsUnread } from "../composables/newsroom/useAlertsUnread"
 import NewsroomWatchEditor from "../components/newsroom/NewsroomWatchEditor.vue"
 import NewsroomWatchRow from "../components/newsroom/NewsroomWatchRow.vue"
 import { useNewsroom } from "../composables/newsroom/useNewsroom"
 import { useNewsroomChannels } from "../composables/newsroom/useNewsroomChannels"
-import { useBriefUnread } from "../composables/newsroom/useBriefUnread"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import {
-  clearedWords, clearMessage, clearTitle, deleteWatchMessage, deleteWatchTitle, FEED_EMPTY_BODY, FEED_EMPTY_TITLE, FOLLOWING_KIND_LABELS, FOLLOWING_VIEW_LABEL, FOLLOW_LABEL, FOLLOW_TITLE, followDoneWords, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
-  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords, unreadBriefWords, ALERTS_VIEW_LABEL, ALERT_PROBLEMS_LINK, ALERTS_SETUP_LINK, FOLLOWING_READ_LINKS, KEPT_TOAST, NOT_FOR_ME_TOAST, leftOutViewWords, unreadAlertsWords,
+  deleteWatchMessage, deleteWatchTitle, FOLLOWING_KIND_LABELS, FOLLOWING_VIEW_LABEL, FOLLOW_LABEL, FOLLOW_TITLE, followDoneWords, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
+  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords, FOLLOWING_READ_LINKS,
 } from "../constants/newsroom"
-import { toBrief, toFollow, toFollowing, toNewsroom } from "../router/routes"
-import { dayEntries } from "../utils/newsroom/dayEntries"
-import { alertProblems } from "../utils/newsroom/alertProblems"
+import { toBrief, toFeed, toFollow, toFollowing, toNewsroom } from "../router/routes"
 import type { StackTabItem } from "../types/stacks"
 import type { BriefFollowEdit, NewsroomWatch, NewsroomWatchEdit } from "../types/newsroom"
 
-// The Newsroom (ADR-0086): the brief first, then Alerts (what the watches found the moment they found it), Following (everything you follow: the brief's topics
-// and editions, and the watches that alert you) and the stack's modules (ADR-0068, ADR-0070: pages control, cards only show).
+// The Newsroom's stack page (ADR-0089): everything to set it up and nothing to read. Following (the page without a tab) holds what is followed, the
+// brief's topics and editions and the watches that fill the feed; Settings is the stack's modules. The brief and the feed are read on the dashboard's
+// Newsroom tab, which the line under the tabs links to.
 const route = useRoute()
 const router = useRouter()
-const tab = computed<"brief" | "alerts" | "following" | "settings">(() => {
-  const asked = route.params.tab
-  return asked === "alerts" || asked === "following" || asked === "settings" ? asked : "brief"
-})
-// What the Following tab shows: the brief's topics and editions, or the watches that alert you. It is in the address (?kind=alerts), so a link can name it.
+const tab = computed<"following" | "settings">(() => (route.params.tab === "settings" ? "settings" : "following"))
+// What the Following tab shows: the brief's topics and editions, or the watches that fill the feed. It is in the address (?kind=alerts), so a link can name it.
 const kind = computed<"brief" | "alerts">({
   get: () => (route.query.kind === "alerts" ? "alerts" : "brief"),
   set: (k) => void router.replace(toFollowing(k)),
 })
 const KINDS = [{ value: "brief", label: FOLLOWING_KIND_LABELS.brief }, { value: "alerts", label: FOLLOWING_KIND_LABELS.alerts }]
-// A dot on Brief while a written brief has not been read (the state is the server's, shared with the dashboard).
-const { unreadCount } = useBriefUnread()
-// The unread alerts are counted on the server and shared with the sidebar, so the tab shows them while the brief is read.
-const { unread: unreadAlerts, leftOut: leftOutCount } = useAlertsUnread()
-const tabs = computed<readonly StackTabItem[]>(() => [
-  { id: "brief", label: NEWSROOM_TAB_LABELS.brief, to: toNewsroom(), badge: { count: unreadCount.value, words: unreadBriefWords(unreadCount.value) } },
-  { id: "alerts", label: NEWSROOM_TAB_LABELS.alerts, to: toNewsroom("alerts"), badge: { count: unreadAlerts.value, words: unreadAlertsWords(unreadAlerts.value) } },
-  { id: "following", label: NEWSROOM_TAB_LABELS.following, to: toNewsroom("following") },
+const tabs: readonly StackTabItem[] = [
+  { id: "following", label: NEWSROOM_TAB_LABELS.following, to: toNewsroom() },
   { id: "settings", label: NEWSROOM_TAB_LABELS.settings, to: toNewsroom("settings") },
-])
+]
 
 const NEW = "new" as const
-// The watches and the feed are read only on the tabs that show them, not while the owner reads the brief.
-const { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, keep, skip, clear, run } = useNewsroom(() => tab.value === "alerts" || tab.value === "following")
+// The watches are read only on Following, where they are listed.
+const { watches, loading, error, actionError, saving, runningId, load, create, save, remove, run } = useNewsroom(() => tab.value === "following")
 const channels = useNewsroomChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
@@ -74,11 +60,9 @@ const f = useFollow()
 const followText = computed(() => (typeof route.query.follow === "string" ? route.query.follow : null))
 // Bumped after a follow so the brief's setup reads the new topic.
 const followKey = ref(0)
-// The form opens on the kind of the tab it is started from: the brief's on Brief, alerts on Alerts, the shown half on Following.
-const followMode = computed<"brief" | "alerts">(() => (tab.value === "following" ? kind.value : tab.value === "brief" ? "brief" : "alerts"))
-const startFollow = () => void router.push(toFollow("", followMode.value))
-// Where the shown half of Following is read.
-const readTo = computed(() => (kind.value === "alerts" ? toNewsroom("alerts") : toBrief()))
+const startFollow = () => void router.push(toFollow("", kind.value))
+// Where the shown half of Following is read: the brief, or the feed, on the dashboard.
+const readTo = computed(() => (kind.value === "alerts" ? toFeed() : toBrief()))
 onChange(followText, (t) => { if (t !== null) void f.loadSections() }, { immediate: true })
 const closeFollow = (to: "brief" | "alerts" = kind.value) => void router.replace(toFollowing(to))
 async function saveFollow(edit: BriefFollowEdit) {
@@ -113,44 +97,6 @@ async function askDelete(t: NewsroomWatch) {
   else toast.error(actionError.value)
 }
 
-// Clearing deletes entries from storage for good, so it asks first and says how many.
-async function askClear(what: { ids: number[] } | { scope: "read" | "all" }) {
-  const entries = feed.value.flatMap(dayEntries)
-  const count = "ids" in what ? what.ids.length : what.scope === "read" ? entries.filter((e) => e.read).length : entries.length
-  if (!count) return
-  const kind = "ids" in what ? "selected" : what.scope
-  // With a filter on, "all" and "read" mean what is on screen: the scope would reach entries the owner cannot see, so the visible ids are sent instead.
-  const filtered = filter.value.watch !== null || filter.value.unreadOnly || filter.value.days !== null
-  if ("scope" in what && filtered) {
-    const onlyRead = what.scope === "read"
-    what = { ids: entries.filter((e) => !onlyRead || e.read).map((e) => e.id) }
-  }
-  const sure = await confirm({ title: clearTitle, message: clearMessage(kind, count), type: "warning", confirmText: "Delete" })
-  if (!sure) return
-  const gone = await clear(what)
-  if (gone === null) toast.error(actionError.value)
-  else toast.success(clearedWords(gone))
-}
-
-// Alerts, or what the model left out of them: the same list read with a flag, so the filter keeps both in one place.
-const alertsView = computed({
-  get: () => (filter.value.leftOut ? "left_out" : "alerts"),
-  // The Alerts filters (watch, unread, period) have no controls on the left-out list, so switching starts from no filter rather than a hidden one.
-  set: (v: string) => (filter.value = { watch: null, unreadOnly: false, days: null, leftOut: v === "left_out" }),
-})
-const alertsViews = computed(() => [{ value: "alerts", label: NEWSROOM_TAB_LABELS.alerts }, { value: "left_out", label: leftOutViewWords(leftOutCount.value) }])
-// Only what needs a look: nothing is said while every watch reads, compares and sends.
-const problems = computed(() => alertProblems(watches.value))
-// "Not for me": the alert leaves the feed and the watch learns from it; it can be put back from "Left out by the model".
-async function notForMe(id: number) {
-  if (await skip([id])) toast.success(NOT_FOR_ME_TOAST)
-  else toast.error(actionError.value)
-}
-async function putBack(id: number) {
-  if (await keep([id])) toast.success(KEPT_TOAST)
-  else toast.error(actionError.value)
-}
-
 async function check(t: NewsroomWatch) {
   const outcome = await run(t.id)
   if (!outcome) toast.error(actionError.value)
@@ -169,8 +115,8 @@ async function check(t: NewsroomWatch) {
       </template>
     </PageHeader>
     <StackTabs label="Newsroom" :tabs="tabs" :active="tab" />
-    <!-- The brief is a page to read and uses the whole width; the forms and lists of the other tabs keep the usual page width. -->
-    <div :class="['flex min-w-0 flex-col gap-4', tab === 'brief' ? '' : 'max-w-[1072px]']" data-test="newsroom-body">
+    <StackBoardLink stack="newsroom" />
+    <div class="flex min-w-0 max-w-[1072px] flex-col gap-4" data-test="newsroom-body">
       <Panel v-if="tab === 'following' && followText !== null" :title="FOLLOW_TITLE">
         <NewsroomFollowForm
           :initial-text="followText"
@@ -193,36 +139,13 @@ async function check(t: NewsroomWatch) {
         <RouterLink :to="readTo" class="ml-auto text-[length:var(--text-small)] text-accent-info-text hover:underline" data-test="following-read">{{ FOLLOWING_READ_LINKS[kind] }} →</RouterLink>
       </div>
       <StackModules v-if="tab === 'settings'" stack="newsroom" />
-      <NewsroomBriefs v-else-if="tab === 'brief'" />
-      <template v-else-if="tab === 'following' && kind === 'brief'">
+      <template v-else-if="kind === 'brief'">
         <NewsroomBriefFollowing :key="followKey" />
       </template>
 
       <template v-else>
         <LoadingState v-if="loading" label="Loading the Newsroom" :rows="3" />
         <ErrorState v-else-if="error" title="The Newsroom is unavailable" :cause="error" :next="NEWSROOM_RELOAD_HINT" />
-
-        <template v-else-if="tab === 'alerts'">
-          <EmptyState v-if="!watches.length" :title="NO_WATCHES_TITLE" :body="NO_WATCHES_BODY">
-            <template #action>
-              <BaseButton size="sm" icon="plus" @click="startFollow">{{ NO_WATCHES_ACTION }}</BaseButton>
-            </template>
-          </EmptyState>
-          <template v-else>
-            <p v-if="problems.length" role="status" class="m-0 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-running" data-test="alert-problems">
-              {{ problems.join(" · ") }}
-              <RouterLink :to="toFollowing('alerts')" class="text-accent-info-text hover:underline">{{ ALERT_PROBLEMS_LINK }}</RouterLink>
-            </p>
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <SegmentedControl v-if="watches.some((w) => w.look_for)" v-model="alertsView" :options="alertsViews" :label="ALERTS_VIEW_LABEL" variant="compact" />
-              <RouterLink :to="toFollowing('alerts')" class="ml-auto text-[length:var(--text-small)] text-accent-info-text hover:underline" data-test="alerts-setup">{{ ALERTS_SETUP_LINK }} →</RouterLink>
-            </div>
-            <NewsroomLeftOut v-if="filter.leftOut" :days="feed" :watches="watches" :busy="saving" @keep="putBack" />
-            <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
-            <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" @skip="notForMe" />
-          </template>
-          <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
-        </template>
 
         <template v-else>
           <Panel v-if="editing === NEW" :title="NEW_WATCH_LABEL">

@@ -45,3 +45,7 @@ Modules tab), ADR-0061 (only the core joins Network and Radio), Constitution IV.
 ## Links
 - Plan: `docs/PLANS/ARCHIVE/cross-cutting/control-center-dashboard.md`.
 - SPEC-003 2.67; code: `frontend/src/components/dashboard/`, `frontend/src/domain/dashboard.ts`, `backend/internal/core/dashboard/`.
+
+## Amendment (2026-11-25): page boards
+
+A shipped board may be one page to read in place of cards (`view` on its template, ADR-0089): the Newsroom's Brief and Feed. It has no cards to add, move or reset; the rest of this ADR stands.
