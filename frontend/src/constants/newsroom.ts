@@ -41,6 +41,21 @@ export const CLEAR_LABEL = 'Clear'
 export const CLEAR_READ_LABEL = 'Clear read'
 export const CLEAR_ALL_LABEL = 'Clear all'
 export const SHOW_OLDER_LABEL = 'Show older days'
+// What the model left out (kept 7 days, at most 50 per watch), shown beside the alerts so a wrong call can be put back.
+export const ALERTS_VIEW_LABEL = 'Show'
+export const LEFT_OUT_VIEW_LABEL = 'Left out by the model'
+export const leftOutViewWords = (count: number): string => (count > 0 ? `${LEFT_OUT_VIEW_LABEL} · ${count}` : LEFT_OUT_VIEW_LABEL)
+// The line above the alerts says only what needs a look: a watch that cannot read its sources, send, or compare. Nothing when all is well.
+export const ALERT_PROBLEM_WORDS = { failing: 'source failing', send_failed: 'send failed', no_channel: 'no channel', analysis_failed: 'could not compare' } as const
+export const sourcesDownWords = (n: number): string => (n === 1 ? '1 source not answering' : `${n} sources not answering`)
+export const ALERT_PROBLEMS_LINK = 'Open in Following'
+export const leftOutWords = (why: string): string => `Left out: ${why}`
+export const KEEP_LABEL = 'Should have matched'
+export const KEPT_TOAST = 'Put in Alerts'
+export const LEFT_OUT_EMPTY = 'Nothing was left out in the last 7 days.'
+export const LEFT_OUT_HINT = 'Posts the model judged not to be what your watch looks for, with its reason. Kept for 7 days.'
+export const ALERTS_UNREAD_POLL_MS = 30000
+export const unreadAlertsWords = (count: number): string => (count === 1 ? '1 unread alert' : `${count} unread alerts`)
 export const SHOW_DETAILS_LABEL = 'Show details'
 export const HIDE_DETAILS_LABEL = 'Hide details'
 export const selectedWords = (n: number): string => `${n} selected`
@@ -293,6 +308,15 @@ export const BRIEF_PROBLEMS_LABEL = 'Could not read'
 export const BRIEF_PROBLEMS_FIX = 'The brief used what it had already collected. Check the address on the topic, or remove the source.'
 export const BRIEF_PROBLEMS_ACTION = 'Open Following'
 export const BRIEF_EARLIER_LABEL = 'Earlier briefs'
+// Deleting written briefs: the one on screen, or the older ones of the same brief.
+export const BRIEF_DELETE_LABEL = 'Delete briefs'
+export const BRIEF_DELETE_THIS_LABEL = 'Delete this brief'
+// No count: the page lists only the newest briefs, so it cannot know how many older ones the server keeps. The toast says how many went.
+export const briefDeleteOlderWords = (name: string): string => `Delete every older ${name} brief`
+export const BRIEF_DELETE_TITLE = 'Delete briefs?'
+export const briefDeleteMessage = (older: boolean, name: string): string =>
+  older ? `This deletes every ${name} brief older than the one on screen, for good. The brief on screen stays.` : `This deletes the ${name} brief on screen for good. It is not written again.`
+export const briefDeletedWords = (count: number): string => (count === 1 ? '1 brief deleted' : `${count} briefs deleted`)
 export const briefEarlierOption = (when: string, latest: boolean): string => (latest ? `${when} (latest)` : when)
 export const briefOutletsWords = (n: number): string => `read from ${n} ${n === 1 ? 'outlet' : 'outlets'}`
 

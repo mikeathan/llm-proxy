@@ -170,7 +170,7 @@ func TestJudgedRepeatIsFoldedUnderItsOriginal(t *testing.T) {
 }
 
 func TestChangedFactIsKeptOnTheEntry(t *testing.T) {
-	m := &scriptedModel{answers: []string{`{}`, `{"changes":[{"item":1,"was":"beta","now":"stable"}]}`}}
+	m := &scriptedModel{answers: []string{`{}`, `{"changes":[{"item":1,"of":1,"was":"beta","now":"stable"}]}`}}
 	h := modelHarness(t, m)
 	h.fetch.bodies[feedURL] = itemsRSS("seed")
 	h.tick(t, 0)
@@ -202,6 +202,47 @@ func TestJournalIsBoundedAndFollowsTheWatch(t *testing.T) {
 	_ = again.Delete(a.ID)
 	if n := len(again.entriesFor(Filter{})); n != 0 {
 		t.Errorf("deleting a watch deletes its entries: %d", n)
+	}
+}
+
+// A run that set an item aside and then failed to send is retried, and the model may now call the item relevant: the entry joins the feed with the new
+// reason instead of staying hidden under the old rejection.
+func TestALeftOutItemJudgedRelevantOnARetryJoinsTheFeed(t *testing.T) {
+	s, _ := NewStore(newMemDir())
+	a, _ := s.Create(feedWatch(), t0)
+	it := []sources.Item{{Source: "x", Title: "Qwen4 released", Link: "https://e.example/q4"}}
+	_ = s.AddEntries(a.ID, it, Marks{LeftOut: true, Whys: map[int]string{0: "not sure"}}, t0)
+	_ = s.AddEntries(a.ID, it, Marks{Whys: map[int]string{0: "a new model release"}}, t0.Add(time.Hour))
+	feed := s.Entries(Filter{})
+	if len(feed) != 1 || feed[0].LeftOut || feed[0].Why != "a new model release" || len(s.Entries(Filter{LeftOut: true})) != 0 {
+		t.Fatalf("the item is in the feed with the new reason: %+v", feed)
+	}
+}
+
+// Left-out items come every run, so they have their own, smaller bound: they never push a real finding out of the journal.
+func TestLeftOutEntriesHaveTheirOwnBound(t *testing.T) {
+	s, _ := NewStore(newMemDir())
+	a, _ := s.Create(feedWatch(), t0)
+	_ = s.AddEntries(a.ID, []sources.Item{{Source: "x", Title: "real", Link: "https://e.example/real"}}, Marks{}, t0)
+	for i := range MaxLeftOut + 30 {
+		_ = s.AddEntries(a.ID, []sources.Item{{Source: "x", Title: fmt.Sprintf("off %d", i), Link: fmt.Sprintf("https://e.example/o%d", i)}}, Marks{LeftOut: true}, t0.Add(time.Duration(i+1)*time.Second))
+	}
+	if n := len(s.Entries(Filter{LeftOut: true})); n != MaxLeftOut {
+		t.Errorf("a watch keeps its newest %d left-out items, got %d", MaxLeftOut, n)
+	}
+	if feed := s.Entries(Filter{}); len(feed) != 1 || feed[0].Title != "real" {
+		t.Errorf("the real finding stays: %+v", feed)
+	}
+	_ = s.AddEntries(a.ID, nil, Marks{}, t0.Add(LeftOutRetention+time.Hour))
+	if n := len(s.Entries(Filter{LeftOut: true})); n != 0 {
+		t.Errorf("left-out items go after %v, %d left", LeftOutRetention, n)
+	}
+	if feed := s.Entries(Filter{}); len(feed) != 1 {
+		t.Errorf("the real finding is kept for the journal's own retention: %+v", feed)
+	}
+	_ = s.AddEntries(a.ID, []sources.Item{{Source: "x", Title: "off again", Link: "https://e.example/again"}}, Marks{LeftOut: true}, t0.Add(LeftOutRetention+2*time.Hour))
+	if n, _ := s.ClearEntries(false); n != 1 || len(s.Entries(Filter{LeftOut: true})) != 1 {
+		t.Errorf("clearing the feed removes its one finding and leaves what was left out: cleared %d", n)
 	}
 }
 

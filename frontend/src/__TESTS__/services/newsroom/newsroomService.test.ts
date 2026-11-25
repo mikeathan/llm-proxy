@@ -27,6 +27,27 @@ describe('NewsroomService.feed', () => {
   })
 })
 
+describe('NewsroomService alerts', () => {
+  it('reads the unread count, the left-out items and puts items back', async () => {
+    const fetchMock = ok({ count: 4, left_out: 6 })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await NewsroomService.alertCounts()).toEqual({ unread: 4, leftOut: 6 })
+    await NewsroomService.feed({ watch: null, unreadOnly: false, days: null, leftOut: true }, 'UTC')
+    await NewsroomService.keep([5, 6])
+    const calls = fetchMock.mock.calls.map(([url, init]) => [init?.method ?? 'GET', url, init?.body])
+    expect(calls).toEqual([
+      ['GET', '/admin/api/newsroom/feed/unread', undefined],
+      ['GET', '/admin/api/newsroom/feed?zone=UTC&left_out=true', undefined],
+      ['POST', '/admin/api/newsroom/feed/keep', '{"ids":[5,6]}'],
+    ])
+  })
+
+  it('reads a count it cannot understand as none', async () => {
+    vi.stubGlobal('fetch', ok(null))
+    expect(await NewsroomService.alertCounts()).toEqual({ unread: 0, leftOut: 0 })
+  })
+})
+
 describe('NewsroomService writes', () => {
   const edit = { name: 'Go', interval: '1h', max_age: '72h', channel: '', enabled: true, look_for: '', keywords: [], skip: [], sources: [{ kind: 'feed' as const, target: 'https://go.dev/blog/feed.atom' }] }
 

@@ -1,4 +1,4 @@
-import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomSource, NewsroomWatch, NewsroomWatchEdit, SourcePreview, SourceSuggestion } from '../../types/newsroom'
+import type { AlertCounts, NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomSource, NewsroomWatch, NewsroomWatchEdit, SourcePreview, SourceSuggestion } from '../../types/newsroom'
 import { apiFetch } from '../httpClient'
 import { failureReason } from '../failureReason'
 
@@ -20,6 +20,7 @@ export class NewsroomService {
     if (filter.watch !== null) query.set('watch', String(filter.watch))
     if (filter.unreadOnly) query.set('unread', 'true')
     if (filter.days !== null) query.set('days', String(filter.days))
+    if (filter.leftOut) query.set('left_out', 'true')
     const res = await apiFetch(`${BASE}/feed?${query}`)
     if (!res.ok) throw await failureReason(res, 'read the feed')
     return (await res.json()) ?? []
@@ -67,6 +68,21 @@ export class NewsroomService {
     const res = await apiFetch(`${BASE}/feed/clear`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(what) })
     if (!res.ok) throw await failureReason(res, 'clear the feed')
     return ((await res.json()) as { cleared: number }).cleared
+  }
+
+  /** How many alerts wait unread, and how many items the model left out are kept. A value the page cannot read counts as none. */
+  static async alertCounts(): Promise<AlertCounts> {
+    const res = await apiFetch(`${BASE}/feed/unread`)
+    if (!res.ok) throw await failureReason(res, 'count the unread alerts')
+    const body = ((await res.json()) ?? {}) as { count?: unknown; left_out?: unknown }
+    const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
+    return { unread: num(body.count), leftOut: num(body.left_out) }
+  }
+
+  /** Puts items the model left out into the alerts: the owner says the call was wrong. */
+  static async keep(ids: number[]): Promise<void> {
+    const res = await apiFetch(`${BASE}/feed/keep`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ ids }) })
+    if (!res.ok) throw await failureReason(res, 'put the item in Alerts')
   }
 
   static async markRead(ids: number[], read: boolean): Promise<void> {

@@ -192,6 +192,7 @@ func (r *Runner) deliver(ctx context.Context, t Watch, at time.Time, fresh []sou
 	notice, repeated, unmatched := buildNotice(t.Name, in, a)
 	detail = joinDetail(joinDetail(detail, repeatDetail(in, a, repeated)), unmatchedDetail(in, unmatched))
 	r.foldRepeats(t.ID, at, in, a, repeated)
+	detail = joinDetail(detail, r.keepAside(t.ID, at, in, a, unmatched))
 	if len(notice.Items) == 0 {
 		return r.settle(t, at, fresh, a, StatusNothingNew, detail, 0)
 	}
@@ -249,6 +250,26 @@ func (r *Runner) foldRepeats(watchID int64, at time.Time, in Input, a Analysis, 
 		it := in.Items[i-1]
 		_, _ = r.Store.FoldRepeat(watchID, sources.Line(in.Recent[a.Repeats[i]-1], 100), AlsoSeen{Source: it.Source, Link: it.Link, At: at})
 	}
+}
+
+// keepAside puts the items the model called not relevant in the journal, marked left out, with its reason, so the owner can check the call. An item
+// with no verdict at all has no reason and is kept aside too: it was not shown either. It returns the row's words when they could not be kept, else "".
+func (r *Runner) keepAside(watchID int64, at time.Time, in Input, a Analysis, unmatched []int) string {
+	if len(unmatched) == 0 {
+		return ""
+	}
+	items := make([]sources.Item, len(unmatched))
+	marks := Marks{Whys: map[int]string{}, LeftOut: true}
+	for n, i := range unmatched {
+		items[n] = in.Items[i-1]
+		if why := a.Rejects[i]; why != "" {
+			marks.Whys[n] = why
+		}
+	}
+	if err := r.Store.AddEntries(watchID, items, marks, at); err != nil {
+		return "what was left out could not be kept aside"
+	}
+	return ""
 }
 
 // noticeMarks maps an item's index in the notice to what the journal keeps about it: its changed fact and why it matched.

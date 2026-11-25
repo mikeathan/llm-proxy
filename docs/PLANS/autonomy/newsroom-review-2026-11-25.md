@@ -12,30 +12,31 @@ evidence: Review read at 0f941c49 (v0.131.0); built on branch newsroom-reader-an
 
 ## Handoff
 
-- **Branch:** `newsroom-reader-and-fixes`, from origin/main `0f941c49` (v0.131.0, #307 merged), committed, pushed, **PR #308 open** (merge is the owner's call). Version 0.132.0.
-  `frontend_dist/index.html` rebuilt from the final tree. ADR-0086, SPEC-013 1.27. Supersedes the deleted `newsroom-briefs-handoff-2026-11-25.md`.
-- **Owner's choices:** option C built as B first; **no halftone or other generated story art** (only the line-art section marks); the tab names
-  Brief · Alerts · Following · Settings; Model use shown without the Home switch; no serif font.
-- **Built:** every item of sections 1–4 below (B1–B4, P1–P5, the code-design items, the four reading settings) and every feature of
-  section 5 (SPEC-013 1.27 and 1.28). Story feedback adds searches or skip words to the topic and leaves the prompts unchanged (the owner's choice). Section 6: the reader,
-  the front-page cards, the Following tab.
-- **Checks run:** `go build ./...` and `go test ./...` in `backend` (pass); `go run ./tools/check-complexity/` (no new violation);
-  `GOWORK=off go test -race -count=1 ./...` in `stacks/newsroom` (pass); frontend `npm test` (pass) and `npm run build` (pass); the
-  Newsroom Playwright spec `e2e/newsroom-briefs.visual.spec.ts` (20 passed, desktop and mobile). Mutation checks: removing the fetch deadline
-  hangs `TestFetch_ASlowBodyRunsOutOfTimeInsteadOfHoldingTheCaller`; a `border-state-warning` class fails `tokenClasses.test.ts`.
-  **Not run:** anything on vertex; a real Telegram send; the size of `briefs.json` before and after.
-- **Left, in order (each needs the owner):**
-  1. Review and merge PR #308, then deploy. After deploy: the inline pool of the old `briefs.json` is not read, and with no pool file every topic
-     is marked due, so the first pass collects them all (check the next brief is full); open `/newsroom/briefs` from an old Telegram summary and check it lands on the brief; press "Write a new one" and watch the steps.
-  2. Carried from the deleted handoff, not confirmed done: approve the short radio sentences (`radiodigest` `shortWords`); Telegram
-     needs an https address for a link; add direct feeds (BBC, the Guardian) in Set up so more stories carry text.
-  3. Drop the two redirects (`/newsroom/briefs`, `/newsroom/watches`) once no summary from before 0.132.0 is kept.
-- **Also fixed after the review:** the Following view is in the address (`?kind=alerts`, and `/newsroom/watches` lands on the watches); the
-  watches and the feed are read only on Alerts and Following, not while the brief is read; "Set up" no longer appears in the copy.
-- **Traps:** module-level stores (`useBriefCard`, `useBriefChips`, `useModelUse`) carry data between tests: call their `reset…`
-  in `afterEach`. The page reads issues by id, so a test or mock of `/briefs/issues` alone shows a loading state; mock `/briefs/issues/<id>`.
-  `POST …/issue` now answers 202; tests wait with `waitForWrite`.
-- **First file to open:** `frontend/src/components/newsroom/NewsroomEdition.vue`, then `stacks/newsroom/briefroutes.go` (`startWrite`).
+- **Merged and deployed:** #308 (v0.132.0, the reader and the review fixes) and #309 (v0.133.0, the reader's spacing). Not yet checked after the deploy:
+  that the next scheduled brief is full (the pool-file change marks every topic due); an old Telegram summary's `/newsroom/briefs` link landing on the
+  brief (a browser redirect, curl cannot see it); "Write a new one" showing its steps; a real Telegram send.
+- **Alerts follow-up, branch `newsroom-alerts-fixes`** (from origin/main `620c8e1e`), committed and pushed, **PR open** (merge is the owner's call), v0.134.0,
+  ADR-0087, SPEC-013 1.29. Built from a read of vertex's live feed (2026-11-25, GETs only: one watch "AI news", 13 alerts, 10 unread, 5 "Changed" with
+  "was: unknown"):
+  opening an alert's details marks it read; an unread count route and one shared poller for the Alerts tab and the sidebar dot; a changed fact must cite
+  the state note or a recent title; the prompt asks the headline and reason not to make a post sound more certain or official than it is; the items the
+  model left out are kept 7 days with its reason and shown under "Left out by the model" with "Should have matched"; a written brief can be deleted, or
+  the older ones of its brief, from a trash button in the masthead (a deleted slot is not written again). Quiet by default (owner, 2026-11-25: "we don't want a lot of noise"): the alert row is unchanged, Alerts shows a warning line only for a watch that needs a look, the left-out count sits in the switch, and the brief's routine "written automatically, nothing to press" line is gone (shown only when the brief is not today's).
+- **Checks run on the branch:** `go build ./...` and `go test ./...` in `backend` (pass); `go run ./tools/check-complexity/` (pass, after
+  `keepAside` returned its note to keep `deliver` at 12); `GOWORK=off go test -race -count=1 . ./watches ./brief ./sources` in `stacks/newsroom`
+  (pass); frontend `npm test` (392 files, 3617 tests, pass) and `npm run build` (pass);
+  `e2e/newsroom-briefs.visual.spec.ts` (22 pass); full `npm run test:visual`: 427 pass, 17 fail = the 16 `/design` cases (failing on every branch since 2026-11-24, they render none of this code) and the dashboard "arranging on a wide screen" case (passed alone, the known load flake). Test noise unchanged by the new poller (774 connection-refused lines with and without it). Mutation checks: removing the citation rule, the left-out bound, `keepAside` or the deleted-slot
+  check each fails its test. **Not run:** anything on vertex; the visual spec has no Alerts case yet.
+- **Left, in order:**
+  1. Owner: review and merge the PR, then deploy.
+  2. Mock dropped by the owner (2026-11-25): quiet by default was built instead. Revisit the row only if headlines still overclaim on vertex.
+  3. After deploy, on vertex: the next run's entries carry no "Changed" without a citation, the headlines of user posts say they are posts, the Left
+     out view fills, and the sidebar dot clears when alerts are read.
+  4. Owner's calls carried over: an https address for the Telegram link, direct feeds (BBC, the Guardian) so more stories carry text, dropping the
+     two old redirects once no summary from before 0.132.0 is kept. Not built: teaching the filter from "Should have matched" (a prompt change).
+- **Traps:** a test that mounts the sidebar must mock `NewsroomService.unreadCount` and call `resetAlertsUnread()` (done in `AppSidebar` and `BottomTabs`); reset it in `beforeEach`, not `afterEach`: `enableAutoUnmount` unmounts after an `afterEach` reset and counts the poller's consumers below zero, so the next test never loads (passed alone, failed in the full run). A view test "follows a row's automation link without opening the run" failed once while `npm run build` ran beside the suite and passed in the two full runs after (load flake, not this change). A left-out entry is unread in storage but never counted (`UnreadCount`, `Feed` filter on `LeftOut`); module-level stores need their
+  `reset…` in `afterEach` (`resetAlertsUnread` now too).
+- **First file to open:** `frontend/src/views/NewsroomView.vue` (Alerts), then `stacks/newsroom/watches/runner.go` (`deliver`, `keepAside`).
 
 # The review
 

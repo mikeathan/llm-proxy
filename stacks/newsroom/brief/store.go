@@ -32,6 +32,8 @@ type document struct {
 	// Issues are the editions made, kept for IssueRetention; Shown records which stories they carried, for the already-shown rule.
 	Issues []Issue `json:"issues,omitempty"`
 	Shown  []Shown `json:"shown,omitempty"`
+	// Deleted remembers the slots of the briefs the owner deleted (kept for IssueRetention), so the scheduler does not write a deleted brief again.
+	Deleted []DeletedSlot `json:"deleted,omitempty"`
 	// MySources is the owner's own list of sources the topic form offers beside the built-in one.
 	MySources []MySource `json:"my_sources,omitempty"`
 }

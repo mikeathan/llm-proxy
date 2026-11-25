@@ -8,6 +8,8 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import NewsroomEdition from "./NewsroomEdition.vue"
+import NewsroomBriefDelete from "./NewsroomBriefDelete.vue"
+import { useConfirm } from "../../composables/ui/useConfirm"
 import { briefStatus } from "../../utils/newsroom/briefStatus"
 import { motionScroll } from "../../utils/motion"
 import { useBriefs } from "../../composables/newsroom/useBriefs"
@@ -17,7 +19,7 @@ import { toFollow, toNewsroom } from "../../router/routes"
 import { lessLikeThis, moreLikeThis } from "../../utils/newsroom/storyTuning"
 import {
   BRIEF_EARLIER_LABEL, BRIEF_EDITION_LABEL, FOLLOWING_VIEW_LABEL, MAKE_ANOTHER_LABEL, MAKE_NOW_LABEL, NEWSROOM_RELOAD_HINT, NEW_BRIEF_LABEL, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE,
-  briefEarlierOption, writeStepWords, STORY_TUNE_FULL, storyTunedWords,
+  briefEarlierOption, writeStepWords, STORY_TUNE_FULL, storyTunedWords, BRIEF_DELETE_TITLE, briefDeleteMessage, briefDeletedWords,
 } from "../../constants/newsroom"
 
 // The Brief tab: the edition the owner picked, as it was last written. Reading asks nothing of the model; "Write a new one" starts a write on the server and
@@ -87,6 +89,19 @@ async function tune(topicId: number, more: boolean, words: string[]) {
 }
 const followStory = (words: string[]) => void router.push(toFollow(words.join(" ")))
 
+// Deleting a written brief asks first: it is gone for good (the server remembers its slot, so it is not written again).
+const { confirm } = useConfirm()
+async function askDelete(older: boolean) {
+  const name = b.edition.value?.name ?? ""
+  const sure = await confirm({ title: BRIEF_DELETE_TITLE, message: briefDeleteMessage(older, name), type: "warning", confirmText: "Delete" })
+  if (!sure) return
+  const gone = await b.deleteIssue(older)
+  if (gone === null) return void toast.error(b.actionError.value)
+  toast.success(briefDeletedWords(gone))
+  // A deleted brief may be the unread one a dot is about.
+  void unread.refresh()
+}
+
 async function write() {
   if (!(await b.makeNow())) toast.error(b.actionError.value)
 }
@@ -109,6 +124,7 @@ watch(() => b.job.value?.state, (state) => { if (state === "failed" && b.actionE
             <SelectInput :model-value="String(b.issue.value.id)" :options="earlierOptions" :label="BRIEF_EARLIER_LABEL" @update:model-value="b.pickedIssueId.value = Number($event)" />
           </div>
           <BaseButton size="sm" variant="secondary" :disabled="b.making.value" data-test="write-now" @click="write">{{ writeLabel }}</BaseButton>
+          <NewsroomBriefDelete :older-count="b.olderCount.value" :edition-name="b.edition.value.name" @delete="askDelete" />
         </template>
       </NewsroomEdition>
       <LoadingState v-else-if="b.editionIssues.value.length" label="Reading the brief" :rows="3" />

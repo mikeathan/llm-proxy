@@ -41,6 +41,8 @@ const (
 	RouteFeed    = "/admin/api/newsroom/feed"
 	RouteRead    = "/admin/api/newsroom/feed/read"
 	RouteClear   = "/admin/api/newsroom/feed/clear"
+	RouteUnread  = "/admin/api/newsroom/feed/unread"
+	RouteKeep    = "/admin/api/newsroom/feed/keep"
 
 	ToolFollow = "newsroom_follow"
 	ToolList   = "newsroom_watches"
@@ -128,6 +130,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: RouteFeed},
 			{Method: http.MethodPost, Path: RouteRead},
 			{Method: http.MethodPost, Path: RouteClear},
+			{Method: http.MethodGet, Path: RouteUnread},
+			{Method: http.MethodPost, Path: RouteKeep},
 			{Method: http.MethodGet, Path: RouteSourceLookup},
 			{Method: http.MethodGet, Path: RouteSourceSuggest},
 			{Method: http.MethodGet, Path: RouteBriefTopics},
@@ -144,6 +148,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: RouteBriefIssues},
 			{Method: http.MethodGet, Path: RouteBriefIssue},
 			{Method: http.MethodPost, Path: RouteBriefRead},
+			{Method: http.MethodDelete, Path: RouteBriefIssue},
+			{Method: http.MethodDelete, Path: RouteBriefOlder},
 			{Method: http.MethodGet, Path: RouteBriefLatest},
 			{Method: http.MethodGet, Path: RouteBriefSettings},
 			{Method: http.MethodPut, Path: RouteBriefSettings},
@@ -508,6 +514,13 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return markRead(store, req.Body)
 	case "POST " + RouteClear:
 		return clearFeed(store, req.Body)
+	case "GET " + RouteUnread:
+		return jsonResponse(http.StatusOK, struct {
+			Count   int `json:"count"`
+			LeftOut int `json:"left_out"`
+		}{store.UnreadCount(), store.LeftOutCount()})
+	case "POST " + RouteKeep:
+		return keepLeftOut(store, req.Body)
 	case "GET " + RouteSourceLookup, "GET " + RouteSourceSuggest:
 		return s.handleSources(ctx, req)
 	}
@@ -572,7 +585,7 @@ func (s *Stack) feed(ctx context.Context, store *watches.Store, query string) (s
 	if err != nil {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "the query is not valid")
 	}
-	f := watches.Filter{Source: q.Get("source"), UnreadOnly: q.Get("unread") == "true"}
+	f := watches.Filter{Source: q.Get("source"), UnreadOnly: q.Get("unread") == "true", LeftOut: q.Get("left_out") == "true"}
 	if v := q.Get("watch"); v != "" {
 		if f.WatchID, err = strconv.ParseInt(v, 10, 64); err != nil {
 			return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "watch must be a watch id")
@@ -625,6 +638,20 @@ func clearFeed(store *watches.Store, body []byte) (stacksdk.Response, error) {
 		return stacksdk.Response{}, err
 	}
 	return jsonResponse(http.StatusOK, map[string]int{"cleared": gone})
+}
+
+// keepLeftOut puts items the model left out into the feed (the owner says the call was wrong).
+func keepLeftOut(store *watches.Store, body []byte) (stacksdk.Response, error) {
+	var in struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil || len(in.IDs) == 0 {
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "ids is a list of entry ids")
+	}
+	if err := store.Keep(in.IDs); err != nil {
+		return stacksdk.Response{}, err
+	}
+	return stacksdk.Response{Status: http.StatusNoContent}, nil
 }
 
 func markRead(store *watches.Store, body []byte) (stacksdk.Response, error) {

@@ -5,11 +5,11 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { ROUTE_NAMES } from '../../types/routes'
 import type { NewsroomDay, NewsroomWatch } from '../../types/newsroom'
 
-const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock, briefTopicsMock, deleteAllMock, createTopicMock, saveEditionMock, editionsMock, lookupMock } = vi.hoisted(() => ({
-  briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), createTopicMock: vi.fn(), saveEditionMock: vi.fn(), editionsMock: vi.fn(), lookupMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
+const { countsMock, watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock, briefTopicsMock, deleteAllMock, createTopicMock, saveEditionMock, editionsMock, lookupMock } = vi.hoisted(() => ({
+  countsMock: vi.fn(), briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), createTopicMock: vi.fn(), saveEditionMock: vi.fn(), editionsMock: vi.fn(), lookupMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
-  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock, lookup: lookupMock },
+  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock, lookup: lookupMock, keep: vi.fn().mockResolvedValue(undefined), alertCounts: countsMock },
 }))
 vi.mock('../../services/newsroom/briefService', () => ({
   BriefService: { editions: editionsMock, createTopic: createTopicMock, saveEdition: saveEditionMock, topics: briefTopicsMock, deleteAll: deleteAllMock, issues: vi.fn().mockResolvedValue([]), jobs: vi.fn().mockResolvedValue([]), latest: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
@@ -24,6 +24,7 @@ vi.mock('../../composables/models/useModels', () => ({
 }))
 
 import NewsroomView from '../../views/NewsroomView.vue'
+import { resetAlertsUnread } from '../../composables/newsroom/useAlertsUnread'
 
 const watch = (over: Partial<NewsroomWatch> = {}): NewsroomWatch => ({
   id: 1, name: 'Go releases', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, sources: [{ kind: 'feed', target: 'https://go.dev/blog/feed.atom' }], last_status: 'in_feed', ...over,
@@ -34,7 +35,8 @@ const day = (): NewsroomDay => ({
   watches: [{ watch_id: 1, watch: 'Go releases', updates: 2, unread: 2, last_at: '2026-11-20T10:00:00Z', current: entry(2, 'Go 1.26 released'), earlier: [entry(1, 'Go 1.26 RC2')] }],
 })
 
-async function mountView(path = '/newsroom/alerts', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()]) {
+async function mountView(path = '/newsroom/alerts', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()], counts = { unread: 0, leftOut: 0 }) {
+  countsMock.mockResolvedValue(counts)
   watchesMock.mockResolvedValue(watches)
   feedMock.mockResolvedValue(feed)
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(alerts|following|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
@@ -57,6 +59,9 @@ async function mountWatches(watches: NewsroomWatch[] = [watch()]) {
 const buttonByName = (w: ReturnType<typeof mount>, name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? b.text()))
 
 enableAutoUnmount(afterEach)
+// The Alerts counts are one module-level poller: each test starts from none. Reset before, not after: the auto-unmount runs after an afterEach reset and
+// would count its consumer off a poller that was already reset.
+beforeEach(() => resetAlertsUnread())
 beforeEach(() => {
   vi.clearAllMocks()
   confirmMock.mockResolvedValue(true)
@@ -132,6 +137,28 @@ describe('NewsroomView', () => {
     expect(w.text()).not.toContain('Go 1.25.5 released')
     await w.get('section[aria-label="Yesterday"] header button').trigger('click')
     expect(w.text()).toContain('Go 1.25.5 released')
+  })
+
+  it('stays quiet while every watch works, and names the one that needs a look', async () => {
+    const quiet = await mountView()
+    expect(quiet.w.find('[data-test="alert-problems"]').exists()).toBe(false)
+    quiet.w.unmount()
+    const { w } = await mountView('/newsroom/alerts', [watch(), watch({ id: 2, name: 'Rust', last_status: 'failing' })])
+    expect(w.get('[data-test="alert-problems"]').text()).toContain('Rust: source failing')
+  })
+
+  it('shows how many items the model left out in the switch, and lists them with a way back', async () => {
+    const { w } = await mountView('/newsroom/alerts', [watch({ look_for: 'new releases' })], [day()], { unread: 2, leftOut: 6 })
+    expect(w.text()).toContain('Left out by the model · 6')
+    const alertsTab = w.findAll('a.stack-tab').find((a) => a.text().startsWith('Alerts'))
+    expect(alertsTab!.find('[data-test="tab-dot"]').exists()).toBe(true)
+    expect(alertsTab!.text()).toContain('2 unread alerts')
+    feedMock.mockResolvedValue([])
+    const leftOut = w.findAll('button, [role="radio"], label').find((b) => b.text().startsWith('Left out by the model'))
+    await leftOut!.trigger('click')
+    await flushPromises()
+    expect(feedMock).toHaveBeenLastCalledWith({ watch: null, unreadOnly: false, days: null, leftOut: true }, expect.any(String))
+    expect(w.find('[data-test="left-out"]').exists()).toBe(true)
   })
 
   it('selects entries, asks before deleting them for good, then clears only those', async () => {

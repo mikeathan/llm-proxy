@@ -1,6 +1,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { NewsroomService } from '../../services/newsroom/newsroomService'
 import { usePolling } from '../ui/usePolling'
+import { useAlertsUnread } from './useAlertsUnread'
 import { POLL_INTERVAL_MS } from '../../constants/api'
 import { NEWSROOM_ACTION_FAILED, NEWSROOM_LOAD_FAILED } from '../../constants/newsroom'
 import { browserTimeZone } from '../../utils/format/timezone'
@@ -25,6 +26,8 @@ export function useNewsroom(active: () => boolean = () => true) {
   // The watch whose check is under way, so its row can say so; null when none is running.
   const runningId = ref<number | null>(null)
   let latest = 0
+  // The Alerts count (the tab, the sidebar) is asked again after every change here, so reading or clearing moves it at once.
+  const alerts = useAlertsUnread()
 
   async function load() {
     if (!active()) return
@@ -47,7 +50,7 @@ export function useNewsroom(active: () => boolean = () => true) {
     actionError.value = ''
     try {
       const value = await action()
-      await load()
+      await Promise.all([load(), alerts.refresh()])
       return { ok: true, value }
     } catch (e) {
       actionError.value = reasonOf(e, NEWSROOM_ACTION_FAILED)
@@ -61,6 +64,7 @@ export function useNewsroom(active: () => boolean = () => true) {
   const save = async (id: number, edit: NewsroomWatchEdit): Promise<boolean> => (await change(() => NewsroomService.save(id, edit))).ok
   const remove = async (id: number): Promise<boolean> => (await change(() => NewsroomService.remove(id))).ok
   const markRead = async (ids: number[], read: boolean): Promise<boolean> => (await change(() => NewsroomService.markRead(ids, read))).ok
+  const keep = async (ids: number[]): Promise<boolean> => (await change(() => NewsroomService.keep(ids))).ok
   const clear = async (what: { ids: number[] } | { scope: 'read' | 'all' }): Promise<number | null> => {
     const done = await change(() => NewsroomService.clear(what))
     return done.ok ? done.value : null
@@ -80,5 +84,5 @@ export function useNewsroom(active: () => boolean = () => true) {
   onMounted(load)
   usePolling(load, POLL_INTERVAL_MS)
 
-  return { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, clear, run }
+  return { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, keep, clear, run }
 }

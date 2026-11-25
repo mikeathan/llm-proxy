@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"llm-proxy-stacks/sdk"
+
+	"llm-proxy-stacks/newsroom/sources"
+	"llm-proxy-stacks/newsroom/watches"
 )
 
 type memDir struct {
@@ -259,6 +262,34 @@ func TestStopEndsTheLoopAndAStartedStackRefusesASecondStart(t *testing.T) {
 	}
 	if err := s.Stop(context.Background()); err != nil {
 		t.Errorf("Stop twice is harmless, got %v", err)
+	}
+}
+
+// The unread count is what the tab and the sidebar show; the left-out items have their own view and a way back into the feed.
+func TestUnreadCountAndLeftOutRoutes(t *testing.T) {
+	s := start(t, "", &rssFetch{})
+	ctx := context.Background()
+	s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteWatches, Body: []byte(feedWatch)})
+	store, _, _ := s.running()
+	_ = store.AddEntries(1, []sources.Item{{Source: "x", Title: "found", Link: "https://e.example/a"}}, watches.Marks{}, time.Now())
+	_ = store.AddEntries(1, []sources.Item{{Source: "x", Title: "off topic", Link: "https://e.example/b"}}, watches.Marks{LeftOut: true}, time.Now())
+	got, err := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteUnread})
+	if err != nil || string(got.Body) != `{"count":1,"left_out":1}` {
+		t.Fatalf("unread and left out = %s, %v", got.Body, err)
+	}
+	left, err := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteFeed, Query: "left_out=true"})
+	if err != nil || !strings.Contains(string(left.Body), "off topic") || strings.Contains(string(left.Body), `"found"`) {
+		t.Fatalf("left_out=true shows only what was left out: %s, %v", left.Body, err)
+	}
+	if _, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteKeep, Body: []byte(`{"ids":[]}`)}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		t.Errorf("empty ids are invalid, got %v", err)
+	}
+	if got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteKeep, Body: []byte(`{"ids":[2]}`)}); err != nil || got.Status != http.StatusNoContent {
+		t.Fatalf("keep = %v, %v", got.Status, err)
+	}
+	feed, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteFeed})
+	if !strings.Contains(string(feed.Body), "off topic") {
+		t.Errorf("a kept item is in the feed: %s", feed.Body)
 	}
 }
 

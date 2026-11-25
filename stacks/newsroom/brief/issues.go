@@ -38,6 +38,7 @@ func (s *Store) SaveIssue(is Issue, now time.Time) (Issue, error) {
 	s.doc.Issues = append(s.doc.Issues, is)
 	s.doc.Shown = recordShown(s.doc.Shown, is, now.UTC())
 	s.doc.Issues = pruneIssues(s.doc.Issues, now.UTC())
+	s.doc.Deleted = pruneDeleted(s.doc.Deleted, now.UTC())
 	return is, s.saveLocked()
 }
 
@@ -170,9 +171,57 @@ func (s *Store) MarkRead(id int64, now time.Time) error {
 	return s.saveLocked()
 }
 
-// Made says whether the edition was already made for the ready time.
+// Made says whether the edition was already made for the ready time, including a brief made then and deleted by the owner.
 func (s *Store) Made(editionID int64, readyFor time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.doc.Issues, func(is Issue) bool { return is.EditionID == editionID && is.ReadyFor.Equal(readyFor) })
+	return slices.ContainsFunc(s.doc.Issues, func(is Issue) bool { return is.EditionID == editionID && is.ReadyFor.Equal(readyFor) }) ||
+		slices.ContainsFunc(s.doc.Deleted, func(d DeletedSlot) bool { return d.EditionID == editionID && d.ReadyFor.Equal(readyFor) })
+}
+
+// DeletedSlot is the slot of a brief the owner deleted: the edition and the ready time it was made for.
+type DeletedSlot struct {
+	EditionID int64     `json:"edition_id"`
+	ReadyFor  time.Time `json:"ready_for"`
+}
+
+// DeleteIssues deletes one brief (older false) or every brief of the same edition made before it (older true, the one named stays), and reports how
+// many went. The already-shown record is kept, so the next edition does not repeat their stories, and the slot of each is remembered, so the scheduler
+// does not write it again.
+func (s *Store) DeleteIssues(id int64, older bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.IndexFunc(s.doc.Issues, func(is Issue) bool { return is.ID == id })
+	if i < 0 {
+		return 0, ErrNotFound
+	}
+	named := s.doc.Issues[i]
+	drop := func(is Issue) bool {
+		if older {
+			return is.EditionID == named.EditionID && is.ID != named.ID && is.MadeAt.Before(named.MadeAt)
+		}
+		return is.ID == named.ID
+	}
+	kept := s.doc.Issues[:0:0]
+	gone := 0
+	for _, is := range s.doc.Issues {
+		if !drop(is) {
+			kept = append(kept, is)
+			continue
+		}
+		gone++
+		if !is.ReadyFor.IsZero() {
+			s.doc.Deleted = append(s.doc.Deleted, DeletedSlot{EditionID: is.EditionID, ReadyFor: is.ReadyFor})
+		}
+	}
+	if gone == 0 {
+		return 0, nil
+	}
+	s.doc.Issues = kept
+	return gone, s.saveLocked()
+}
+
+// pruneDeleted forgets the deleted slots past the issue retention: the scheduler never looks that far back.
+func pruneDeleted(in []DeletedSlot, now time.Time) []DeletedSlot {
+	return slices.DeleteFunc(in, func(d DeletedSlot) bool { return now.Sub(d.ReadyFor) > IssueRetention })
 }

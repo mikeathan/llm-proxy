@@ -365,6 +365,23 @@ func TestBriefRoutes_LatestAndMarkRead(t *testing.T) {
 	if _, err := call(t, s, "POST", RouteBriefs+"issues/99/read", ""); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("an unknown issue is not found, got %v", err)
 	}
+	// The owner deletes the briefs older than the one on screen, then that one.
+	if _, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), ""); err != nil {
+		t.Fatal(err)
+	}
+	waitForWrite(t, s, ed.ID)
+	if resp, err := call(t, s, "DELETE", RouteBriefs+"issues/2/older", ""); err != nil || string(resp.Body) != `{"deleted":1}` {
+		t.Fatalf("delete older: %s %v", resp.Body, err)
+	}
+	if resp, _ := call(t, s, "GET", RouteBriefIssues, ""); strings.Contains(string(resp.Body), `"id":1`) || !strings.Contains(string(resp.Body), `"id":2`) {
+		t.Fatalf("issue 1 went, issue 2 stayed: %s", resp.Body)
+	}
+	if resp, err := call(t, s, "DELETE", RouteBriefs+"issues/2", ""); err != nil || string(resp.Body) != `{"deleted":1}` {
+		t.Fatalf("delete one: %s %v", resp.Body, err)
+	}
+	if _, err := call(t, s, "DELETE", RouteBriefs+"issues/99", ""); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
+		t.Errorf("deleting an unknown issue is not found, got %v", err)
+	}
 }
 
 // writeJob is what GET .../briefs/jobs says of one write.

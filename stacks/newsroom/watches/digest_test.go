@@ -10,7 +10,7 @@ import (
 func TestParseAnalysisKeepsCheckedDigests(t *testing.T) {
 	long := strings.Repeat("w", 400)
 	raw := `{"digests":[{"item":1,"headline":"  GPT-Live-1.1 adds voice  ","summary":"OpenAI shipped a full-duplex voice model."},{"item":9,"headline":"nope","summary":"not shown"},{"item":2,"headline":"","summary":""},{"item":3,"headline":"` + long + `","summary":"` + long + `"}]}`
-	a, err := parseAnalysis(raw, 3, 0, false)
+	a, err := parseAnalysis(raw, shown{Items: 3, Recent: 0, Asked: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,14 +30,14 @@ func TestParseAnalysisKeepsCheckedDigests(t *testing.T) {
 
 // A judged answer with verdicts and no digests still filters: the digests are only the nicer title.
 func TestAJudgedAnswerWithoutDigestsStillFilters(t *testing.T) {
-	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":2,"why":"y","relevant":false}]}`, 2, 0, true)
+	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":2,"why":"y","relevant":false}]}`, shown{Items: 2, Recent: 0, Asked: true})
 	if err != nil || !a.Judged || len(a.Matches) != 1 || len(a.Digests) != 0 {
 		t.Fatalf("%+v %v", a, err)
 	}
 }
 
 func TestAnAnswerWithoutDigestsStillParses(t *testing.T) {
-	a, err := parseAnalysis(`{"state":"s"}`, 2, 0, false)
+	a, err := parseAnalysis(`{"state":"s"}`, shown{Items: 2, Recent: 0, Asked: false})
 	if err != nil || len(a.Digests) != 0 {
 		t.Fatalf("%+v %v", a, err)
 	}
@@ -72,7 +72,7 @@ func TestTheFeedEntryKeepsTheHeadlineSummaryAndTheOriginalTitleAndLink(t *testin
 func TestAnswersWithoutItemNumbersAreReadByPosition(t *testing.T) {
 	raw := `{"verdicts":[{"why":"a model release","relevant":true},{"why":"just a link","relevant":false},{"why":"a model release","relevant":true}],
 "digests":[{"headline":"First headline","summary":"First summary."},{"headline":"Third headline","summary":"Third summary."}]}`
-	a, err := parseAnalysis(raw, 3, 0, true)
+	a, err := parseAnalysis(raw, shown{Items: 3, Recent: 0, Asked: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestAnswersWithoutItemNumbersAreReadByPosition(t *testing.T) {
 	if a.Digests[1].Headline != "First headline" || a.Digests[3].Headline != "Third headline" || len(a.Digests) != 2 {
 		t.Errorf("digests by position: %+v", a.Digests)
 	}
-	every, err := parseAnalysis(`{"digests":[{"headline":"One","summary":"s"},{"headline":"Two","summary":"s"}]}`, 2, 0, false)
+	every, err := parseAnalysis(`{"digests":[{"headline":"One","summary":"s"},{"headline":"Two","summary":"s"}]}`, shown{Items: 2, Recent: 0, Asked: false})
 	if err != nil || every.Digests[1].Headline != "One" || every.Digests[2].Headline != "Two" {
 		t.Errorf("unasked digests by position: %+v, %v", every.Digests, err)
 	}
@@ -90,15 +90,15 @@ func TestAnswersWithoutItemNumbersAreReadByPosition(t *testing.T) {
 
 // Position is only a fallback for an answer that numbers nothing, and only when the count fits: a mixed or short answer is not guessed at.
 func TestPositionIsNotGuessedWhenTheAnswerIsMixedOrShort(t *testing.T) {
-	mixed, _ := parseAnalysis(`{"digests":[{"item":2,"headline":"Two","summary":"s"},{"headline":"Nameless","summary":"s"}]}`, 2, 0, false)
+	mixed, _ := parseAnalysis(`{"digests":[{"item":2,"headline":"Two","summary":"s"},{"headline":"Nameless","summary":"s"}]}`, shown{Items: 2, Recent: 0, Asked: false})
 	if len(mixed.Digests) != 1 || mixed.Digests[2].Headline != "Two" {
 		t.Errorf("mixed: %+v", mixed.Digests)
 	}
-	short, _ := parseAnalysis(`{"digests":[{"headline":"Only","summary":"s"}]}`, 3, 0, false)
+	short, _ := parseAnalysis(`{"digests":[{"headline":"Only","summary":"s"}]}`, shown{Items: 3, Recent: 0, Asked: false})
 	if len(short.Digests) != 0 {
 		t.Errorf("one nameless digest for three items must not be placed: %+v", short.Digests)
 	}
-	none, _ := parseAnalysis(`{"verdicts":[{"why":"x","relevant":true}]}`, 3, 0, true)
+	none, _ := parseAnalysis(`{"verdicts":[{"why":"x","relevant":true}]}`, shown{Items: 3, Recent: 0, Asked: true})
 	if len(none.Matches) != 0 {
 		t.Errorf("one nameless verdict for three items must not be placed: %+v", none.Matches)
 	}

@@ -107,8 +107,9 @@ const print = () => window.print()
         {{ BRIEF_SEND_PROBLEM[sendProblem] }}
         <RouterLink v-if="sendProblem === 'refused'" :to="toSettings('communication')" class="text-accent-info-text hover:underline" data-test="send-fix">{{ BRIEF_SEND_FIX }}</RouterLink>
       </p>
-      <p :class="['m-0 mt-2 text-[length:var(--text-small)] print:hidden', status.tone === 'old' ? 'font-medium text-state-running' : 'text-faint']" :data-tone="status.tone" data-test="brief-status">
-        <template v-if="status.tone === 'old'">{{ status.title }}. </template>{{ status.detail }}
+      <!-- Said only when the brief is not today's: the dateline already says when it was written, and the end mark when the next one comes. -->
+      <p v-if="status.tone === 'old'" class="m-0 mt-2 text-[length:var(--text-small)] font-medium text-state-running print:hidden" :data-tone="status.tone" data-test="brief-status">
+        {{ status.title }}. {{ status.detail }}
       </p>
     </header>
 

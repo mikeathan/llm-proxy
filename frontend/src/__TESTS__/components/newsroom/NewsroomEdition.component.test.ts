@@ -54,7 +54,7 @@ describe('NewsroomEdition', () => {
   it('says loudly that a brief is not today\'s, and quietly when it is', () => {
     const old = mountIt(issue(), { tone: 'old', title: 'This brief is from Monday', detail: "It is not today's.", next: 'Next at 18:00.' })
     expect(old.get('[data-test="brief-status"]').text()).toContain('This brief is from Monday')
-    expect(mountIt(issue()).get('[data-test="brief-status"]').text()).not.toContain("Today's brief")
+    expect(mountIt(issue()).find('[data-test="brief-status"]').exists()).toBe(false)
   })
 
   it('opens every section, indexes them and makes each section and story an anchor a card can link to', () => {
