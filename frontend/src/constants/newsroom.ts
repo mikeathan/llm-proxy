@@ -300,6 +300,12 @@ export const SECTION_HEADLINES_ONLY = 'These sources give headlines only, so the
 export const showMoreWords = (n: number): string => `Show ${n} more`
 export const SHOW_FEWER_LABEL = 'Show fewer'
 export const LEAD_STORY_LABEL = 'Top story'
+/** The top story's label on a card: "Top story", then its section when it has one. */
+export const leadStoryWords = (section?: string): string => (section ? `${LEAD_STORY_LABEL} · ${section}` : LEAD_STORY_LABEL)
+const LEAD_OUTLETS_SHOWN = 3
+/** The outlets of a card's top story by name, three at most and how many more: "BBC · Reuters · FT +1". */
+export const leadOutletsWords = (outlets: string[]): string =>
+  outlets.slice(0, LEAD_OUTLETS_SHOWN).join(' · ') + (outlets.length > LEAD_OUTLETS_SHOWN ? ` +${outlets.length - LEAD_OUTLETS_SHOWN}` : '')
 export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'story' : 'stories'}`
 /** A section's count: what the model wrote for it, and how many of those the top stories already show. */
 export const briefSectionCountWords = (total: number, inTop: number): string => (inTop > 0 ? `${briefStoryCountWords(total)} · ${inTop} in ${TOP_STORIES_LABEL}` : briefStoryCountWords(total))
