@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -30,6 +31,10 @@ const (
 	MaxLookForRunes = 300
 	MaxWords        = 10
 	MaxWordRunes    = 40
+	// MaxExamples is how many posts of each kind a watch keeps as examples of what the owner wants and does not (owner, 2026-11-25: the newest 10, so
+	// the prompt stays small for a local model); maxExampleRunes bounds each.
+	MaxExamples     = 10
+	maxExampleRunes = 200
 	// MaxStateRunes bounds the last-known-state note.
 	MaxStateRunes = 600
 	// SeenRetention and MaxSeen bound one watch's ledger, as the automation ledger's defaults do.
@@ -62,6 +67,9 @@ type Watch struct {
 	// need no model, and both are optional.
 	Keywords []string `json:"keywords,omitempty"`
 	Skip     []string `json:"skip,omitempty"`
+	// Examples are posts the owner judged, newest first: Want the ones they said should have matched, Skip the ones they said are not for them. The
+	// model sees them beside LookFor, so the watch learns what the owner means without the owner rewriting it.
+	Examples Examples `json:"examples,omitzero"`
 	// State is the short note of the last known state, rewritten by the framework each run (Phase 3); empty until then.
 	State string `json:"state,omitempty"`
 
@@ -149,7 +157,43 @@ func (t *Watch) normalizeTimes() error {
 
 var channelNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
 
+// Examples are the posts the owner judged for a watch, newest first, as their titles.
+type Examples struct {
+	Want []string `json:"want,omitempty"`
+	Skip []string `json:"skip,omitempty"`
+}
+
+// Judges says whether the model is asked which new items are relevant: when the owner said what the watch is for, or judged posts for it.
+func (t Watch) Judges() bool {
+	return t.LookFor != "" || len(t.Examples.Want) > 0 || len(t.Examples.Skip) > 0
+}
+
+// cleanExamples trims each title to one bounded line, drops blanks and repeats (the first, newest, stays) and keeps the newest MaxExamples.
+func cleanExamples(titles []string) []string {
+	var out []string
+	for _, s := range titles {
+		if s = sources.Line(s, maxExampleRunes); s != "" && !slices.Contains(out, s) && len(out) < MaxExamples {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// withExample puts a title first in one list and takes it out of the other, so the owner's newest verdict on a post is the one that counts.
+func (e Examples) withExample(title string, want bool) Examples {
+	// Stored titles are cleaned (cleanExamples), so the one compared is cleaned the same way.
+	title = sources.Line(title, maxExampleRunes)
+	drop := func(l []string) []string {
+		return slices.DeleteFunc(slices.Clone(l), func(s string) bool { return s == title })
+	}
+	if want {
+		return Examples{Want: cleanExamples(append([]string{title}, e.Want...)), Skip: drop(e.Skip)}
+	}
+	return Examples{Want: drop(e.Want), Skip: cleanExamples(append([]string{title}, e.Skip...))}
+}
+
 func normalizeLookFor(t Watch) (Watch, error) {
+	t.Examples = Examples{Want: cleanExamples(t.Examples.Want), Skip: cleanExamples(t.Examples.Skip)}
 	t.LookFor = strings.TrimSpace(t.LookFor)
 	if utf8.RuneCountInString(t.LookFor) > MaxLookForRunes {
 		return Watch{}, fmt.Errorf("%w: what to look for is at most %d characters", ErrInvalid, MaxLookForRunes)

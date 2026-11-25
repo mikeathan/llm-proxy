@@ -7,6 +7,7 @@ import FormField from "../common/forms/FormField.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import NewsroomSourceGuide from "./NewsroomSourceGuide.vue"
 import NewsroomSourceLookup from "./NewsroomSourceLookup.vue"
+import NewsroomWatchExamples from "./NewsroomWatchExamples.vue"
 import { compactInterval } from "../../utils/newsroom/interval"
 import { regionProblem, sourceProblem } from "../../utils/newsroom/sourceCheck"
 import {
@@ -15,7 +16,7 @@ import {
   WATCH_ON_LABEL, WATCH_SOURCES_LABEL,
 } from "../../constants/newsroom"
 import type { ChoiceOption } from "../../types/ui"
-import type { NewsroomSource, NewsroomWatch, NewsroomWatchEdit, SourceKind } from "../../types/newsroom"
+import type { NewsroomExamples, NewsroomSource, NewsroomWatch, NewsroomWatchEdit, SourceKind } from "../../types/newsroom"
 
 // Create or edit one watch. The server checks everything again and says why it refuses (`error`); this form only keeps an obviously empty one from
 // being sent.
@@ -31,6 +32,9 @@ const enabled = ref(props.watch?.enabled ?? true)
 const lookFor = ref(props.watch?.look_for ?? "")
 const keywords = ref((props.watch?.keywords ?? []).join(", "))
 const skip = ref((props.watch?.skip ?? []).join(", "))
+// The posts the owner judged; the form sends them back, so removing one here and saving forgets it.
+const examples = ref<NewsroomExamples>({ want: [...(props.watch?.examples?.want ?? [])], skip: [...(props.watch?.examples?.skip ?? [])] })
+const hasExamples = Boolean(props.watch?.examples?.want?.length || props.watch?.examples?.skip?.length)
 const sources = ref<NewsroomSource[]>(props.watch?.sources.map((s) => ({ ...s })) ?? [blankSource()])
 // Which sources show their fields, one flag per source (kept in step by addSource/removeSource). With several sources the existing ones start
 // folded to one line, so the form stays short; a lone source, a new one and one with a problem are open.
@@ -92,6 +96,7 @@ function submit() {
     look_for: lookFor.value.trim(),
     keywords: words(keywords.value),
     skip: words(skip.value),
+    ...(props.watch ? { examples: examples.value } : {}),
     sources: filled.value.map((s) => ({ kind: s.kind, target: s.target.trim(), ...(s.instance?.trim() ? { instance: s.instance.trim() } : {}), ...(s.label ? { label: s.label } : {}) })),
   })
 }
@@ -159,6 +164,7 @@ function submit() {
         <textarea :id="id" v-model="lookFor" :aria-describedby="describedBy" rows="3" :maxlength="WATCH_LOOK_FOR_MAX" class="form-control"></textarea>
       </template>
     </FormField>
+    <NewsroomWatchExamples v-if="hasExamples" v-model:examples="examples" />
     <div class="flex flex-wrap gap-3">
       <FormField :label="WATCH_KEYWORDS_LABEL" :hint="WATCH_KEYWORDS_HINT">
         <template #default="{ id, describedBy }">

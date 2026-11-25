@@ -51,7 +51,7 @@ var ErrNotFound = errors.New("brief item not found")
 var ErrInUse = errors.New("brief topic in use")
 
 // A topic reads sources with no politeness slot only: a Telegram channel's floor is held per reader and shared with the watches, and a page is
-// compared for change rather than read for news. Telegram channels in a brief wait for the shared-slot design (plan: morning-paper.md).
+// compared for change rather than read for news. Telegram channels in a brief wait for the shared-slot design (plan: docs/PLANS/autonomy/newsroom-handoff-2026-11-25.md).
 var topicKinds = map[sources.Kind]bool{sources.KindFeed: true, sources.KindHN: true, sources.KindMastodon: true, sources.KindNews: true}
 
 // Topic is one area of news the owner defines: what it covers (Queries, each read as a news search) and the Sources to read for it.

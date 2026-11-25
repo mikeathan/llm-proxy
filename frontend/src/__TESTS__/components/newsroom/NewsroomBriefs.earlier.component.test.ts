@@ -33,6 +33,16 @@ beforeEach(() => {
 })
 
 describe('NewsroomBriefs status', () => {
+  it('links the brief to where it is set up, on Following', async () => {
+    service.issues.mockResolvedValue([issue(7, 'Today', new Date().toISOString())])
+    const w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })
+    mounted.push(w)
+    await flushPromises()
+    const link = w.findAllComponents(RouterLinkStub).find((l) => l.text().includes('Set up the brief'))
+    expect(link!.props('to')).toMatchObject({ params: { tab: 'following' }, query: { kind: 'brief' } })
+  })
+
+
   it('says plainly that today\'s brief needs nothing, and that an older one is not today\'s', async () => {
     service.issues.mockResolvedValue([issue(7, 'Today', new Date().toISOString())])
     let w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })

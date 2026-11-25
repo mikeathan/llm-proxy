@@ -49,9 +49,24 @@ export const leftOutViewWords = (count: number): string => (count > 0 ? `${LEFT_
 export const ALERT_PROBLEM_WORDS = { failing: 'source failing', send_failed: 'send failed', no_channel: 'no channel', analysis_failed: 'could not compare' } as const
 export const sourcesDownWords = (n: number): string => (n === 1 ? '1 source not answering' : `${n} sources not answering`)
 export const ALERT_PROBLEMS_LINK = 'Open in Following'
+// Always on the Alerts tab: the watches and their sources live on Following, behind its "Alerts" switch, so the way there is said, not known.
+export const ALERTS_SETUP_LINK = 'Set up alerts'
+// Every setup view links back to where its result is read, and the brief to where it is set up: one click each way.
+export const FOLLOWING_READ_LINKS = { brief: 'Read the brief', alerts: 'See alerts' } as const
+export const BRIEF_SETUP_LINK = 'Set up the brief'
 export const leftOutWords = (why: string): string => `Left out: ${why}`
 export const KEEP_LABEL = 'Should have matched'
-export const KEPT_TOAST = 'Put in Alerts'
+export const KEPT_TOAST = 'Put in Alerts. The watch will learn from it.'
+// "Not for me" on an alert: it leaves Alerts for "Left out by the model" (where "Should have matched" brings it back) and becomes an example the watch's
+// model sees from its next check.
+export const NOT_FOR_ME_LABEL = 'Not for me'
+export const notForMeAria = (headline: string): string => `${NOT_FOR_ME_LABEL}: ${headline}`
+export const NOT_FOR_ME_TOAST = 'Taken out of Alerts. The watch will learn from it.'
+// The watch form's list of posts the owner judged (Watch.examples).
+export const EXAMPLES_LABEL = 'What this watch learned from you'
+export const EXAMPLES_HINT = 'Posts you marked with "Should have matched" or "Not for me". The model sees the newest 10 of each when it checks. Remove one you marked by mistake.'
+export const EXAMPLES_KIND_LABELS = { want: 'Wanted', skip: 'Not for me' } as const
+export const removeExampleLabel = (title: string): string => `Remove ${title}`
 export const LEFT_OUT_EMPTY = 'Nothing was left out in the last 7 days.'
 export const LEFT_OUT_HINT = 'Posts the model judged not to be what your watch looks for, with its reason. Kept for 7 days.'
 export const ALERTS_UNREAD_POLL_MS = 30000

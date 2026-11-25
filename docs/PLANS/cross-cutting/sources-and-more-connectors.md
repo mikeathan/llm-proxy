@@ -4,13 +4,13 @@ date: 2026-11-20
 last_reviewed: 2026-11-20
 related_specs: [SPEC-009, SPEC-007, SPEC-006]
 constitution_references: [I.1, II.2, III.2, IV.6, V.2]
-related_plans: [../autonomy/topic-watch.md, ../autonomy/morning-paper.md, connector-auto-reply.md]
+related_plans: [../ARCHIVE/autonomy/topic-watch.md, ../ARCHIVE/autonomy/morning-paper.md, connector-auto-reply.md]
 evidence: Read 2026-11-20 - SPEC-009, connector-patterns skill, models/config.go (ConnectorConfig), notifiers/telegram.go (allowed_updates is ["message"] at line 261), docs/guides/automation-digest.md; web searches on Telegram channel updates, Reddit Data API, Bluesky searchPosts, Telegram user-account (MTProto) access; curl tests from the dev Mac (not vertex). Reddit's own policy pages were not reachable (403); every Reddit claim here is third-party and unconfirmed.
 ---
 
 # Sources and more connectors — what can be listened to, and what the owner must bring
 
-**Status:** proposed (2026-11-20). Research plan; it feeds `../autonomy/topic-watch.md` (what it listens to) and says what a chat connector needs. Nothing built.
+**Status:** proposed (2026-11-20). Research plan; it feeds `../ARCHIVE/autonomy/topic-watch.md` (what it listens to) and says what a chat connector needs. Nothing built.
 
 ## The owner's request
 

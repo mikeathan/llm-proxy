@@ -85,6 +85,12 @@ export class NewsroomService {
     if (!res.ok) throw await failureReason(res, 'put the item in Alerts')
   }
 
+  /** Takes alerts out of the feed: the owner says they are not for them. The watch keeps them as examples. */
+  static async skip(ids: number[]): Promise<void> {
+    const res = await apiFetch(`${BASE}/feed/skip`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ ids }) })
+    if (!res.ok) throw await failureReason(res, 'take the alert out')
+  }
+
   static async markRead(ids: number[], read: boolean): Promise<void> {
     const res = await apiFetch(`${BASE}/feed/read`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ ids, read }) })
     if (!res.ok) throw await failureReason(res, 'mark entries read')

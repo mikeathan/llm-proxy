@@ -291,6 +291,17 @@ func TestUnreadCountAndLeftOutRoutes(t *testing.T) {
 	if !strings.Contains(string(feed.Body), "off topic") {
 		t.Errorf("a kept item is in the feed: %s", feed.Body)
 	}
+	// "Not for me" takes an alert out of the feed, and the watch now carries both verdicts as examples.
+	if got, err := s.Handle(ctx, stacksdk.Request{Method: "POST", Path: RouteSkip, Body: []byte(`{"ids":[1]}`)}); err != nil || got.Status != http.StatusNoContent {
+		t.Fatalf("skip = %v, %v", got.Status, err)
+	}
+	if got, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteUnread}); string(got.Body) != `{"count":0,"left_out":1}` {
+		t.Errorf("the skipped alert left the feed: %s", got.Body)
+	}
+	list, _ := s.Handle(ctx, stacksdk.Request{Method: "GET", Path: RouteWatches})
+	if !strings.Contains(string(list.Body), `"examples":{"want":["off topic"],"skip":["found"]}`) {
+		t.Errorf("the watch carries the examples: %s", list.Body)
+	}
 }
 
 func TestMarkReadNeedsIDs(t *testing.T) {

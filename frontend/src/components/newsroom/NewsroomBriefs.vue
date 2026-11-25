@@ -15,10 +15,10 @@ import { motionScroll } from "../../utils/motion"
 import { useBriefs } from "../../composables/newsroom/useBriefs"
 import { useBriefUnread } from "../../composables/newsroom/useBriefUnread"
 import { useToast } from "../../composables/useToast"
-import { toFollow, toNewsroom } from "../../router/routes"
+import { toFollow, toFollowing } from "../../router/routes"
 import { lessLikeThis, moreLikeThis } from "../../utils/newsroom/storyTuning"
 import {
-  BRIEF_EARLIER_LABEL, BRIEF_EDITION_LABEL, FOLLOWING_VIEW_LABEL, MAKE_ANOTHER_LABEL, MAKE_NOW_LABEL, NEWSROOM_RELOAD_HINT, NEW_BRIEF_LABEL, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE,
+  BRIEF_EARLIER_LABEL, BRIEF_EDITION_LABEL, BRIEF_SETUP_LINK, MAKE_ANOTHER_LABEL, MAKE_NOW_LABEL, NEWSROOM_RELOAD_HINT, NEW_BRIEF_LABEL, NO_EDITIONS_BODY, NO_EDITIONS_TITLE, NO_ISSUE_BODY, NO_ISSUE_HEADLINE,
   briefEarlierOption, writeStepWords, STORY_TUNE_FULL, storyTunedWords, BRIEF_DELETE_TITLE, briefDeleteMessage, briefDeletedWords,
 } from "../../constants/newsroom"
 
@@ -114,7 +114,7 @@ watch(() => b.job.value?.state, (state) => { if (state === "failed" && b.actionE
     <LoadingState v-if="b.loading.value" label="Loading the brief" :rows="3" />
     <ErrorState v-else-if="b.error.value" title="The brief is unavailable" :cause="b.error.value" :next="NEWSROOM_RELOAD_HINT" />
     <EmptyState v-else-if="!b.editions.value.length" :title="NO_EDITIONS_TITLE" :body="NO_EDITIONS_BODY">
-      <template #action><RouterLink :to="toNewsroom('following')" class="text-accent-brand hover:underline">{{ FOLLOWING_VIEW_LABEL }} →</RouterLink></template>
+      <template #action><RouterLink :to="toFollowing('brief')" class="text-accent-brand hover:underline">{{ BRIEF_SETUP_LINK }} →</RouterLink></template>
     </EmptyState>
     <template v-else-if="b.edition.value">
       <NewsroomEdition v-if="b.issue.value" :issue="b.issue.value" :status="status" :is-new="isNew" :topics="topicNames" @tune="tune" @follow="followStory">
@@ -124,6 +124,7 @@ watch(() => b.job.value?.state, (state) => { if (state === "failed" && b.actionE
             <SelectInput :model-value="String(b.issue.value.id)" :options="earlierOptions" :label="BRIEF_EARLIER_LABEL" @update:model-value="b.pickedIssueId.value = Number($event)" />
           </div>
           <BaseButton size="sm" variant="secondary" :disabled="b.making.value" data-test="write-now" @click="write">{{ writeLabel }}</BaseButton>
+          <RouterLink :to="toFollowing('brief')" class="text-[length:var(--text-small)] text-accent-info-text hover:underline" data-test="brief-setup">{{ BRIEF_SETUP_LINK }} →</RouterLink>
           <NewsroomBriefDelete :older-count="b.olderCount.value" :edition-name="b.edition.value.name" @delete="askDelete" />
         </template>
       </NewsroomEdition>

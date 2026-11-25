@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: complete
 date: 2026-11-20
 last_reviewed: 2026-11-20
 related_specs: [SPEC-007, SPEC-009, SPEC-006]
@@ -10,7 +10,7 @@ evidence: Read 2026-11-20 - autonomy and automation hubs, standing-goals, event-
 
 # Topic Watch — follow a topic on a schedule and say only what changed (the Topics module of the Newsroom stack)
 
-**Status:** proposed (2026-11-20). Decisions answered; Phase 0 changes no behaviour.
+**Status:** complete (archived 2026-11-25). Built as the Newsroom stack's watches (Alerts); SPEC-013 is the contract. What was still open moved to `../../autonomy/newsroom-handoff-2026-11-25.md`.
 
 ## Why this plan exists
 

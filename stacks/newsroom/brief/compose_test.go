@@ -376,3 +376,55 @@ func TestCompose_TellsEachStepOfTheWrite(t *testing.T) {
 		t.Fatalf("steps: %+v", steps)
 	}
 }
+
+// A news search reports a story under many outlets but gives only its headline; a feed gives one outlet and the story's text. Ranked by outlets alone,
+// the searches fill every candidate slot and the feeds' stories never reach the model, so a third of the slots is kept for stories with text, and the
+// model is told which stories are headlines only and to prefer text when two matter about as much.
+func TestCompose_StoriesWithTextKeepAShareOfTheCandidates(t *testing.T) {
+	var pool []PoolItem
+	for i := range CandidatesPerSection + 5 {
+		pool = append(pool, poolStory(int64(i+1), "Wirestory "+natoWord(i)+" "+natoWord(i+9), "", 6, 7, time.Hour))
+	}
+	for i := range 7 {
+		pool = append(pool, poolStory(int64(100+i), "Feedstory "+natoWord(i+3)+" "+natoWord(i+17)+" "+natoWord(i+21), "The story's own text.", 1, 7, time.Hour))
+	}
+	m := &fakeModel{answers: []string{"{}"}}
+	in := oneSection(pool...)
+	in.Model = m
+	Compose(context.Background(), in)
+	prompt := m.prompts[0]
+	if got := strings.Count(prompt, "Feedstory"); got != CandidatesPerSection/3 {
+		t.Fatalf("a third of the %d candidates go to stories with text, got %d:\n%s", CandidatesPerSection, got, prompt)
+	}
+	if got := strings.Count(prompt, "Wirestory"); got != CandidatesPerSection-CandidatesPerSection/3 {
+		t.Fatalf("the rest go to the best reported headlines, got %d", got)
+	}
+	if !strings.Contains(prompt, "(6 outlets, headline only)") || strings.Contains(prompt, "(1 outlets, headline only)") {
+		t.Fatalf("the prompt marks the stories that are headlines only, and only those:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "prefer the one that has text") {
+		t.Fatalf("the model is asked to prefer a story with text when two matter about as much:\n%s", prompt)
+	}
+}
+
+// With few stories with text, they all stay and the headlines fill the rest: the share is a floor for text, not a cap on headlines.
+func TestCompose_FewStoriesWithTextLeaveTheRestToHeadlines(t *testing.T) {
+	var pool []PoolItem
+	for i := range CandidatesPerSection + 5 {
+		pool = append(pool, poolStory(int64(i+1), "Wirestory "+natoWord(i)+" "+natoWord(i+9), "", 6, 7, time.Hour))
+	}
+	pool = append(pool, poolStory(100, "Feedstory quiet harbour lantern", "Text.", 1, 7, time.Hour))
+	m := &fakeModel{answers: []string{"{}"}}
+	in := oneSection(pool...)
+	in.Model = m
+	Compose(context.Background(), in)
+	if strings.Count(m.prompts[0], "Feedstory") != 1 || strings.Count(m.prompts[0], "Wirestory") != CandidatesPerSection-1 {
+		t.Fatalf("the one story with text stays and headlines fill the other slots:\n%s", m.prompts[0])
+	}
+}
+
+// natoWord gives distinct words, so test headlines share none and the clustering leaves them apart.
+func natoWord(i int) string {
+	w := strings.Fields("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu")
+	return w[i%len(w)] + fmt.Sprint(i)
+}

@@ -36,4 +36,4 @@ The owner agreed to the port on 2026-11-20, on the condition that both local and
 - Rejected: letting a stack pass a model name or provider (a stack would choose where data goes); giving the port tools (it would become an agent path around the guardrail gate); a model call through the existing automation run (it carries tools and memory, which is the opposite of narrow).
 
 ## Links
-- `docs/PLANS/autonomy/topic-watch.md` Phase 3; `stacks/newsroom/topics/analyst.go`; `docs/PLANS/cross-cutting/next-stack-moves-and-local-models.md` section 1.
+- `docs/PLANS/ARCHIVE/autonomy/topic-watch.md` Phase 3; `stacks/newsroom/topics/analyst.go`; `docs/PLANS/cross-cutting/next-stack-moves-and-local-models.md` section 1.

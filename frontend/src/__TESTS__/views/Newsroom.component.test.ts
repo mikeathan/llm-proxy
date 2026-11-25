@@ -9,12 +9,14 @@ const { countsMock, watchesMock, feedMock, createMock, removeMock, markReadMock,
   countsMock: vi.fn(), briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), createTopicMock: vi.fn(), saveEditionMock: vi.fn(), editionsMock: vi.fn(), lookupMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
-  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock, lookup: lookupMock, keep: vi.fn().mockResolvedValue(undefined), alertCounts: countsMock },
+  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock, lookup: lookupMock, keep: vi.fn().mockResolvedValue(undefined), skip: vi.fn().mockResolvedValue(undefined), alertCounts: countsMock },
 }))
 vi.mock('../../services/newsroom/briefService', () => ({
   BriefService: { editions: editionsMock, createTopic: createTopicMock, saveEdition: saveEditionMock, topics: briefTopicsMock, deleteAll: deleteAllMock, issues: vi.fn().mockResolvedValue([]), jobs: vi.fn().mockResolvedValue([]), latest: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
+const { toastSuccess } = vi.hoisted(() => ({ toastSuccess: vi.fn() }))
+vi.mock('../../composables/useToast', () => ({ useToast: () => ({ success: toastSuccess, error: vi.fn(), info: vi.fn(), warning: vi.fn() }) }))
 // The brief's side column reads Model use and the chips; quiet answers keep the test off the network.
 vi.mock('../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
 vi.mock('../../services/automation/dispatcherService', () => ({ DispatcherService: { getGlobalActivity: vi.fn().mockResolvedValue([]) } }))
@@ -24,6 +26,7 @@ vi.mock('../../composables/models/useModels', () => ({
 }))
 
 import NewsroomView from '../../views/NewsroomView.vue'
+import { NewsroomService } from '../../services/newsroom/newsroomService'
 import { resetAlertsUnread } from '../../composables/newsroom/useAlertsUnread'
 
 const watch = (over: Partial<NewsroomWatch> = {}): NewsroomWatch => ({
@@ -137,6 +140,47 @@ describe('NewsroomView', () => {
     expect(w.text()).not.toContain('Go 1.25.5 released')
     await w.get('section[aria-label="Yesterday"] header button').trigger('click')
     expect(w.text()).toContain('Go 1.25.5 released')
+  })
+
+  it('links the Alerts tab to the watches and their sources, so their setup is never hidden behind a switch', async () => {
+    const { w, router } = await mountView()
+    const link = w.get('[data-test="alerts-setup"]')
+    expect(link.text()).toContain('Set up alerts')
+    await link.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/newsroom/following')
+    expect(router.currentRoute.value.query.kind).toBe('alerts')
+    expect(w.text()).toContain('Go releases')
+  })
+
+  it('links each half of Following back to where it is read, and adds a watch from the Alerts half in one click', async () => {
+    const brief = await mountView('/newsroom/following?kind=brief')
+    await brief.w.get('[data-test="following-read"]').trigger('click')
+    await flushPromises()
+    expect(brief.router.currentRoute.value.path).toBe('/newsroom')
+    brief.w.unmount()
+    const { w, router } = await mountWatches()
+    await w.get('[data-test="new-watch"]').trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('New watch')
+    await w.get('[data-test="following-read"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/newsroom/alerts')
+  })
+
+  it('offers Follow on the Brief tab too, opening the form on "In your brief"', async () => {
+    const { w, router } = await mountView('/newsroom')
+    await w.get('[data-test="follow-open"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toMatchObject({ kind: 'brief', follow: '' })
+  })
+
+  it('takes an alert out with "Not for me" and says the watch learns from it', async () => {
+    const { w } = await mountView()
+    await w.get('section[aria-label="Today"] [data-test="not-for-me"]').trigger('click')
+    await flushPromises()
+    expect(NewsroomService.skip).toHaveBeenCalledWith([2])
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('The watch will learn from it'))
   })
 
   it('stays quiet while every watch works, and names the one that needs a look', async () => {

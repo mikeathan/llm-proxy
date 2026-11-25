@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 date: 2026-11-21
 last_reviewed: 2026-11-21
 related_specs: [SPEC-013, SPEC-011, SPEC-007, SPEC-003]
@@ -10,7 +10,7 @@ evidence: Read 2026-11-21 - stacks/newsroom (watches, sources), stacks/sdk/ports
 
 # Briefs: editions of news, your watches, your day and your systems (the Brief module of the Newsroom stack)
 
-**Status:** proposed (2026-11-21). Design only; no code. Mocks: [`briefs-mocks/`](briefs-mocks/README.md) (edition page and settings, dark, light, phone).
+**Status:** complete (archived 2026-11-25). Phases 0-6 and 8 built and merged (v0.122.0-v0.135.0); phase 7 dropped (D4). SPEC-013 is the contract; leftovers in `../../autonomy/newsroom-handoff-2026-11-25.md`. Mocks: [`briefs-mocks/`](briefs-mocks/README.md) (edition page and settings, dark, light, phone).
 
 ## What the owner asked for
 

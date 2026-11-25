@@ -90,7 +90,7 @@ func TestWhatTheModelLeftOutIsKeptAsideWithItsReason(t *testing.T) {
 	if len(left) != 2 || !left[0].LeftOut || left[0].Title != "Golf scores" || left[0].Why != "sport" || left[1].Why != "a recipe" {
 		t.Fatalf("both items left out are kept aside, newest first, with the model's reason: %+v", left)
 	}
-	if err := h.store.Keep([]int64{left[1].ID}); err != nil {
+	if err := h.store.Teach([]int64{left[1].ID}, true); err != nil {
 		t.Fatal(err)
 	}
 	feed := h.store.Entries(Filter{})
