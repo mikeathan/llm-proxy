@@ -38,8 +38,8 @@ describe('NewsroomBriefs status', () => {
     let w = mount(NewsroomBriefs, { global: { stubs: { RouterLink: RouterLinkStub } } })
     mounted.push(w)
     await flushPromises()
-    expect(w.get('[data-test="brief-status"]').attributes('data-tone')).toBe('fresh')
-    expect(w.get('[data-test="brief-status"]').text()).toContain('Nothing to press')
+    // Today's brief says nothing beyond the dateline: no "written automatically, nothing to press" line.
+    expect(w.find('[data-test="brief-status"]').exists()).toBe(false)
     expect(w.text()).toContain('Write a new one now')
     w.unmount()
     service.issues.mockResolvedValue([issue(7, 'Old', new Date(Date.now() - 30 * 3_600_000).toISOString())])

@@ -68,9 +68,9 @@ func TestPromptFencesUntrustedText(t *testing.T) {
 }
 
 func TestParseAnalysisKeepsOnlyWhatCanBeChecked(t *testing.T) {
-	raw := "Sure!\n```json\n" + `{"changes":[{"item":1,"was":"v1","now":"v2"},{"item":9,"was":"a","now":"b"},{"item":2,"was":"","now":"x"}],
+	raw := "Sure!\n```json\n" + `{"changes":[{"item":1,"of":1,"was":"v1","now":"v2"},{"item":9,"of":1,"was":"a","now":"b"},{"item":2,"of":1,"was":"","now":"x"}],
 "repeats":[{"item":2,"of":1},{"item":3,"of":99},{"item":0,"of":1}],"state":"<script>x</script>Qwen4 shipped"}` + "\n```"
-	a, err := parseAnalysis(raw, 3, 2, false)
+	a, err := parseAnalysis(raw, shown{Items: 3, Recent: 2, Asked: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,20 +84,37 @@ func TestParseAnalysisKeepsOnlyWhatCanBeChecked(t *testing.T) {
 		t.Errorf("state must be plain text: %q", a.State)
 	}
 	for _, bad := range []string{"", "no json here", "{broken", `[1,2]`} {
-		if _, err := parseAnalysis(bad, 1, 0, false); !errors.Is(err, ErrUnusableAnswer) {
+		if _, err := parseAnalysis(bad, shown{Items: 1, Recent: 0, Asked: false}); !errors.Is(err, ErrUnusableAnswer) {
 			t.Errorf("%q must be unusable, got %v", bad, err)
 		}
 	}
-	long, _ := parseAnalysis(`{"state":"`+strings.Repeat("x", 5000)+`"}`, 1, 0, false)
+	long, _ := parseAnalysis(`{"state":"`+strings.Repeat("x", 5000)+`"}`, shown{Items: 1, Recent: 0, Asked: false})
 	if len([]rune(long.State)) > MaxStateRunes {
 		t.Errorf("state must be bounded, got %d runes", len([]rune(long.State)))
+	}
+}
+
+// A change says what the fact was, so it must cite where that was written: a recently reported title (by number) or the last known state (0). On
+// vertex a model-release watch marked five of thirteen entries "Changed" with "was: unknown" and "was: No new models found": nothing earlier said so.
+func TestAChangeMustCiteWhereTheEarlierFactWasWritten(t *testing.T) {
+	raw := `{"changes":[{"item":1,"was":"unknown","now":"Gemini spotted"},{"item":2,"of":0,"was":"Qwen3","now":"Qwen4"},{"item":3,"of":2,"was":"beta","now":"stable"},{"item":4,"of":7,"was":"a","now":"b"}]}`
+	noState, err := parseAnalysis(raw, shown{Items: 4, Recent: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(noState.Changes) != 1 || noState.Changes[0].Item != 3 {
+		t.Errorf("with no state note only the change citing a shown recent title survives: %+v", noState.Changes)
+	}
+	withState, _ := parseAnalysis(raw, shown{Items: 4, Recent: 2, State: true})
+	if len(withState.Changes) != 2 || withState.Changes[0].Item != 2 || withState.Changes[1].Item != 3 {
+		t.Errorf("with a state note a change citing it (0) survives too, an uncited or out-of-range one never: %+v", withState.Changes)
 	}
 }
 
 func TestBaselineWritesFirstStateThenChangesAreReported(t *testing.T) {
 	m := &scriptedModel{answers: []string{
 		`{"state":"Qwen3 is the newest release."}`,
-		`{"changes":[{"item":1,"was":"Qwen3 newest","now":"Qwen4 newest"}],"state":"Qwen4 is the newest release."}`,
+		`{"changes":[{"item":1,"of":0,"was":"Qwen3 newest","now":"Qwen4 newest"}],"state":"Qwen4 is the newest release."}`,
 	}}
 	h := modelHarness(t, m)
 	h.fetch.bodies[feedURL] = itemsRSS("Qwen3 released")

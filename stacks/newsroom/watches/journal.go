@@ -13,6 +13,10 @@ const (
 	JournalRetention = 30 * 24 * time.Hour
 	MaxEntries       = 200 // per watch
 	entryTextRunes   = 300
+	// LeftOutRetention and MaxLeftOut bound the items the model left out (kept aside so the owner can check its calls): they come every run, so they
+	// have their own, smaller bound and never push a real finding out.
+	LeftOutRetention = 7 * 24 * time.Hour
+	MaxLeftOut       = 50 // per watch
 )
 
 // Entry is one finding in a watch's journal: what was found, when, and whether the owner has read it.
@@ -43,6 +47,9 @@ type Entry struct {
 	// Sent is true once the notice carrying it was delivered through the watch's channel; a feed-only watch is never "sent".
 	Sent bool `json:"sent,omitempty"`
 	Read bool `json:"read,omitempty"`
+	// LeftOut marks an item the model judged not to be what the watch looks for: kept aside (Why is the model's reason it was left out), out of the
+	// feed and its unread count, until the owner keeps it (Keep) or it ages out.
+	LeftOut bool `json:"left_out,omitempty"`
 }
 
 // Changed says whether the entry reports a changed fact rather than something new.
@@ -77,12 +84,16 @@ func (s *Store) AddEntries(watchID int64, items []sources.Item, marks Marks, now
 			if d.Headline != "" || d.Summary != "" {
 				s.doc.Entries[at].Headline, s.doc.Entries[at].Summary = d.Headline, d.Summary
 			}
+			// A retried run may judge relevant what an earlier try set aside: it joins the feed with the new reason.
+			if s.doc.Entries[at].LeftOut && !marks.LeftOut {
+				s.doc.Entries[at].LeftOut, s.doc.Entries[at].Why = false, marks.Whys[i]
+			}
 			continue
 		}
 		s.doc.Entries = append(s.doc.Entries, Entry{
 			ID: s.doc.NextEntry, WatchID: watchID, At: now.UTC(), Posted: it.At.UTC(), Ident: it.Identity(), Source: it.Source,
 			Title: sources.Line(it.Title, MaxTitleRunes), Link: it.Link, Text: sources.Plain(it.Text, entryTextRunes), Was: c.Was, Now: c.Now,
-			Why: marks.Whys[i], Headline: d.Headline, Summary: d.Summary, First: marks.First,
+			Why: marks.Whys[i], Headline: d.Headline, Summary: d.Summary, First: marks.First, LeftOut: marks.LeftOut,
 		})
 		s.doc.NextEntry++
 	}
@@ -91,38 +102,50 @@ func (s *Store) AddEntries(watchID int64, items []sources.Item, marks Marks, now
 }
 
 // Marks is what a run knows about the items it adds, by index into the items: a changed fact, why one matched, and whether the run was the first
-// check of the watch.
+// check of the watch, or that the items were left out by the model.
 type Marks struct {
 	Changes map[int]Change
 	Whys    map[int]string
 	Digests map[int]Digest
 	First   bool
+	LeftOut bool
 }
 
 // MaxTitleRunes bounds an entry's title.
 const MaxTitleRunes = 200
 
+// pruneEntries drops the entries past their retention (the journal's, or the shorter one of an item left out), then caps the watch's findings and its
+// left-out items, each group on its own.
 func (s *Store) pruneEntries(watchID int64, now time.Time) {
-	cutoff := now.Add(-JournalRetention)
 	kept := s.doc.Entries[:0]
 	for _, e := range s.doc.Entries {
-		if e.At.After(cutoff) {
+		keep := JournalRetention
+		if e.LeftOut {
+			keep = LeftOutRetention
+		}
+		if e.At.After(now.Add(-keep)) {
 			kept = append(kept, e)
 		}
 	}
 	s.doc.Entries = kept
+	s.capEntries(watchID, false, MaxEntries)
+	s.capEntries(watchID, true, MaxLeftOut)
+}
+
+// capEntries keeps the newest max entries of one watch's findings (leftOut false) or of its left-out items (leftOut true).
+func (s *Store) capEntries(watchID int64, leftOut bool, max int) {
 	var mine []int
 	for i, e := range s.doc.Entries {
-		if e.WatchID == watchID {
+		if e.WatchID == watchID && e.LeftOut == leftOut {
 			mine = append(mine, i)
 		}
 	}
-	if len(mine) <= MaxEntries {
+	if len(mine) <= max {
 		return
 	}
 	sort.Slice(mine, func(a, b int) bool { return s.doc.Entries[mine[a]].At.Before(s.doc.Entries[mine[b]].At) })
 	drop := map[int]bool{}
-	for _, i := range mine[:len(mine)-MaxEntries] {
+	for _, i := range mine[:len(mine)-max] {
 		drop[i] = true
 	}
 	out := s.doc.Entries[:0]
@@ -192,6 +215,48 @@ func (s *Store) MarkRead(ids []int64, read bool) error {
 	return s.saveLocked()
 }
 
+// Keep puts items the model left out into the feed: the owner says the call was wrong. They are marked read, because the owner just looked at them.
+func (s *Store) Keep(ids []int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := map[int64]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	for i, e := range s.doc.Entries {
+		if want[e.ID] && e.LeftOut {
+			s.doc.Entries[i].LeftOut, s.doc.Entries[i].Read = false, true
+		}
+	}
+	return s.saveLocked()
+}
+
+// LeftOutCount is how many items the model left out are kept, for every watch that exists.
+func (s *Store) LeftOutCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, e := range s.doc.Entries {
+		if e.LeftOut && s.index(e.WatchID) >= 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// UnreadCount is how many feed entries of the watches that exist are unread; items left out are not in the feed and do not count.
+func (s *Store) UnreadCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, e := range s.doc.Entries {
+		if !e.Read && !e.LeftOut && s.index(e.WatchID) >= 0 {
+			n++
+		}
+	}
+	return n
+}
+
 // DeleteEntries removes the given entries from the journal for good and reports how many went. The seen ledger is separate, so an item cleared here is
 // not found again from the same source.
 func (s *Store) DeleteEntries(ids []int64) (int, error) {
@@ -204,11 +269,12 @@ func (s *Store) DeleteEntries(ids []int64) (int, error) {
 	return s.dropLocked(func(e Entry) bool { return want[e.ID] })
 }
 
-// ClearEntries removes every entry (readOnly false) or every read entry (readOnly true) for good, and reports how many went.
+// ClearEntries removes every feed entry (readOnly false) or every read one (readOnly true) for good, and reports how many went. The items the model left
+// out are not in the feed, so clearing it leaves them; they age out on their own.
 func (s *Store) ClearEntries(readOnly bool) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.dropLocked(func(e Entry) bool { return !readOnly || e.Read })
+	return s.dropLocked(func(e Entry) bool { return !e.LeftOut && (!readOnly || e.Read) })
 }
 
 // dropLocked removes the entries drop says yes to and saves when any went. The caller holds s.mu.
@@ -238,7 +304,7 @@ func (s *Store) entriesFor(f Filter) []Entry {
 	defer s.mu.Unlock()
 	var out []Entry
 	for _, e := range s.doc.Entries {
-		if f.WatchID != 0 && e.WatchID != f.WatchID {
+		if e.LeftOut != f.LeftOut || (f.WatchID != 0 && e.WatchID != f.WatchID) {
 			continue
 		}
 		if f.Source != "" && !strings.EqualFold(e.Source, f.Source) {

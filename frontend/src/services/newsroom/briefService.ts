@@ -47,6 +47,13 @@ export class BriefService {
     if (!res.ok) throw await failureReason(res, 'mark the edition read')
   }
 
+  /** Deletes the written brief (older false) or every brief of its edition made before it (older true), and says how many went. */
+  static async deleteIssue(id: number, older: boolean): Promise<number> {
+    const res = await apiFetch(`${BASE}/issues/${id}${older ? '/older' : ''}`, { method: 'DELETE' })
+    if (!res.ok) throw await failureReason(res, 'delete the brief')
+    return ((await res.json()) as { deleted: number }).deleted
+  }
+
   /** Starts writing the edition now; the write goes on in the background and is followed with jobs(). */
   static async makeNow(editionId: number): Promise<BriefJob> {
     const res = await apiFetch(`${BASE}/editions/${editionId}/issue`, { method: 'POST' })

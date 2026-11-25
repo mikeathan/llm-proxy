@@ -1,6 +1,7 @@
 package watches
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,35 @@ func relevanceHarness(t *testing.T, look string, m *scriptedModel) *harness {
 	return h
 }
 
+// What the model called not relevant is kept aside with its reason, out of the feed and its unread count, so the owner can see what the filter took and
+// put a wrong call back (vertex: "6 did not match" was a truncated line on the watch's row and nothing more).
+func TestWhatTheModelLeftOutIsKeptAsideWithItsReason(t *testing.T) {
+	m := &scriptedModel{answers: []string{`{}`, `{"verdicts":[{"item":1,"why":"a recipe","relevant":false},{"item":2,"why":"a new model release","relevant":true},{"item":3,"why":"sport","relevant":false}]}`}}
+	h := relevanceHarness(t, "new AI model releases", m)
+	h.fetch.bodies[feedURL] = itemsRSS("seed")
+	h.tick(t, 0)
+	h.forgetFirstFindings()
+	h.fetch.bodies[feedURL] = itemsRSS("seed", "Cake recipe", "Qwen4 released", "Golf scores")
+	h.tick(t, time.Hour)
+	if n := len(h.store.Entries(Filter{})); n != 1 {
+		t.Fatalf("the feed holds only the relevant item, got %d", n)
+	}
+	if n := h.store.UnreadCount(); n != 1 {
+		t.Errorf("the unread count leaves out what the model left out: %d", n)
+	}
+	left := h.store.Entries(Filter{LeftOut: true})
+	if len(left) != 2 || !left[0].LeftOut || left[0].Title != "Golf scores" || left[0].Why != "sport" || left[1].Why != "a recipe" {
+		t.Fatalf("both items left out are kept aside, newest first, with the model's reason: %+v", left)
+	}
+	if err := h.store.Keep([]int64{left[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	feed := h.store.Entries(Filter{})
+	if len(feed) != 2 || !slices.ContainsFunc(feed, func(e Entry) bool { return e.Title == "Cake recipe" && !e.LeftOut && e.Read }) {
+		t.Errorf("a kept item joins the feed, already read (the owner just looked at it): %+v", feed)
+	}
+}
+
 func TestTheModelKeepsOnlyRelevantItemsAndSaysWhy(t *testing.T) {
 	m := &scriptedModel{answers: []string{`{}`, `{"verdicts":[{"item":1,"why":"a recipe","relevant":false},{"item":2,"why":"a new model release","relevant":true},{"item":3,"why":"sport","relevant":false}]}`}}
 	h := relevanceHarness(t, "new AI model releases", m)
@@ -119,23 +149,23 @@ func TestAWatchThatLooksForSomethingNeedsAModelToShowAnything(t *testing.T) {
 }
 
 func TestVerdictsAreIgnoredWhenNothingWasAskedFor(t *testing.T) {
-	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true}]}`, 2, 0, false)
+	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true}]}`, shown{Items: 2, Recent: 0, Asked: false})
 	if err != nil || a.Judged || len(a.Matches) != 0 {
 		t.Fatalf("%+v %v", a, err)
 	}
-	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":9,"why":"y","relevant":true},{"item":2,"why":"z","relevant":false}]}`, 2, 0, true)
+	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x","relevant":true},{"item":9,"why":"y","relevant":true},{"item":2,"why":"z","relevant":false}]}`, shown{Items: 2, Recent: 0, Asked: true})
 	if !a.Judged || len(a.Matches) != 1 || a.Matches[1] != "x" {
 		t.Errorf("a verdict must name a shown item and only relevant ones are kept: %+v", a)
 	}
-	a, _ = parseAnalysis(`{"verdicts":[]}`, 2, 0, true)
+	a, _ = parseAnalysis(`{"verdicts":[]}`, shown{Items: 2, Recent: 0, Asked: true})
 	if !a.Judged || len(a.Matches) != 0 {
 		t.Errorf("an item with no verdict is not shown, and the row names it: %+v", a)
 	}
-	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x"}]}`, 1, 0, true)
+	a, _ = parseAnalysis(`{"verdicts":[{"item":1,"why":"x"}]}`, shown{Items: 1, Recent: 0, Asked: true})
 	if len(a.Matches) != 0 {
 		t.Errorf("a verdict that does not say relevant true is not a match: %+v", a)
 	}
-	if _, err := parseAnalysis(`{"state":"s"}`, 2, 0, true); err == nil {
+	if _, err := parseAnalysis(`{"state":"s"}`, shown{Items: 2, Recent: 0, Asked: true}); err == nil {
 		t.Error("no verdicts when a judgement was asked for is an unusable answer")
 	}
 }
@@ -143,7 +173,7 @@ func TestVerdictsAreIgnoredWhenNothingWasAskedFor(t *testing.T) {
 // Regression (2026-11-21): a model that put every item in the old "matches" list, each with a reason such as "not a new model release", defeated the
 // filter, because being listed meant being kept. A verdict on every item says relevant or not, so the reason can no longer keep an item.
 func TestAnItemTheModelCalledIrrelevantIsDroppedWhateverItsReasonSays(t *testing.T) {
-	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"Benchmark, not new model release","relevant":false},{"item":2,"why":"new Qwen release","relevant":true}]}`, 2, 0, true)
+	a, err := parseAnalysis(`{"verdicts":[{"item":1,"why":"Benchmark, not new model release","relevant":false},{"item":2,"why":"new Qwen release","relevant":true}]}`, shown{Items: 2, Recent: 0, Asked: true})
 	if err != nil || !a.Judged || len(a.Matches) != 1 || a.Matches[2] == "" {
 		t.Fatalf("%+v %v", a, err)
 	}
@@ -151,7 +181,7 @@ func TestAnItemTheModelCalledIrrelevantIsDroppedWhateverItsReasonSays(t *testing
 		t.Error("an item judged not relevant must not be kept")
 	}
 	// The old shape is no longer a judgement: it keeps every item rather than trusting a list that cannot say no.
-	a, _ = parseAnalysis(`{"matches":[{"item":1,"why":"not a release"}]}`, 2, 0, true)
+	a, _ = parseAnalysis(`{"matches":[{"item":1,"why":"not a release"}]}`, shown{Items: 2, Recent: 0, Asked: true})
 	if a.Judged {
 		t.Errorf("the old matches list is not a verdict: %+v", a)
 	}

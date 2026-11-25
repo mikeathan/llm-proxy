@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch as onChange } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { RouterLink, useRoute, useRouter } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
@@ -15,6 +15,8 @@ import NewsroomFollowForm from "../components/newsroom/NewsroomFollowForm.vue"
 import { useFollow } from "../composables/newsroom/useFollow"
 import SegmentedControl from "../components/common/forms/SegmentedControl.vue"
 import NewsroomFeed from "../components/newsroom/NewsroomFeed.vue"
+import NewsroomLeftOut from "../components/newsroom/NewsroomLeftOut.vue"
+import { useAlertsUnread } from "../composables/newsroom/useAlertsUnread"
 import NewsroomWatchEditor from "../components/newsroom/NewsroomWatchEditor.vue"
 import NewsroomWatchRow from "../components/newsroom/NewsroomWatchRow.vue"
 import { useNewsroom } from "../composables/newsroom/useNewsroom"
@@ -24,10 +26,11 @@ import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import {
   clearedWords, clearMessage, clearTitle, deleteWatchMessage, deleteWatchTitle, FEED_EMPTY_BODY, FEED_EMPTY_TITLE, FOLLOWING_KIND_LABELS, FOLLOWING_VIEW_LABEL, FOLLOW_LABEL, FOLLOW_TITLE, followDoneWords, NEW_WATCH_LABEL, NEWSROOM_RELOAD_HINT, NEWSROOM_SUBTITLE, NEWSROOM_TAB_LABELS,
-  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords, unreadBriefWords,
+  NEWSROOM_TITLE, NO_WATCHES_ACTION, NO_WATCHES_BODY, NO_WATCHES_TITLE, runDoneWords, unreadBriefWords, ALERTS_VIEW_LABEL, ALERT_PROBLEMS_LINK, KEPT_TOAST, leftOutViewWords, unreadAlertsWords,
 } from "../constants/newsroom"
 import { toFollow, toFollowing, toNewsroom } from "../router/routes"
 import { dayEntries } from "../utils/newsroom/dayEntries"
+import { alertProblems } from "../utils/newsroom/alertProblems"
 import type { StackTabItem } from "../types/stacks"
 import type { BriefFollowEdit, NewsroomWatch, NewsroomWatchEdit } from "../types/newsroom"
 
@@ -47,16 +50,18 @@ const kind = computed<"brief" | "alerts">({
 const KINDS = [{ value: "brief", label: FOLLOWING_KIND_LABELS.brief }, { value: "alerts", label: FOLLOWING_KIND_LABELS.alerts }]
 // A dot on Brief while a written brief has not been read (the state is the server's, shared with the dashboard).
 const { unreadCount } = useBriefUnread()
+// The unread alerts are counted on the server and shared with the sidebar, so the tab shows them while the brief is read.
+const { unread: unreadAlerts, leftOut: leftOutCount } = useAlertsUnread()
 const tabs = computed<readonly StackTabItem[]>(() => [
   { id: "brief", label: NEWSROOM_TAB_LABELS.brief, to: toNewsroom(), badge: { count: unreadCount.value, words: unreadBriefWords(unreadCount.value) } },
-  { id: "alerts", label: NEWSROOM_TAB_LABELS.alerts, to: toNewsroom("alerts") },
+  { id: "alerts", label: NEWSROOM_TAB_LABELS.alerts, to: toNewsroom("alerts"), badge: { count: unreadAlerts.value, words: unreadAlertsWords(unreadAlerts.value) } },
   { id: "following", label: NEWSROOM_TAB_LABELS.following, to: toNewsroom("following") },
   { id: "settings", label: NEWSROOM_TAB_LABELS.settings, to: toNewsroom("settings") },
 ])
 
 const NEW = "new" as const
 // The watches and the feed are read only on the tabs that show them, not while the owner reads the brief.
-const { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, clear, run } = useNewsroom(() => tab.value === "alerts" || tab.value === "following")
+const { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, keep, clear, run } = useNewsroom(() => tab.value === "alerts" || tab.value === "following")
 const channels = useNewsroomChannels()
 const { confirm } = useConfirm()
 const toast = useToast()
@@ -123,6 +128,20 @@ async function askClear(what: { ids: number[] } | { scope: "read" | "all" }) {
   else toast.success(clearedWords(gone))
 }
 
+// Alerts, or what the model left out of them: the same list read with a flag, so the filter keeps both in one place.
+const alertsView = computed({
+  get: () => (filter.value.leftOut ? "left_out" : "alerts"),
+  // The Alerts filters (watch, unread, period) have no controls on the left-out list, so switching starts from no filter rather than a hidden one.
+  set: (v: string) => (filter.value = { watch: null, unreadOnly: false, days: null, leftOut: v === "left_out" }),
+})
+const alertsViews = computed(() => [{ value: "alerts", label: NEWSROOM_TAB_LABELS.alerts }, { value: "left_out", label: leftOutViewWords(leftOutCount.value) }])
+// Only what needs a look: nothing is said while every watch reads, compares and sends.
+const problems = computed(() => alertProblems(watches.value))
+async function putBack(id: number) {
+  if (await keep([id])) toast.success(KEPT_TOAST)
+  else toast.error(actionError.value)
+}
+
 async function check(t: NewsroomWatch) {
   const outcome = await run(t.id)
   if (!outcome) toast.error(actionError.value)
@@ -175,8 +194,16 @@ async function check(t: NewsroomWatch) {
               <BaseButton size="sm" icon="plus" @click="startFollow">{{ NO_WATCHES_ACTION }}</BaseButton>
             </template>
           </EmptyState>
-          <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
-          <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
+          <template v-else>
+            <p v-if="problems.length" role="status" class="m-0 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-running" data-test="alert-problems">
+              {{ problems.join(" · ") }}
+              <RouterLink :to="toFollowing('alerts')" class="text-accent-info-text hover:underline">{{ ALERT_PROBLEMS_LINK }}</RouterLink>
+            </p>
+            <SegmentedControl v-if="watches.some((w) => w.look_for)" v-model="alertsView" class="self-start" :options="alertsViews" :label="ALERTS_VIEW_LABEL" variant="compact" />
+            <NewsroomLeftOut v-if="filter.leftOut" :days="feed" :watches="watches" :busy="saving" @keep="putBack" />
+            <EmptyState v-else-if="!feed.length && !filter.unreadOnly && filter.watch === null && filter.days === null" :title="FEED_EMPTY_TITLE" :body="FEED_EMPTY_BODY" />
+            <NewsroomFeed v-else :days="feed" :watches="watches" :filter="filter" @update:filter="filter = $event" @mark-read="markRead($event, true)" @clear="askClear" />
+          </template>
           <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
         </template>
 

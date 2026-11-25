@@ -6,12 +6,13 @@ import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
 import { textBeyondTitle } from "../../utils/newsroom/entryText"
 import { entryHeadline } from "../../utils/newsroom/entryHeadline"
-import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, originalWords, postedWords, whyWords } from "../../constants/newsroom"
+import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, leftOutWords, originalWords, postedWords, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
 // One finding as a compact row: a dot while unread, where it came from and when, the headline (two lines at most), and a chevron that opens the reason,
 // the rest of the text and the other reports of the same story. Every piece of text is from the open internet, so it is shown as text and a link is
-// opened only if it is a real http or https address (utils/newsroom/safeLink). Opening the link counts as reading it.
+// opened only if it is a real http or https address (utils/newsroom/safeLink). Opening the link or the details counts as reading it. An item the model left
+// out says why on the row itself: that reason is what the owner checks.
 const props = defineProps<{ entry: NewsroomEntry; watchName?: string; selectable?: boolean; selected?: boolean }>()
 const emit = defineEmits<{ (e: "toggle-select"): void; (e: "open"): void }>()
 const link = computed(() => safeWebLink(props.entry.link))
@@ -20,8 +21,13 @@ const changed = computed(() => Boolean(props.entry.was && props.entry.now))
 const headline = computed(() => entryHeadline(props.entry))
 const hasHeadline = computed(() => headline.value !== props.entry.title)
 const extraText = computed(() => textBeyondTitle(props.entry.title, props.entry.text))
-const hasDetails = computed(() => Boolean(changed.value || props.entry.summary || hasHeadline.value || props.entry.why || extraText.value || props.entry.also_seen?.length))
+const whyInDetails = computed(() => Boolean(props.entry.why && !props.entry.left_out))
+const hasDetails = computed(() => Boolean(changed.value || props.entry.summary || hasHeadline.value || whyInDetails.value || extraText.value || props.entry.also_seen?.length))
 const open = ref(false)
+function toggle() {
+  open.value = !open.value
+  if (open.value) emit("open")
+}
 </script>
 
 <template>
@@ -55,10 +61,11 @@ const open = ref(false)
         @auxclick="emit('open')"
       >{{ headline }}</a>
       <p v-else class="m-0 line-clamp-2 min-w-0 break-words font-medium text-primary" :class="entry.read ? 'font-normal text-secondary' : ''">{{ headline }}</p>
+      <p v-if="entry.left_out && entry.why" class="m-0 break-words text-[length:var(--text-small)] text-secondary" data-test="left-out-why">{{ leftOutWords(entry.why) }}</p>
       <div v-if="open" class="flex flex-col gap-1 border-l border-hairline pl-3">
         <p v-if="changed" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ entry.was }} → {{ entry.now }}</p>
         <p v-if="entry.summary" class="m-0 break-words text-[length:var(--text-small)] text-primary">{{ entry.summary }}</p>
-        <p v-if="entry.why" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ whyWords(entry.why) }}</p>
+        <p v-if="whyInDetails" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ whyWords(entry.why ?? "") }}</p>
         <p v-if="hasHeadline" class="m-0 break-words text-[length:var(--text-small)] text-faint">{{ originalWords(entry.title) }}</p>
         <p v-if="extraText" class="m-0 whitespace-pre-line break-words text-[length:var(--text-small)] text-muted">{{ extraText }}</p>
         <p v-if="entry.also_seen?.length" class="m-0 break-words text-[length:var(--text-small)] text-faint">
@@ -77,7 +84,7 @@ const open = ref(false)
       class="mt-0.5 flex-none border-0 bg-transparent p-1 text-faint hover:text-primary focus-visible:outline-none focus-visible:ring-2"
       :aria-expanded="open"
       :aria-label="open ? HIDE_DETAILS_LABEL : SHOW_DETAILS_LABEL"
-      @click="open = !open"
+      @click="toggle"
     >
       <Icon :name="open ? 'chevron-down' : 'chevron-right'" size="sm" />
     </button>

@@ -89,6 +89,8 @@ export interface NewsroomEntry {
   also_seen?: NewsroomAlsoSeen[]
   sent?: boolean
   read?: boolean
+  /** The model judged it not to be what the watch looks for: kept aside (with `why` as the reason), out of Alerts until the owner puts it back. */
+  left_out?: boolean
 }
 
 /** One watch's findings on one day: the newest first, every earlier one beneath it. */
@@ -116,6 +118,14 @@ export interface NewsroomFeedFilter {
   unreadOnly: boolean
   /** Only the last N calendar days (1 is today); null shows everything the feed keeps (30 days). */
   days: number | null
+  /** The items the model left out instead of the alerts; the two never mix. */
+  leftOut?: boolean
+}
+
+/** The Alerts counts: unread alerts, and the items the model left out that are kept. */
+export interface AlertCounts {
+  unread: number
+  leftOut: number
 }
 
 export interface NewsroomRunOutcome {

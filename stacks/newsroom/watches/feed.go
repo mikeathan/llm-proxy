@@ -12,6 +12,8 @@ type Filter struct {
 	UnreadOnly bool
 	// Days keeps only the last N calendar days in the owner's zone (1 is today); zero means no limit.
 	Days int
+	// LeftOut shows the items the model left out instead of the feed; the two never mix.
+	LeftOut bool
 }
 
 // WatchDay is one watch's findings on one day. The newest finding is Current and is shown first; every earlier finding of the day stays visible

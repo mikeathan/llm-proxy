@@ -30,6 +30,7 @@ const (
 	RouteBriefIssues   = "/admin/api/newsroom/briefs/issues"
 	RouteBriefIssue    = "/admin/api/newsroom/briefs/issues/{id}"
 	RouteBriefRead     = "/admin/api/newsroom/briefs/issues/{id}/read"
+	RouteBriefOlder    = "/admin/api/newsroom/briefs/issues/{id}/older"
 	RouteBriefLatest   = "/admin/api/newsroom/briefs/latest"
 	RouteBriefSettings = "/admin/api/newsroom/briefs/settings"
 	RouteBriefSources  = "/admin/api/newsroom/briefs/sources"
@@ -147,7 +148,7 @@ func (s *Stack) handleBriefs(ctx context.Context, req stacksdk.Request) (stacksd
 		return handleEraseBriefs(key, req, store)
 	case RouteBriefPool:
 		return briefPool(store, req.Query)
-	case RouteBriefIssues, RouteBriefIssue, RouteBriefRead, RouteBriefLatest:
+	case RouteBriefIssues, RouteBriefIssue, RouteBriefRead, RouteBriefOlder, RouteBriefLatest:
 		return handleIssues(key, id, req.Query, store)
 	case RouteBriefSettings:
 		return s.briefSettings(ctx, req)
@@ -248,6 +249,8 @@ func handleIssues(key string, id int64, rawQuery string, store *brief.Store) (st
 	switch key {
 	case "POST " + RouteBriefRead:
 		return noContent(store.MarkRead(id, time.Now()))
+	case "DELETE " + RouteBriefIssue, "DELETE " + RouteBriefOlder:
+		return deleteIssues(store, id, key == "DELETE "+RouteBriefOlder)
 	case "GET " + RouteBriefLatest:
 		return jsonResponse(http.StatusOK, nonNil(store.Latest()))
 	case "GET " + RouteBriefIssue:
@@ -276,6 +279,17 @@ func handleIssues(key string, id int64, rawQuery string, store *brief.Store) (st
 		return jsonResponse(http.StatusOK, list)
 	}
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+key)
+}
+
+// deleteIssues deletes one written brief, or the older ones of its edition, and says how many went.
+func deleteIssues(store *brief.Store, id int64, older bool) (stacksdk.Response, error) {
+	n, err := store.DeleteIssues(id, older)
+	if err != nil {
+		return stacksdk.Response{}, failBrief(err)
+	}
+	return jsonResponse(http.StatusOK, struct {
+		Deleted int `json:"deleted"`
+	}{n})
 }
 
 // handleTopics answers the routes that list, create, change and delete topics.
@@ -315,7 +329,7 @@ func handleEditions(key string, id int64, req stacksdk.Request, store *brief.Sto
 // The shapes of a real path under RouteBriefs, by the number of segments: the collection, then the collection and an id, then an action on one item.
 var (
 	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "latest": RouteBriefLatest, "settings": RouteBriefSettings, "jobs": RouteBriefJobs, "sources": RouteBriefSources, "all": RouteBriefAll}
-	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake, "issues/read": RouteBriefRead}
+	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake, "issues/read": RouteBriefRead, "issues/older": RouteBriefOlder}
 	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue, "sources": RouteBriefSource}
 )
 

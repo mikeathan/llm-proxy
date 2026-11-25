@@ -49,6 +49,18 @@ describe('NewsroomEntryItem', () => {
     expect(w.emitted('open')).toHaveLength(1)
   })
 
+  it('counts opening the details as reading it, once', async () => {
+    const w = await openDetails(show(entry({ summary: 'What happened.' })))
+    expect(w.emitted('open')).toHaveLength(1)
+    await w.get('button[aria-expanded]').trigger('click')
+    expect(w.emitted('open')).toHaveLength(1)
+  })
+
+  it('says why the model left an item out, on the row itself', () => {
+    const w = show(entry({ left_out: true, why: 'a joke, not a release' }))
+    expect(w.text()).toContain('Left out: a joke, not a release')
+  })
+
   it('never makes a link of an address that is not http or https', async () => {
     const w = await openDetails(show(entry({ link: 'javascript:alert(1)', also_seen: [{ source: 'evil', link: 'data:text/html,x', at: '2026-11-20T11:00:00Z' }] })))
     expect(w.find('a').exists()).toBe(false)

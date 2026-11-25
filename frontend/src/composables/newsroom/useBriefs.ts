@@ -153,6 +153,24 @@ export function useBriefs() {
     })
     return { added: done.ok ? added : 0, skipped: feeds.length - added }
   }
+  /** Deletes the brief on screen (older false) or the older briefs of its edition (older true); the page then shows the newest one left. */
+  async function deleteIssue(older: boolean): Promise<number | null> {
+    const id = shownSummary.value?.id
+    if (id === undefined) return null
+    const done = await change(() => BriefService.deleteIssue(id, older))
+    if (!done.ok) return null
+    if (!older) {
+      pickedIssueId.value = null
+      const { [id]: _gone, ...rest } = issues.value
+      issues.value = rest
+    }
+    return done.value
+  }
+  /** How many briefs of the edition on screen are older than the one shown. */
+  const olderCount = computed(() => {
+    const at = editionIssues.value.findIndex((i) => i.id === shownSummary.value?.id)
+    return at < 0 ? 0 : editionIssues.value.length - at - 1
+  })
   const deleteAll = async (): Promise<boolean> => {
     const done = await change(() => BriefService.deleteAll())
     if (done.ok) {
@@ -177,6 +195,6 @@ export function useBriefs() {
 
   return {
     editions, topics, settings, sources, addSource, removeSource, importSources, saveSettings, edition, issue, editionIssues, pickedIssueId, viewingEarlier, pickedId, loading, error, actionError, making, job, saving, load, makeNow,
-    createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition, deleteAll,
+    createTopic, saveTopic, removeTopic, collectTopic, createEdition, saveEdition, removeEdition, deleteAll, deleteIssue, olderCount,
   }
 }

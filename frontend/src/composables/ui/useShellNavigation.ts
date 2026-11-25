@@ -3,7 +3,8 @@ import { useRoute } from "vue-router"
 import { useLastWorkspace } from "./useLastWorkspace"
 import { useEnabledStacks } from "../stacks/useEnabledStacks"
 import { useBriefUnread } from "../newsroom/useBriefUnread"
-import { CRITICAL_HOME_DOT, unreadBriefWords } from "../../constants/newsroom"
+import { useAlertsUnread } from "../newsroom/useAlertsUnread"
+import { CRITICAL_HOME_DOT, unreadAlertsWords, unreadBriefWords } from "../../constants/newsroom"
 import { buildNavigation, groupNavigation, homeLocation } from "../../utils/navigation"
 import type { NavId } from "../../types/routes"
 
@@ -15,8 +16,13 @@ export function useShellNavigation(badges: Readonly<Ref<Partial<Record<NavId, nu
   const stacks = useEnabledStacks()
   // A brief waiting unread is a dot on Newsroom, never a run-notification count: it shares the one poller the Briefs tab and the dashboard use.
   const { unreadCount, criticalPages } = useBriefUnread()
+  // Unread alerts dot Newsroom too; the dot's words name both when both wait.
+  const { unread: unreadAlerts } = useAlertsUnread()
+  const newsroomWords = computed(() =>
+    [unreadCount.value > 0 ? unreadBriefWords(unreadCount.value) : "", unreadAlerts.value > 0 ? unreadAlertsWords(unreadAlerts.value) : ""].filter(Boolean).join(", "),
+  )
   const dots = computed<Partial<Record<NavId, string>>>(() => ({
-    ...(unreadCount.value > 0 ? { newsroom: unreadBriefWords(unreadCount.value) } : {}),
+    ...(newsroomWords.value ? { newsroom: newsroomWords.value } : {}),
     // A critical fact in the latest unread brief dots the page it belongs to (ADR-0084): the brief says it, the page is where to look.
     ...Object.fromEntries(criticalPages.value.map((p) => [p, CRITICAL_HOME_DOT])),
   }))

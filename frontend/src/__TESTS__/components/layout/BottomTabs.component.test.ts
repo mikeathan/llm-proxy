@@ -6,10 +6,13 @@ import BottomTabs from '../../../components/layout/BottomTabs.vue'
 import { useLastWorkspace } from '../../../composables/ui/useLastWorkspace'
 import { memoryStorage } from '../../helpers/memoryStorage'
 import { resetBriefUnread } from '../../../composables/newsroom/useBriefUnread'
+import { resetAlertsUnread } from '../../../composables/newsroom/useAlertsUnread'
 
 // The shell asks which briefs wait unread (a dot on More, since Newsroom sits under it); the tests answer it instead of reaching a server.
 const briefs = vi.hoisted(() => ({ latest: [] as { edition_id: number; name: string; issue_id: number; made_at: string; read: boolean }[] }))
 vi.mock('../../../services/newsroom/briefService', () => ({ BriefService: { latest: () => Promise.resolve(briefs.latest) } }))
+// The sidebar also counts unread alerts; no server here, so the count is none.
+vi.mock('../../../services/newsroom/newsroomService', () => ({ NewsroomService: { alertCounts: () => Promise.resolve({ unread: 0, leftOut: 0 }) } }))
 
 const mounted: VueWrapper[] = []
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
@@ -31,6 +34,7 @@ describe('BottomTabs', () => {
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
     resetBriefUnread()
+    resetAlertsUnread()
     briefs.latest = []
     document.body.innerHTML = ''
     useLastWorkspace().forget('demo')
