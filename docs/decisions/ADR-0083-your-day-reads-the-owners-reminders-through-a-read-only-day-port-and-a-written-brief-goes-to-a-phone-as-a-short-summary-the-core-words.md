@@ -46,3 +46,11 @@ Two things the plan (`morning-paper.md`, phases 5 and 6) left open were answered
 ## Links
 
 - SPEC-013 1.22; `stacks/sdk/ports.go` (`Day`, `DayItem`, `BriefNoticeRequest`), `backend/internal/core/stackport/day.go`, `notice.go`, `home.go` (`HomeWords`), `stacks/newsroom/brief/day.go`, `send.go`; ADR-0036, ADR-0068, ADR-0077.
+
+## Amendment (2026-11-25): a refusal is kept on the issue and said on the page
+
+Deliver records why a summary did not go as a fixed word on the issue (`send_state`: `refused` for the connector not being switched on, `failed` while it is tried again, `gave_up` after the catch-up), never the connector's text, and writes only when the word changes. The edition page says it with a link to Settings, Connectors, and says when it went. Before this the code comment promised a notice that no page showed.
+
+## Amendment (2026-11-25, later): a quiet day stays silent
+
+The owner chose that an issue with nothing to say sends nothing (no one-line "nothing new"), so the `nothing` state stays a mark and never a send, and the SDK notice gains no flag.

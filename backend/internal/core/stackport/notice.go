@@ -133,7 +133,7 @@ func briefStoryLines(in []stacksdk.NoticeItem) (string, int) {
 func briefHomeLines(in []stacksdk.BriefNoticeHome) (warn, home string) {
 	var w, b strings.Builder
 	for _, h := range in {
-		words, ok := HomeWords(h.ID)
+		words, ok := HomeShortWords(h.ID)
 		if !ok {
 			continue
 		}

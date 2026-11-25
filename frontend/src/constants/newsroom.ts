@@ -268,6 +268,13 @@ export const UPDATE_LABEL = 'Update'
 export const HEADLINE_ONLY_LABEL = 'Headline only'
 export const BRIEF_EDITION_LABEL = 'Edition'
 export const briefMadeWords = (when: string, calls: number): string => `Written ${when} · ${calls} model ${calls === 1 ? 'call' : 'calls'}`
+export const briefSentWords = (clock: string): string => `Summary sent to Telegram at ${clock}`
+export const BRIEF_SEND_PROBLEM: Record<'refused' | 'failed' | 'gave_up', string> = {
+  refused: 'Telegram did not take the summary. Check that Telegram is switched on as a connector.',
+  failed: 'The Telegram summary could not be sent just now. It is tried again for the next few hours.',
+  gave_up: 'The Telegram summary could not be sent, and the time to try has passed.',
+}
+export const BRIEF_SEND_FIX = 'Open Connectors'
 export const briefReportedWords = (outlets: string[]): string => `Reported by ${outlets.join(', ')}`
 export const briefAsOfWords = (when: string): string => `Collected ${when}`
 export const BRIEF_SECTION_SHOWN = 3
@@ -476,15 +483,25 @@ export const EDITION_NEEDS_SOMETHING = 'Pick at least one thing for the brief.'
 export const NEW_BRIEF_LABEL = 'New'
 export const BRIEF_UNREAD_POLL_MS = 30000
 export const unreadBriefWords = (count: number): string => (count === 1 ? '1 new brief' : `${count} new briefs`)
+export const CRITICAL_HOME_DOT = 'Something in the latest brief needs a look'
 export const BRIEF_CARD_LOAD_FAILED = 'The brief could not be read.'
 export const BRIEF_CARD_RELOAD = 'It tries again by itself every minute.'
 export const BRIEF_CARD_NONE = 'No brief yet. A brief is the news you choose, written at a time you set.'
 export const BRIEF_CARD_SET_UP = 'Set up a brief'
 export const BRIEF_CARD_WAITING = (ready: string): string => `Not written yet. It is ready at ${ready}.`
 export const BRIEF_CARD_OPEN = 'Read the whole brief'
-export const BRIEF_CARD_EXPAND = 'Show every section'
-export const BRIEF_CARD_COLLAPSE = 'Show less'
 export const BRIEF_CARD_PICK_LABEL = 'Brief'
+export const BRIEF_CARD_TOP_TAB = 'Top stories'
+export const BRIEF_CARD_TABS_LABEL = 'Parts of the brief'
+export const BRIEF_CARD_SIDE_LABEL = 'Today'
+export const BRIEF_CARD_ALL_IN_BRIEF = (n: number): string => `All ${n} in the brief`
+export const BRIEF_CARD_HOME_QUIET = 'Home: all quiet'
+export const briefCardHomeCheck = (n: number): string => `Home: ${n} to check`
+export const TODAY_CARD_READ = 'Read the brief'
+export const BRIEF_CHIPS_LABEL = 'Needs a look elsewhere'
+export const briefFailedRunsWords = (n: number): string => (n === 1 ? '1 automation run failed in the last day' : `${n} automation runs failed in the last day`)
+export const briefBlockedWords = (n: number): string => (n === 1 ? '1 alert could not be sent' : `${n} alerts could not be sent`)
+export const BRIEF_CHIPS_WINDOW_MS = 24 * 60 * 60 * 1000
 export const BRIEF_CARD_EMPTY_ISSUE = 'This brief has no stories.'
 export const briefCardCountWords = (stories: number, sections: number): string =>
   `${stories} ${stories === 1 ? 'story' : 'stories'}${sections > 1 ? ` in ${sections} sections` : ''}`

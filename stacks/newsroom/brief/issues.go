@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"llm-proxy-stacks/sdk"
 )
 
 // What is kept of the editions already made, so nothing grows without limit.
@@ -106,6 +108,8 @@ type LatestIssue struct {
 	IssueID   int64     `json:"issue_id"`
 	MadeAt    time.Time `json:"made_at"`
 	Read      bool      `json:"read"`
+	// Critical lists the ids of the critical home facts of that issue (ADR-0084): fixed ids, never a sentence.
+	Critical []string `json:"critical,omitempty"`
 }
 
 // Latest returns the newest issue of each edition that still exists, in edition id order. Older unread issues do not count: a morning paper missed
@@ -122,7 +126,17 @@ func (s *Store) Latest() []LatestIssue {
 	var out []LatestIssue
 	for _, e := range s.doc.Editions {
 		if is, ok := newest[e.ID]; ok {
-			out = append(out, LatestIssue{EditionID: e.ID, Name: e.Name, IssueID: is.ID, MadeAt: is.MadeAt, Read: !is.ReadAt.IsZero()})
+			out = append(out, LatestIssue{EditionID: e.ID, Name: e.Name, IssueID: is.ID, MadeAt: is.MadeAt, Read: !is.ReadAt.IsZero(), Critical: criticalIDs(is.Home)})
+		}
+	}
+	return out
+}
+
+func criticalIDs(home []stacksdk.HomeLine) []string {
+	var out []string
+	for _, h := range home {
+		if h.Level == stacksdk.HomeLevelCritical {
+			out = append(out, h.ID)
 		}
 	}
 	return out

@@ -96,6 +96,9 @@ type Issue struct {
 	Day *DayBlock `json:"day,omitempty"`
 	// SentAt is when the short summary of this issue went to the edition's connector; zero while it has not (or the edition sends none).
 	SentAt time.Time `json:"sent_at,omitzero"`
+	// SendState is why the summary has not gone out, as one of the fixed Send* words and never the connector's own text: it was refused (the connector is not
+	// switched on), it failed (tried again until the catch-up is over), or it gave up. Empty when it went, was not asked for, or has not been tried.
+	SendState string `json:"send_state,omitempty"`
 	// OutletsRead is how many different outlets reported the stories the edition could choose from; the masthead says it.
 	OutletsRead int `json:"outlets_read,omitempty"`
 	// ModelCalls is how many model calls writing it took.

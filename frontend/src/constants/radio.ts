@@ -305,6 +305,7 @@ export const RADIO_DETAIL_LABEL = 'How much detail'
 
 // Radio · Findings: what the stack found, in its own fixed words, and what it could not check.
 export const RADIO_FINDINGS_TITLE = 'Things to look at'
+export const RADIO_FINDINGS_GONE = 'That finding is not in the latest report any more. It may have been fixed.'
 export const RADIO_FINDINGS_NONE = 'Nothing to look at. The checks that can run found nothing.'
 export const RADIO_FINDINGS_THIN = 'Not much has been heard yet, so this says little. Keep listening.'
 export const RADIO_FINDINGS_FAILED = 'The findings could not be read.'

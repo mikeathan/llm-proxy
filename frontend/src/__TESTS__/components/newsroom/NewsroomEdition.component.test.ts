@@ -27,6 +27,23 @@ describe('NewsroomEdition', () => {
     expect(w.emitted('open-setup')).toHaveLength(1)
   })
 
+  it('says when the Telegram summary went, and why it did not, with the fix for a refusal', () => {
+    const global = { stubs: { RouterLink: RouterLinkStub } }
+    const sent = mount(NewsroomEdition, { props: { issue: issue({ sent_at: '2026-11-22T06:45:00Z' }) }, global })
+    expect(sent.get('[data-test="send-sent"]').text()).toContain('Summary sent to Telegram')
+    expect(sent.find('[data-test="send-problem"]').exists()).toBe(false)
+    const refused = mount(NewsroomEdition, { props: { issue: issue({ send_state: 'refused' }) }, global })
+    expect(refused.get('[data-test="send-problem"]').text()).toContain('switched on as a connector')
+    expect(refused.getComponent(RouterLinkStub).props('to')).toMatchObject({ params: { section: 'communication' } })
+    const failed = mount(NewsroomEdition, { props: { issue: issue({ send_state: 'failed' }) }, global })
+    expect(failed.get('[data-test="send-problem"]').text()).toContain('tried again')
+    expect(failed.find('[data-test="send-fix"]').exists()).toBe(false)
+    const none = mount(NewsroomEdition, { props: { issue: issue({ send_state: 'nothing' }) }, global })
+    expect(none.find('[data-test="send-problem"]').exists()).toBe(false)
+    expect(none.find('[data-test="send-sent"]').exists()).toBe(false)
+    expect(mount(NewsroomEdition, { props: { issue: issue() }, global }).find('[data-test="send-problem"]').exists()).toBe(false)
+  })
+
   it('leaves the outlet count out of an edition that did not store one', () => {
     const w = mount(NewsroomEdition, { props: { issue: issue() } })
     expect(w.text()).not.toContain('outlets')

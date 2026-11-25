@@ -120,6 +120,7 @@ const DAYS = Array.from({ length: 7 }, (_, i) => {
 })
 const MODEL_STATS = {
   days: DAYS,
+  hours: Array.from({ length: 24 }, (_, h) => ({ local: h >= 7 && h <= 20 ? 4 + ((h * 7) % 11) : 0, cloud: h >= 9 && h <= 17 ? (h * 3) % 5 : 0 })),
   today: [
     { model: 'Qwen3.5 35B A3B', local: true, calls: 128, failed: 2, prompt_tokens: 402_000, completion_tokens: 12_300, tokens_per_sec: 41.2 },
     { model: 'Qwen3.8 27B', local: true, calls: 61, failed: 0, prompt_tokens: 190_000, completion_tokens: 8_000, tokens_per_sec: 33.4 },
@@ -201,6 +202,7 @@ test('the model use block opens into the week and today by model, and stays insi
   await block.locator('[data-test="model-use-toggle"]').click()
   await expect(block.locator('[data-test="model-use-column"]')).toHaveCount(7)
   await expect(block.locator('[data-test="model-use-row"]')).toHaveCount(5)
+  await expect(block.locator('[data-test="model-use-hour"]')).toHaveCount(24)
   const [card, chart] = [await block.boundingBox(), await block.locator('[data-test="model-use-chart"]').boundingBox()]
   expect(card && chart).toBeTruthy()
   expect(chart!.x).toBeGreaterThanOrEqual(card!.x)
@@ -243,27 +245,39 @@ test('the edition page in every theme and in print', async ({ page }, testInfo) 
   await lookAt(page, testInfo, 'edition-print', true)
 })
 
-// The dashboard's Newsroom board: a big Brief card while one is written, a dot on the tab while it is unread, and the whole edition opening inside the card.
+// The dashboard's Newsroom board: a big Brief card while one is written, a dot on the tab while it is unread, and tabs that switch the card's body in place. Home carries a short Today card.
 const issueOf = EDITION_ANSWERS['/briefs/issues'][0]!
 const LATEST = (read: boolean) => [{ edition_id: 2, name: 'Morning', issue_id: 5, made_at: issueOf.made_at, read }]
 const STACKS_WITH_NEWSROOM = { stacks: ['network', 'agents', 'radio', 'reminders', 'newsroom'].map((id) => ({ id, title: id, purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 })) }
 const dashboardAnswers = (read: boolean) => ({ ...EDITION_ANSWERS, '/stacks': STACKS_WITH_NEWSROOM, '/dashboard': { boards: [] }, '/briefs/latest': LATEST(read), '/briefs/issues/5': issueOf })
 
-test('the dashboard: a big Brief card with a dot on the tab while it is unread, expanding inside the card', async ({ page }, testInfo) => {
+test('the dashboard: a big Brief card with a dot on the tab while it is unread, and tabs that switch inside the card', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: dashboardAnswers(false) })
   await page.goto('dashboard?board=newsroom')
   const card = page.locator('[data-test="brief-card"]')
   await expect(card.locator('[data-test="brief-card-large"]')).toBeVisible()
   await expect(card).toHaveAttribute('data-unread', 'true')
   await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(1)
+  await expect(card.locator('[data-test="brief-card-attention"]')).toBeVisible()
   const before = await card.boundingBox()
   await lookAt(page, testInfo, 'dashboard-brief-unread', true)
-  await card.locator('[data-test="brief-card-toggle"]').click()
-  await expect(card.locator('[data-test="brief-card-all"]')).toBeVisible()
+  await card.locator('[data-test="brief-card-tab"]').nth(2).click()
+  await expect(card.locator('[data-test="brief-card-section"]')).toBeVisible()
   const after = await card.boundingBox()
-  expect(after!.height, 'the card grows to show the edition').toBeGreaterThan(before!.height)
+  // On a wide screen the body keeps a fixed height, so a tab switch does not make the card jump; a phone has one column and a tall lead, so it may differ there.
+  if (testInfo.project.name === 'desktop') expect(Math.abs(after!.height - before!.height), 'a tab switch does not make the card jump').toBeLessThan(160)
   await expectNoSidewaysScroll(page)
-  await lookAt(page, testInfo, 'dashboard-brief-open', true)
+  await lookAt(page, testInfo, 'dashboard-brief-tab', true)
+})
+
+test('the dashboard: Home carries a short Today card with what needs a look first', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: dashboardAnswers(false) })
+  await page.goto('dashboard')
+  const card = page.locator('[data-test="today-card"]')
+  await expect(card).toBeVisible()
+  await expect(card.locator('[data-test="today-attention"]')).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'dashboard-today', true)
 })
 
 test('the dashboard: no dot and no New tag once the brief is read', async ({ page }, testInfo) => {

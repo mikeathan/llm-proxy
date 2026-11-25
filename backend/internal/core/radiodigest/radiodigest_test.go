@@ -120,3 +120,24 @@ func TestTheReportIsGivenNoJargonAndNoStatusLineOfItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// A phone message uses a short form of each finding. Every id has one, it is shorter than the full words, and it stays one plain sentence.
+func TestEveryFindingHasAShorterPhoneSentence(t *testing.T) {
+	for _, id := range FindingIDs() {
+		full, _, _ := Words(id)
+		short, ok := ShortWords(id)
+		if !ok || short == "" {
+			t.Errorf("%s has no short sentence", id)
+			continue
+		}
+		if len(short) >= len(full) {
+			t.Errorf("%s: the short sentence is not shorter (%d >= %d)", id, len(short), len(full))
+		}
+		if strings.ContainsAny(short, "\n\r") || len(short) > 80 {
+			t.Errorf("%s: the short sentence is %q", id, short)
+		}
+	}
+	if len(shortWords) != len(FindingIDs()) {
+		t.Errorf("a short sentence for an id the core has no words for: %d vs %d", len(shortWords), len(FindingIDs()))
+	}
+}

@@ -7,6 +7,11 @@ export const MODEL_USE_LOCAL = 'Local'
 export const MODEL_USE_CLOUD = 'Cloud'
 export const MODEL_USE_DAYS_HEADING = (days: number): string => `Last ${days} days`
 export const MODEL_USE_TODAY_HEADING = 'Today by model'
+export const MODEL_USE_HOURS_HEADING = 'Today by hour'
+/** The hours that get a label under the chart; the rest would not fit a phone. */
+export const MODEL_USE_HOUR_LABELS: readonly number[] = [0, 6, 12, 18]
+export const hourLabel = (h: number): string => String(h).padStart(2, '0')
+export const hourTitle = (h: number, local: number, cloud: number): string => `${hourLabel(h)}:00: ${local} local, ${cloud} cloud`
 export const MODEL_USE_NONE_TODAY = 'No model calls today yet.'
 export const MODEL_USE_LOADING = 'Reading the model use'
 export const MODEL_USE_NO_CALLS = 'No calls today'

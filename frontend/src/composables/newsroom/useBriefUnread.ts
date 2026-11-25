@@ -63,7 +63,16 @@ export function useBriefUnread() {
   })
   const unreadCount = computed(() => latest.value.filter((l) => !l.read).length)
   const isUnread = (editionId: number): boolean => latest.value.some((l) => l.edition_id === editionId && !l.read)
-  return { latest, loaded, unreadCount, isUnread, markRead, refresh }
+  // A critical home fact of an edition not yet read: the page it belongs to (Radio's facts, else Network) gets a dot. It goes when the edition is read, so a fact
+  // that has since cleared does not leave a dot behind until the next edition.
+  const criticalPages = computed<Array<'radio' | 'network'>>(() => {
+    const ids = latest.value.filter((l) => !l.read).flatMap((l) => l.critical ?? [])
+    const pages: Array<'radio' | 'network'> = []
+    if (ids.some((id) => id.startsWith('radio_'))) pages.push('radio')
+    if (ids.some((id) => !id.startsWith('radio_'))) pages.push('network')
+    return pages
+  })
+  return { latest, loaded, unreadCount, isUnread, markRead, refresh, criticalPages }
 }
 
 /** Test seam: forgets what was read from the server and stops the poller. */

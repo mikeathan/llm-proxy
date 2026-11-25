@@ -56,6 +56,27 @@ describe('NewsroomEditionModelUse', () => {
     expect(rows[1]!.attributes('data-kind')).toBe('cloud')
   })
 
+  it('draws today by the hour the calls ended, and draws nothing for a server that does not count hours or a day with no calls', async () => {
+    const hours = Array.from({ length: 24 }, (_, i) => ({ local: i === 9 ? 6 : 0, cloud: i === 14 ? 3 : 0 }))
+    service.get.mockResolvedValue(report({ hours }))
+    const w = await mountIt()
+    await w.get('[data-test="model-use-toggle"]').trigger('click')
+    const cols = w.findAll('[data-test="model-use-hour"]')
+    expect(cols).toHaveLength(24)
+    expect(cols[9]!.attributes('title')).toBe('09:00: 6 local, 0 cloud')
+    expect(w.get('[data-test="model-use-hours"]').text()).toContain('12')
+    w.unmount()
+    service.get.mockResolvedValue(report())
+    const old = await mountIt()
+    await old.get('[data-test="model-use-toggle"]').trigger('click')
+    expect(old.find('[data-test="model-use-hours"]').exists()).toBe(false)
+    old.unmount()
+    service.get.mockResolvedValue(report({ hours: Array.from({ length: 24 }, () => ({ local: 0, cloud: 0 })) }))
+    const quiet = await mountIt()
+    await quiet.get('[data-test="model-use-toggle"]').trigger('click')
+    expect(quiet.find('[data-test="model-use-hours"]').exists()).toBe(false)
+  })
+
   it('says one call in the singular, and says so when nothing was called today', async () => {
     service.get.mockResolvedValue(report({ today: [{ model: 'm', local: true, calls: 1, failed: 0, prompt_tokens: 1, completion_tokens: 1 }] }))
     expect((await mountIt()).get('[data-test="model-use-total"]').text()).toBe('1 call today')

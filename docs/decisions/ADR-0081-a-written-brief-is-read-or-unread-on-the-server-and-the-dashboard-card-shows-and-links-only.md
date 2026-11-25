@@ -34,3 +34,7 @@ One more route pair in the stack manifest (`TestManifestDeclaresEveryBriefRoute`
 ## Links
 
 - SPEC-013 1.20; `stacks/newsroom/brief/issues.go`; `frontend/src/composables/newsroom/useBriefUnread.ts`; `NewsroomBriefCard.vue`.
+
+## Amendment (2026-11-25): tabs in place and a Today card on Home
+
+The large card no longer expands the edition at its foot (the control and the section chips both did that off-screen). A tab list switches the body in place, nothing opens elsewhere, and the card still only shows and links. A short `newsroom-today` card joins Home's shipped layout, because the brief now mixes news, reminders, the home and the service; reading it in full stays on the Newsroom board. Rejected: moving the brief to Home only (the Newsroom board is where the whole thing is read), and show-and-link with no tabs (the owner chose tabs).

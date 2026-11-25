@@ -285,7 +285,7 @@ func (s *Stack) publish(ctx context.Context, p *brief.Publisher) {
 	for _, m := range made {
 		s.logLine(stacksdk.LevelInfo, "edition made", "edition", strconv.FormatInt(m.EditionID, 10), "model_calls", strconv.Itoa(m.ModelCalls))
 	}
-	// A summary that could not go is tried again on the next pass; a refusal is the owner's connector setting, said once on the Briefs page, not here.
+	// A summary that could not go is tried again on the next pass; a refusal is the owner's connector setting, kept on the issue (send_state) and said on the Briefs page, not here.
 	for _, d := range p.Deliver(ctx) {
 		if d.Err != nil && stacksdk.CodeOf(d.Err) != stacksdk.CodeInvalid {
 			s.logLine(stacksdk.LevelWarn, "brief summary not sent", "issue", strconv.FormatInt(d.IssueID, 10), "error", d.Err.Error())

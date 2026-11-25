@@ -178,6 +178,55 @@ func TestPublisher_DeliverTriesAgainAfterAFailureAndNotAtAllWithoutAChannelOrFor
 	}
 }
 
+// A refused or failed send leaves a fixed state on the issue (never the connector's own words), so the Briefs page can say so; a later success clears it, and an
+// issue that ran out of its catch-up while still failing says it gave up.
+func TestPublisher_DeliverRecordsWhyASummaryDidNotGo(t *testing.T) {
+	r, p, s := sendRigFor(t, "telegram")
+	r.at(6, 45)
+	tick(t, p)
+	id := r.store.Editions()[0].ID
+	state := func() string { return r.store.Issues(id)[0].SendState }
+
+	s.err = stacksdk.Errorf(stacksdk.CodeInvalid, "SECRET-CONNECTOR-TEXT")
+	p.Deliver(context.Background())
+	if state() != SendRefused {
+		t.Errorf("a refusal is %q, got %q", SendRefused, state())
+	}
+	s.err = stacksdk.Errorf(stacksdk.CodeUnavailable, "SECRET-CONNECTOR-TEXT")
+	p.Deliver(context.Background())
+	if state() != SendFailed {
+		t.Errorf("a failure is %q, got %q", SendFailed, state())
+	}
+	s.err = nil
+	p.Deliver(context.Background())
+	if state() != "" || r.store.Issues(id)[0].SentAt.IsZero() {
+		t.Errorf("a send that went clears the state: %q", state())
+	}
+
+	r2, p2, s2 := sendRigFor(t, "telegram")
+	s2.err = stacksdk.Errorf(stacksdk.CodeUnavailable, "down")
+	r2.at(6, 45)
+	tick(t, p2)
+	p2.Deliver(context.Background())
+	r2.at(11, 0)
+	p2.Deliver(context.Background())
+	if got := r2.store.Issues(r2.store.Editions()[0].ID)[0].SendState; got != SendGaveUp {
+		t.Errorf("past the catch-up a failing send gave up, got %q", got)
+	}
+
+	// A refusal keeps its cause after the catch-up: the fix it names is still useful when the brief is read late.
+	r3, p3, s3 := sendRigFor(t, "telegram")
+	s3.err = stacksdk.Errorf(stacksdk.CodeInvalid, "no")
+	r3.at(6, 45)
+	tick(t, p3)
+	p3.Deliver(context.Background())
+	r3.at(11, 0)
+	p3.Deliver(context.Background())
+	if got := r3.store.Issues(r3.store.Editions()[0].ID)[0].SendState; got != SendRefused {
+		t.Errorf("a refusal stays a refusal, got %q", got)
+	}
+}
+
 func TestPublisher_DeliverGivesUpAfterTheCatchUpAndSkipsAnIssueWithNothingToSay(t *testing.T) {
 	r, p, s := sendRigFor(t, "telegram")
 	s.err = errors.New("down")
@@ -201,7 +250,10 @@ func TestPublisher_DeliverGivesUpAfterTheCatchUpAndSkipsAnIssueWithNothingToSay(
 	if got := p2.Deliver(context.Background()); len(got) != 0 || len(s2.sent) != 0 {
 		t.Errorf("an empty issue sends nothing: %+v", got)
 	}
-	if is, _ := r2.store.Issue(saved.ID); is.SentAt.IsZero() {
-		t.Error("an empty issue is marked so it is not looked at again")
+	if is, _ := r2.store.Issue(saved.ID); !is.SentAt.IsZero() || is.SendState != SendNothing {
+		t.Errorf("an empty issue is marked so it is not looked at again, and is not recorded as sent: %+v", is)
+	}
+	if got := p2.Deliver(context.Background()); len(got) != 0 || len(s2.sent) != 0 {
+		t.Errorf("an empty issue is not looked at again: %+v", got)
 	}
 }

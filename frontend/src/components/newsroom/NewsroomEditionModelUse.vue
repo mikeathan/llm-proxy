@@ -6,11 +6,11 @@ import NewsroomPlate from "./NewsroomPlate.vue"
 import { usePolling } from "../../composables/ui/usePolling"
 import { ModelStatsService } from "../../services/modelStatsService"
 import {
-  MODEL_USE_CALLS_TODAY, MODEL_USE_CHART_SUMMARY, MODEL_USE_CLOUD, MODEL_USE_COLUMNS, MODEL_USE_DAYS, MODEL_USE_DAYS_HEADING, MODEL_USE_FAILED, MODEL_USE_FOLD_LABEL, MODEL_USE_KIND, MODEL_USE_LABEL,
+  MODEL_USE_CALLS_TODAY, MODEL_USE_CHART_SUMMARY, MODEL_USE_CLOUD, MODEL_USE_COLUMNS, MODEL_USE_DAYS, MODEL_USE_DAYS_HEADING, MODEL_USE_FAILED, MODEL_USE_FOLD_LABEL, MODEL_USE_HOURS_HEADING, MODEL_USE_HOUR_LABELS, hourLabel, hourTitle, MODEL_USE_KIND, MODEL_USE_LABEL,
   MODEL_USE_LOADING, MODEL_USE_LOCAL, MODEL_USE_NO_CALLS, MODEL_USE_NO_TOKENS, MODEL_USE_NONE_TODAY, MODEL_USE_OPEN_LABEL, MODEL_USE_POLL_MS, MODEL_USE_TODAY_HEADING, MODEL_USE_UNAVAILABLE,
 } from "../../constants/modelStats"
 import { formatTokenCount } from "../../utils/format/units"
-import { callsToday, chartColumns, speedOf, tokensOf, trendOf, weekTotals, weekdayOf } from "../../utils/modelUse"
+import { callsToday, chartColumns, hourColumns, speedOf, tokensOf, trendOf, weekTotals, weekdayOf } from "../../utils/modelUse"
 import type { ModelStatsReport } from "../../types/modelStats"
 
 // How much each model was used: a line with today's calls and a small trend, which opens into the week as stacked columns (local and cloud) and today's models with
@@ -38,6 +38,13 @@ const summary = computed(() => {
   const t = weekTotals(report.value?.days ?? [])
   return MODEL_USE_CHART_SUMMARY(columns.value.length, t.local, t.cloud)
 })
+// Today's calls by the hour they ended. Only drawn when there was a call today, and only four hours are named so the labels fit a phone.
+const hours = computed(() => hourColumns(report.value?.hours ?? []))
+const hasHours = computed(() => hours.value.some((c) => c.total > 0))
+const hourTitleOf = (i: number): string => {
+  const h = report.value?.hours?.[i]
+  return h ? hourTitle(i, h.local, h.cloud) : ""
+}
 const dayTitle = (i: number): string => {
   const d = report.value?.days[i]
   return d ? `${weekdayOf(d.date)}: ${d.local} ${MODEL_USE_LOCAL.toLowerCase()}, ${d.cloud} ${MODEL_USE_CLOUD.toLowerCase()}` : ""
@@ -81,6 +88,20 @@ const toggle = () => (open.value = !open.value)
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent-brand" aria-hidden="true"></span>{{ MODEL_USE_LOCAL }}</span>
             <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-accent-info" aria-hidden="true"></span>{{ MODEL_USE_CLOUD }}</span>
           </p>
+        </div>
+        <div v-if="hasHours" class="flex min-w-0 flex-col gap-2" data-test="model-use-hours">
+          <h3 class="m-0 text-[length:var(--text-small)] font-medium text-secondary">{{ MODEL_USE_HOURS_HEADING }}</h3>
+          <div role="img" :aria-label="MODEL_USE_HOURS_HEADING" class="flex h-16 items-end gap-0.5">
+            <div v-for="(c, i) in hours" :key="i" class="flex h-full min-w-0 flex-1 flex-col justify-end" :title="hourTitleOf(i)" data-test="model-use-hour">
+              <div class="flex w-full flex-col-reverse overflow-hidden rounded-sm bg-surface-hover" :style="{ height: `${Math.max(c.heightPercent, c.total > 0 ? 6 : 2)}%` }">
+                <span class="block w-full bg-accent-brand" :style="{ height: `${c.localPercent}%` }"></span>
+                <span class="block w-full bg-accent-info" :style="{ height: `${c.cloudPercent}%` }"></span>
+              </div>
+            </div>
+          </div>
+          <div class="flex text-[length:var(--text-small)] leading-none text-faint" aria-hidden="true">
+            <span v-for="h in 24" :key="h" class="min-w-0 flex-1 overflow-visible whitespace-nowrap">{{ MODEL_USE_HOUR_LABELS.includes(h - 1) ? hourLabel(h - 1) : "" }}</span>
+          </div>
         </div>
         <div class="flex min-w-0 flex-col gap-1">
           <h3 class="m-0 flex items-baseline justify-between text-[length:var(--text-small)] font-medium text-secondary">

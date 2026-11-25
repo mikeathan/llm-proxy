@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue"
+import { computed, onMounted, ref } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import Callout from "../common/feedback/Callout.vue"
 import { useRadioDigest } from "../../composables/radio/useRadioDigest"
+import { useFindingFocus } from "../../composables/netaudit/useFindingFocus"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import {
-  RADIO_FINDINGS_NONE, RADIO_FINDINGS_THIN, RADIO_FINDINGS_TITLE, RADIO_TIER_HELP, RADIO_TIER_WORDS, RADIO_UNSEEN_TITLE, radioFindingCount, radioUnseenLine,
+  RADIO_FINDINGS_GONE, RADIO_FINDINGS_NONE, RADIO_FINDINGS_THIN, RADIO_FINDINGS_TITLE, RADIO_TIER_HELP, RADIO_TIER_WORDS, RADIO_UNSEEN_TITLE, radioFindingCount, radioUnseenLine,
 } from "../../constants/radio"
 
 // Radio · Things to look at: the stack's findings. The sentences are the server's fixed words (never text a device sent); each says how it is known.
@@ -15,16 +16,21 @@ const { advanced } = useNetauditViewMode()
 const view = computed(() => d.digest.value)
 const thin = computed(() => !!view.value && view.value.listening.cycles < view.value.listening.min_cycles)
 
+// A link from the brief names a finding kind (`?finding=radio_pmf_off`): it is scrolled to and marked once the findings are drawn, or said to be gone.
+const root = ref<HTMLElement | null>(null)
+const { missing } = useFindingFocus(root, computed(() => !!view.value))
+
 onMounted(() => { void d.load() })
 </script>
 
 <template>
   <Panel :title="RADIO_FINDINGS_TITLE">
-    <div class="flex flex-col gap-3" data-test="radio-findings">
+    <div ref="root" class="flex flex-col gap-3" data-test="radio-findings">
+      <p v-if="missing" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-focus-missing">{{ RADIO_FINDINGS_GONE }}</p>
       <Callout v-if="d.error.value && !view" tone="error" title="Could not read"><span data-test="radio-findings-error">{{ d.error.value }}</span></Callout>
       <template v-else-if="view">
         <ul v-if="view.findings.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-          <li v-for="f in view.findings" :key="f.id" class="flex flex-col gap-1 py-2" data-test="radio-finding" :data-id="f.id">
+          <li v-for="f in view.findings" :key="f.id" class="flex flex-col gap-1 py-2" data-test="radio-finding" :data-id="f.id" :data-key="f.id">
             <span class="text-primary">{{ f.claim }}</span>
             <span v-if="f.means" class="text-[length:var(--text-small)] text-secondary" data-test="radio-finding-means">{{ f.means }}</span>
             <span class="flex flex-wrap items-baseline gap-x-3 text-[length:var(--text-small)] text-muted">

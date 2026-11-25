@@ -64,9 +64,19 @@ func TestBriefText_ACriticalFactComesFirstAndOnlyOnce(t *testing.T) {
 	}
 }
 
+// The phone message says a radio finding in its short sentence, never the full one the card and the Brief page show.
+func TestBriefText_ARadioFactIsSaidInItsShortSentence(t *testing.T) {
+	got := BriefText(stacksdk.BriefNoticeRequest{Name: "M", Home: []stacksdk.BriefNoticeHome{{ID: "radio_pmf_off", Count: 1}}}, "")
+	full, _ := HomeWords("radio_pmf_off")
+	short, _ := HomeShortWords("radio_pmf_off")
+	if !strings.Contains(got, short) || strings.Contains(got, full) || len(short) >= len(full) {
+		t.Errorf("short %q, full %q in:\n%s", short, full, got)
+	}
+}
+
 func radiodigestWords(t *testing.T, id string) string {
 	t.Helper()
-	w, ok := HomeWords(id)
+	w, ok := HomeShortWords(id)
 	if !ok {
 		t.Fatalf("no words for %s", id)
 	}

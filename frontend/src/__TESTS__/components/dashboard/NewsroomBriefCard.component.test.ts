@@ -4,6 +4,9 @@ import { ref } from 'vue'
 
 const service = vi.hoisted(() => ({ editions: vi.fn(), latest: vi.fn(), issue: vi.fn(), markRead: vi.fn() }))
 vi.mock('../../../services/newsroom/briefService', () => ({ BriefService: service }))
+// The chips for failed runs and unsent alerts read two other services; a quiet day has none.
+vi.mock('../../../services/automation/dispatcherService', () => ({ DispatcherService: { getGlobalActivity: vi.fn().mockResolvedValue([]) } }))
+vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: { alerts: vi.fn().mockResolvedValue({ cursor: 0, items: [] }) } }))
 
 import NewsroomBriefCard from '../../../components/dashboard/cards/NewsroomBriefCard.vue'
 import { DASHBOARD_CARD_SIZE } from '../../../constants/dashboard'
@@ -41,13 +44,13 @@ beforeEach(() => {
 })
 
 describe('NewsroomBriefCard', () => {
-  it('is big when a brief is waiting: the masthead with a New tag, the lead, the other top stories and a chip per section', async () => {
+  it('is big when a brief is waiting: the masthead with a New tag, the lead, the other top stories and a tab per section', async () => {
     const w = await mountCard()
     expect(w.get('[data-test="brief-card-name"]').text()).toContain('Morning')
     expect(w.get('[data-test="brief-card-name"]').text()).toContain('New')
     expect(w.get('[data-test="brief-card-lead"]').text()).toContain('Lead story')
     expect(w.get('[data-test="brief-card-top"]').text()).toContain('Story 2')
-    expect(w.findAll('[data-test="brief-card-chip"]').map((c) => c.text())).toEqual(['Technology3', 'World1'])
+    expect(w.findAll('[data-test="brief-card-tab"]').map((c) => c.text())).toEqual(['Top stories', 'Technology3', 'World1'])
     expect(w.get('[data-test="brief-card"]').attributes('data-unread')).toBe('true')
   })
 
@@ -64,20 +67,27 @@ describe('NewsroomBriefCard', () => {
     expect(w.get('[data-test="brief-card"]').attributes('data-unread')).toBeUndefined()
   })
 
-  it('opens the whole edition inside the card and folds it again', async () => {
+  it('switches the body in place with tabs: one is selected, nothing opens elsewhere, and there is no expand control', async () => {
     const w = await mountCard()
-    expect(w.find('[data-test="brief-card-all"]').exists()).toBe(false)
-    await w.get('[data-test="brief-card-toggle"]').trigger('click')
-    expect(w.get('[data-test="brief-card-all"]').text()).toContain('Story 4')
-    await w.get('[data-test="brief-card-toggle"]').trigger('click')
+    const tabs = w.findAll('[data-test="brief-card-tab"]')
+    expect(tabs.map((x) => x.attributes('aria-selected'))).toEqual(['true', 'false', 'false'])
+    expect(w.get('[data-test="brief-card-panel"]').text()).toContain('Lead story')
+    await tabs[1]!.trigger('click')
+    expect(w.findAll('[data-test="brief-card-tab"]').map((x) => x.attributes('aria-selected'))).toEqual(['false', 'true', 'false'])
+    expect(w.get('[data-test="brief-card-section"]').text()).toContain('Story 4')
+    expect(w.get('[data-test="brief-card-panel"]').text()).not.toContain('Lead story')
+    await tabs[2]!.trigger('click')
+    expect(w.get('[data-test="brief-card-section"]').text()).toContain('Story 5')
+    expect(w.find('[data-test="brief-card-toggle"]').exists()).toBe(false)
     expect(w.find('[data-test="brief-card-all"]').exists()).toBe(false)
   })
 
-  it('keeps the fold control in the header, above the stories, so a long open edition is closed without scrolling', async () => {
+  it('moves between tabs with the arrow keys', async () => {
     const w = await mountCard()
-    await w.get('[data-test="brief-card-toggle"]').trigger('click')
-    expect(w.get('header').find('[data-test="brief-card-toggle"]').exists()).toBe(true)
-    expect(w.findAll('[data-test="brief-card-toggle"]')).toHaveLength(1)
+    await w.get('[data-test="brief-card-tabs"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(w.findAll('[data-test="brief-card-tab"]')[1]!.attributes('aria-selected')).toBe('true')
+    await w.get('[data-test="brief-card-tabs"]').trigger('keydown', { key: 'ArrowLeft' })
+    expect(w.findAll('[data-test="brief-card-tab"]')[0]!.attributes('aria-selected')).toBe('true')
   })
 
   it('shows the home block and the watches beside the news, only when the edition carries them', async () => {
@@ -90,12 +100,12 @@ describe('NewsroomBriefCard', () => {
     }))
     resetBriefUnread()
     const w = await mountCard()
-    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('not marked as yours')
+    expect(w.get('[data-test="brief-card-home"]').text()).toContain('1 to check')
     expect(w.get('[data-test="watches-block"]').text()).toContain('Kernel')
     expect(w.get('[data-test="day-block"]').text()).toContain('Call the dentist')
   })
 
-  it('says "Needs attention" in the header only when a critical fact is in the edition, at every size, and shows the Home block open', async () => {
+  it('says "Needs attention" in the header only when a critical fact is in the edition, at every size, and says the fact on its own line above the tabs', async () => {
     const quiet = await mountCard()
     expect(quiet.get('[data-test="brief-card-name"]').text()).not.toContain('Needs attention')
     service.issue.mockResolvedValue(issue({ home: [
@@ -105,18 +115,11 @@ describe('NewsroomBriefCard', () => {
     resetBriefUnread()
     const w = await mountCard()
     expect(w.get('[data-test="brief-card-name"]').text()).toContain('Needs attention')
-    expect(w.get('[data-test="home-block"]').attributes('data-state')).toBe('critical')
-    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('open or use an outdated protection')
+    expect(w.get('[data-test="brief-card-attention"]').text()).toContain('open or use an outdated protection')
     for (const size of ['sm', 'xs'] as const) {
       resetBriefUnread()
       expect((await mountCard(size)).text(), size).toContain('Needs attention')
     }
-  })
-
-  it('opens the whole edition when a section chip is pressed', async () => {
-    const w = await mountCard()
-    await w.findAll('[data-test="brief-card-chip"]')[1]!.trigger('click')
-    expect(w.get('[data-test="brief-card-all"]').text()).toContain('Story 5')
   })
 
   it('asks for an edition once for each new issue, not on every refresh', async () => {

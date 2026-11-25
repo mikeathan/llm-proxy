@@ -46,6 +46,24 @@ var claims = []struct{ id, words, means string }{
 		"Start a watch on the Listening tab. The adapter may also have been unplugged."},
 }
 
+// shortWords is the one-line form of each claim for a phone message (the brief's Telegram summary), where the full sentence is too long to read at a glance.
+// The card, the Brief page and the assistant keep the full words. A test holds it to the claims: every id has one and it is shorter. The owner approves them.
+var shortWords = map[string]string{
+	"radio_rogue_twin":           "Unconfirmed access points are using one of your network names.",
+	"radio_deauth_burst":         "Senders sent bursts of disconnect frames lately.",
+	"radio_open_or_weak_ap":      "Your access points that are open or use outdated protection.",
+	"radio_pmf_off":              "Your WPA2 access points do not protect against forged disconnects.",
+	"radio_join_foreign_network": "Your devices tried to join a network that is not yours.",
+	"radio_hidden_ap_near":       "Hidden networks are close to the house.",
+	"radio_sensor_blind":         "The radio sensor has not listened in the last day.",
+}
+
+// ShortWords is the phone-sized sentence for a finding id; false for an id the core has none for.
+func ShortWords(id string) (string, bool) {
+	w, ok := shortWords[id]
+	return w, ok
+}
+
 var (
 	tiers   = []string{"seen", "inferred", "estimated"}
 	classes = []string{"infrastructure", "personal", "neighbour", "transient", "unknown"}

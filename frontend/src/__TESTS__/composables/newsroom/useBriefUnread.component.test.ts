@@ -23,6 +23,16 @@ describe('useBriefUnread', () => {
     expect(seen.isUnread(3)).toBe(false)
   })
 
+  it('names the page a critical fact of an unread edition belongs to, until it is read', async () => {
+    service.latest.mockResolvedValue([entry({ critical: ['radio_open_or_weak_ap', 'network_unavailable'] }), entry({ edition_id: 3, issue_id: 6, read: true, critical: ['radio_rogue_twin'] })])
+    mount(Probe)
+    await flushPromises()
+    expect(seen.criticalPages.value).toEqual(['radio', 'network'])
+    service.markRead.mockResolvedValue(undefined)
+    await seen.markRead(5)
+    expect(seen.criticalPages.value).toEqual([])
+  })
+
   it('shows nothing, and no error, when the server cannot answer', async () => {
     service.latest.mockRejectedValue(new Error('Briefs is switched off'))
     mount(Probe)
