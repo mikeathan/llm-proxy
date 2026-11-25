@@ -34,6 +34,17 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
   ("Google Releases Gemini Neon for Empathy Tasks" from a Reddit post titled "Gemini Neon on Empathy") were written before the deploy and
   are the overclaiming the new prompt is meant to stop.
 
+## Built on branch `newsroom-setup-links-and-learning` (not pushed)
+
+- `8a9259ba` v0.136.0: the set-up/read links (SPEC-013 1.31) and the plan archive.
+- Next commit, v0.137.0: stories with text keep a third of a section's candidates (SPEC-013 1.32). Checks: `GOWORK=off go test -race -count=1 . ./brief ./watches ./sources` in `stacks/newsroom` (pass). Not run on vertex.
+
+## Agreed with the owner 2026-11-25, not built yet (do next, in this order)
+
+1. **Drop the redirects** `/newsroom/briefs` and `/newsroom/watches` (`frontend/src/router/index.ts:85-86`): no Telegram summary ever carried a link (text only, no https), so nothing breaks. Remove their tests too.
+2. **Teach the alert filter** (owner: A yes, B and C as recommended): "Should have matched" (`POST /admin/api/newsroom/feed/keep`, `watches/journal.go` `Keep`) also saves the item's title as a *want* example on its watch; a new "Not for me" button on an alert row (`NewsroomEntryItem.vue`) hides it and saves a *skip* example. Keep the newest 10 of each per watch (a `Examples` field on `watches.Watch`), send them in the analyst prompt (`watches/analyst.go` `prompt`) in fenced blocks as examples the person said they do / do not want, and list them in the watch's Edit form (`NewsroomWatchEditor.vue`) with a remove button each. It changes the prompt: write an ADR and a SPEC-013 entry; check on vertex against real posts. Mobile: the button needs a 44 px tap area.
+3. A visual case for the Alerts tab and the new buttons, desktop and phone.
+
 ## Left, in order
 
 1. **Owner:** approve a branch and a commit for v0.136.0, then merge and deploy.
