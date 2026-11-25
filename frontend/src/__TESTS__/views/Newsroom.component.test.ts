@@ -68,9 +68,13 @@ describe('NewsroomView', () => {
   })
 
   it('offers "Delete all briefs" only when there is something to delete, and only after a confirmation', async () => {
-    expect((await mountView('/newsroom/briefs')).w.find('[data-test="delete-all-briefs"]').exists()).toBe(false)
+    const empty = (await mountView('/newsroom/briefs')).w
+    await empty.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
+    expect(empty.find('[data-test="delete-all-briefs"]').exists()).toBe(false)
     briefTopicsMock.mockResolvedValue([{ id: 1, name: 'Go' }])
     const { w } = await mountView('/newsroom/briefs')
+    expect(w.find('[data-test="delete-all-briefs"]').exists(), 'not on the reading view').toBe(false)
+    await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
     confirmMock.mockResolvedValueOnce(false)
     await w.get('[data-test="delete-all-briefs"]').trigger('click')
     await flushPromises()

@@ -3,14 +3,17 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/models"
 )
 
@@ -226,5 +229,100 @@ func TestServingCtxFromArgs(t *testing.T) {
 				t.Fatalf("expected %d, got %d", c.want, got)
 			}
 		})
+	}
+}
+
+type countingSink struct {
+	mu    sync.Mutex
+	calls []modelstats.Call
+}
+
+func (c *countingSink) Record(call modelstats.Call) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, call)
+}
+
+// flushWriter is a response writer that can be flushed, as a real one can: a streamed answer depends on it.
+type flushWriter struct {
+	*httptest.ResponseRecorder
+	flushed bool
+}
+
+func (f *flushWriter) Flush() { f.flushed = true; f.ResponseRecorder.Flush() }
+
+// A call an outside program makes to /v1 is counted with the model, whether the model is local or in the cloud, and whether the answer was an error; the
+// answer itself still reaches the caller, a flush still passes through to it, and the tokens are not read (the handler streams the answer untouched).
+func TestEnsureModelProxyHandler_CountsTheCallAndStillStreams(t *testing.T) {
+	restore := SetReverseProxyFactory(func(string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Fail") != "" {
+				http.Error(w, "boom", http.StatusBadGateway)
+				return
+			}
+			_, _ = w.Write([]byte("data: hi\n\n"))
+			w.(http.Flusher).Flush()
+		})
+	})
+	defer restore()
+	sink := &countingSink{}
+	for _, tc := range []struct {
+		name       string
+		inst       llm.ModelInstance
+		fail       bool
+		wantLocal  bool
+		wantFailed bool
+	}{
+		{"local ok", llm.ModelInstance{Name: "qwen", Host: "127.0.0.1", Port: 8080}, false, true, false},
+		{"cloud ok", llm.ModelInstance{Name: "flash", ModelID: "vendor/flash", URL: "https://cloud.example/v1/chat/completions"}, false, false, false},
+		{"cloud error", llm.ModelInstance{Name: "flash", ModelID: "vendor/flash", URL: "https://cloud.example/v1/chat/completions"}, true, false, true},
+	} {
+		h := NewProxyHandlers(&fakeRuntime{instance: tc.inst})
+		h.SetUsageCounter(sink)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"`+tc.inst.Name+`","messages":[]}`))
+		if tc.fail {
+			req.Header.Set("X-Fail", "1")
+		}
+		w := &flushWriter{ResponseRecorder: httptest.NewRecorder()}
+		h.EnsureModelProxyHandler(w, req)
+		got := sink.calls[len(sink.calls)-1]
+		if got.Model != tc.inst.Name || got.Local != tc.wantLocal || got.Failed != tc.wantFailed || got.PromptTokens != 0 {
+			t.Errorf("%s: counted %+v", tc.name, got)
+		}
+		if !tc.fail && (!w.flushed || !strings.Contains(w.Body.String(), "data: hi")) {
+			t.Errorf("%s: the stream did not reach the caller (flushed %v, body %q)", tc.name, w.flushed, w.Body)
+		}
+	}
+	if len(sink.calls) != 3 {
+		t.Errorf("counted %d calls, want 3", len(sink.calls))
+	}
+}
+
+// A call that is refused before it reaches a model (no model could be ensured) is not a model call and is not counted.
+func TestEnsureModelProxyHandler_DoesNotCountACallThatNeverReachedAModel(t *testing.T) {
+	sink := &countingSink{}
+	h := NewProxyHandlers(&fakeRuntime{ensureErr: errors.New("no such model")})
+	h.SetUsageCounter(sink)
+	h.EnsureModelProxyHandler(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"x"}`)))
+	if len(sink.calls) != 0 {
+		t.Errorf("counted %+v", sink.calls)
+	}
+}
+
+// A stream the proxy drops half way (ReverseProxy panics with http.ErrAbortHandler to close the connection) is still one call.
+func TestEnsureModelProxyHandler_CountsAStreamThatWasAbortedHalfWay(t *testing.T) {
+	restore := SetReverseProxyFactory(func(string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { panic(http.ErrAbortHandler) })
+	})
+	defer restore()
+	sink := &countingSink{}
+	h := NewProxyHandlers(&fakeRuntime{instance: llm.ModelInstance{Name: "qwen", Host: "127.0.0.1", Port: 8080}})
+	h.SetUsageCounter(sink)
+	func() {
+		defer func() { _ = recover() }()
+		h.EnsureModelProxyHandler(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"qwen"}`)))
+	}()
+	if len(sink.calls) != 1 || sink.calls[0].Model != "qwen" {
+		t.Errorf("counted %+v", sink.calls)
 	}
 }

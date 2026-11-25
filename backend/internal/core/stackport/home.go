@@ -3,6 +3,7 @@ package stackport
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"llm-proxy-stacks/sdk"
@@ -51,6 +52,40 @@ var homeWords = map[string]string{
 	HomeRadioUnreadable: "Radio could not be read.",
 }
 
+// homeLevels ranks every fact the core can word (ADR-0084). Critical is kept to what is serious on its own: an access point of the owner's that is open or uses an
+// outdated protection. A device the owner has not marked is "check", not critical, because a new install has many. Everything routine is info. A test holds the
+// table to the words, so a new id cannot be left unranked.
+var homeLevels = map[string]string{
+	HomeNetworkOnline:            stacksdk.HomeLevelInfo,
+	HomeNetworkNotMine:           stacksdk.HomeLevelCheck,
+	HomeNetworkChanges:           stacksdk.HomeLevelCheck,
+	HomeNetworkUnknown:           stacksdk.HomeLevelInfo,
+	HomeNetworkOff:               stacksdk.HomeLevelCheck,
+	HomeRadioOff:                 stacksdk.HomeLevelInfo,
+	HomeRadioQuiet:               stacksdk.HomeLevelInfo,
+	HomeRadioUnreadable:          stacksdk.HomeLevelCheck,
+	"radio_rogue_twin":           stacksdk.HomeLevelCheck,
+	"radio_deauth_burst":         stacksdk.HomeLevelCheck,
+	"radio_open_or_weak_ap":      stacksdk.HomeLevelCritical,
+	"radio_pmf_off":              stacksdk.HomeLevelCheck,
+	"radio_join_foreign_network": stacksdk.HomeLevelCheck,
+	"radio_hidden_ap_near":       stacksdk.HomeLevelInfo,
+	"radio_sensor_blind":         stacksdk.HomeLevelCheck,
+}
+
+var homeLevelValues = []string{stacksdk.HomeLevelCritical, stacksdk.HomeLevelCheck, stacksdk.HomeLevelInfo}
+
+// HomeLevel is the level of a fact id; an id the core has not ranked is routine.
+func HomeLevel(id string) string {
+	if lv, ok := homeLevels[id]; ok {
+		return lv
+	}
+	return stacksdk.HomeLevelInfo
+}
+
+// homeRank orders levels, most urgent first.
+func homeRank(level string) int { return slices.Index(homeLevelValues, level) }
+
 // HomeWords is the core's sentence for a home fact id, from this file's table or Radio's; false for an id the core has no words for.
 func HomeWords(id string) (string, bool) {
 	if w, ok := homeWords[id]; ok {
@@ -63,14 +98,16 @@ func HomeWords(id string) (string, bool) {
 func homeCount(n int) int { return max(0, min(n, maxHomeCount)) }
 
 func homeLine(id string, count int) stacksdk.HomeLine {
-	return stacksdk.HomeLine{ID: id, Count: homeCount(count), Words: homeWords[id]}
+	return stacksdk.HomeLine{ID: id, Count: homeCount(count), Words: homeWords[id], Level: HomeLevel(id)}
 }
 
-// Lines is the answer: the network's facts, then Radio's, at most stacksdk.MaxHomeLines. A part that cannot be read gives one fixed line, not an error, so
+// Lines is the answer: the network's facts, then Radio's, ranked critical, check, info, at most stacksdk.MaxHomeLines. A part that cannot be read gives one fixed line, not an error, so
 // the other part still shows.
 func (h Home) Lines(ctx context.Context) ([]stacksdk.HomeLine, error) {
 	out := h.network()
 	out = append(out, h.radio(ctx)...)
+	// The lines that need a look go first, so the cut below never drops them; the order inside a level is kept.
+	slices.SortStableFunc(out, func(a, b stacksdk.HomeLine) int { return homeRank(a.Level) - homeRank(b.Level) })
 	if len(out) > stacksdk.MaxHomeLines {
 		out = out[:stacksdk.MaxHomeLines]
 	}
@@ -137,7 +174,7 @@ func (h Home) radio(ctx context.Context) []stacksdk.HomeLine {
 	}
 	out := make([]stacksdk.HomeLine, len(found))
 	for i, f := range found {
-		out[i] = stacksdk.HomeLine{ID: f.ID, Count: homeCount(f.Count), Words: f.Words}
+		out[i] = stacksdk.HomeLine{ID: f.ID, Count: homeCount(f.Count), Words: f.Words, Level: HomeLevel(f.ID)}
 	}
 	return out
 }

@@ -24,12 +24,14 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
+	"llm-proxy/internal/core/proxy/usagecount"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/storage"
@@ -217,7 +219,12 @@ func (c *Container) BuildAppServices() *AppServices {
 	s.workloadClassifier = models.NewWorkloadClassifier(c.modelHost(), models.LocalInterfaceIPs())
 
 	c.initRunScheduler(s)
-	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, c.newClientFactory(s.workloadClassifier))
+	s.modelStats = c.openModelStats()
+	var counter usagecount.Sink
+	if s.modelStats != nil {
+		counter = s.modelStats
+	}
+	s.clientProvider = proxy.NewRuntimeClientProvider(s, c.Core.Runtime, c.newClientFactory(s.workloadClassifier, counter))
 	s.dispatcher = c.Dispatcher
 	s.guardrailDecisionStore = assistantPkg.NewGuardrailDecisionStore()
 
@@ -330,16 +337,34 @@ func (c *Container) initRunScheduler(s *AppServices) {
 	})
 }
 
+// openModelStats opens the file of model use counts in the data folder. A file that cannot be read starts the counts empty and is said in the log; the service
+// never stops for it.
+func (c *Container) openModelStats() *modelstats.Store {
+	root := c.Core.AppCtx.RootDir()
+	if root == "" {
+		return nil
+	}
+	store, err := modelstats.Open(filepath.Join(root, modelstats.FileName), time.Now)
+	if err != nil {
+		logging.Warn("model use counts", "error", err.Error())
+	}
+	return store
+}
+
 // newClientFactory routes each model to its client by the actual upstream
 // destination, artifact and the model's own workload class — a remote llama.cpp
-// is a local workload (SPEC-005) — and wraps every client in the recorder.
-func (c *Container) newClientFactory(classifier models.WorkloadClassifier) func(string, string, http.Header, bool) proxy.Client {
+// is a local workload (SPEC-005) — counts every call when a sink is given (ADR-0085) and wraps every client in the recorder.
+func (c *Container) newClientFactory(classifier models.WorkloadClassifier, counter usagecount.Sink) func(string, string, http.Header, bool) proxy.Client {
 	return func(baseURL string, model string, headers http.Header, local bool) proxy.Client {
 		var client proxy.Client
 		if local || classifier.ClassifyClient(baseURL, model) {
 			client = proxy.NewLLMClientForLocal(baseURL, model, nil, headers)
 		} else {
 			client = proxy.NewLLMClient(baseURL, model, nil, headers)
+		}
+		// The counter sits under the recorder: the recorder's own methods (CloseRun, SetDirForRun) are asserted on the outermost client.
+		if counter != nil {
+			client = usagecount.New(client, counter, model)
 		}
 		// Always wrap in RecordingClient so a run-specific recording.jsonl is
 		// supported; the dir is only set when recording is globally enabled.
@@ -482,6 +507,7 @@ type AppServices struct {
 	limiter                ratelimiter.Limiter
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore         *recordings.RecordingStore
+	modelStats             *modelstats.Store  // counts of model calls, per day and per model (ADR-0085); nil when it could not be opened
 	recordDir              string             // the --record directory; empty when the flag is off, whatever the store lists
 	egressCancel           context.CancelFunc // stops the agent egress proxy (Phase 1c)
 	// Reminders delivers stored reminders; nil when the database or the connector
@@ -516,6 +542,11 @@ func (s AppServices) flushNetaudit() {
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {
+	if s.modelStats != nil {
+		if err := s.modelStats.Flush(); err != nil {
+			logging.Warn("model use counts not saved", "error", err.Error())
+		}
+	}
 	if s.egressCancel != nil {
 		logging.Info("Stopping agent egress proxy...")
 		s.egressCancel()

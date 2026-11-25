@@ -11,6 +11,8 @@ import { resetBriefUnread } from '../../../composables/newsroom/useBriefUnread'
 import type { DashboardCardSize } from '../../../types/dashboard'
 import type { BriefIssue, BriefStory } from '../../../types/newsroom'
 
+vi.mock('../../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
+
 const story = (n: number, over: Partial<BriefStory> = {}): BriefStory => ({ pool_id: n, headline: `Story ${n}`, outlets: ['BBC'], ...over })
 const edition = (over = {}) => ({ id: 2, name: 'Morning', ready_by: '07:00', days: [], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [], enabled: true, ...over })
 const latest = (over = {}) => ({ edition_id: 2, name: 'Morning', issue_id: 5, made_at: '2026-11-23T06:00:00Z', read: false, ...over })
@@ -82,15 +84,33 @@ describe('NewsroomBriefCard', () => {
     const plain = await mountCard()
     expect(plain.find('[data-test="brief-card-beside"]').exists()).toBe(false)
     service.issue.mockResolvedValue(issue({
-      home: [{ id: 'network_online', count: 16, words: 'Devices the network sees right now.' }],
+      home: [{ id: 'network_not_marked_mine', count: 2, words: 'Devices on your network that you have not marked as yours.', level: 'check' }],
       watches: [{ watch: 'Kernel', new: 1, headline: 'A release' }],
       day: { items: [{ clock: '14:00', title: 'Call the dentist' }] },
     }))
     resetBriefUnread()
     const w = await mountCard()
-    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('Devices the network sees right now.')
+    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('not marked as yours')
     expect(w.get('[data-test="watches-block"]').text()).toContain('Kernel')
     expect(w.get('[data-test="day-block"]').text()).toContain('Call the dentist')
+  })
+
+  it('says "Needs attention" in the header only when a critical fact is in the edition, at every size, and shows the Home block open', async () => {
+    const quiet = await mountCard()
+    expect(quiet.get('[data-test="brief-card-name"]').text()).not.toContain('Needs attention')
+    service.issue.mockResolvedValue(issue({ home: [
+      { id: 'radio_open_or_weak_ap', count: 1, words: 'Confirmed access points of yours that are open or use an outdated protection.', level: 'critical' },
+      { id: 'network_online', count: 16, words: 'Devices the network sees right now.', level: 'info' },
+    ] }))
+    resetBriefUnread()
+    const w = await mountCard()
+    expect(w.get('[data-test="brief-card-name"]').text()).toContain('Needs attention')
+    expect(w.get('[data-test="home-block"]').attributes('data-state')).toBe('critical')
+    expect(w.get('[data-test="brief-card-beside"]').text()).toContain('open or use an outdated protection')
+    for (const size of ['sm', 'xs'] as const) {
+      resetBriefUnread()
+      expect((await mountCard(size)).text(), size).toContain('Needs attention')
+    }
   })
 
   it('opens the whole edition when a section chip is pressed', async () => {

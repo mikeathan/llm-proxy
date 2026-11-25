@@ -43,6 +43,36 @@ func TestBriefText_TheCoreRewordsHomeLinesFromTheirIDs(t *testing.T) {
 	}
 }
 
+// A critical fact is the first thing on the phone, above the headlines, and is not said twice under "At home".
+func TestBriefText_ACriticalFactComesFirstAndOnlyOnce(t *testing.T) {
+	req := stacksdk.BriefNoticeRequest{Name: "Morning",
+		Stories: []stacksdk.NoticeItem{{Title: "Qwen4 out"}},
+		Home:    []stacksdk.BriefNoticeHome{{ID: HomeNetworkOnline, Count: 16}, {ID: "radio_open_or_weak_ap", Count: 1}}}
+	got := BriefText(req, "")
+	wantTop := "Morning\n⚠ 1 · " + radiodigestWords(t, "radio_open_or_weak_ap") + "\n\n• Qwen4 out"
+	if !strings.HasPrefix(got, wantTop) {
+		t.Errorf("want the warning right under the name:\n%s", got)
+	}
+	if strings.Count(got, radiodigestWords(t, "radio_open_or_weak_ap")) != 1 {
+		t.Errorf("said twice:\n%s", got)
+	}
+	if !strings.Contains(got, "At home\n• 16 · Devices the network sees right now.") {
+		t.Errorf("the routine facts stay under At home:\n%s", got)
+	}
+	if quiet := BriefText(stacksdk.BriefNoticeRequest{Name: "M", Stories: req.Stories, Home: req.Home[:1]}, ""); strings.Contains(quiet, "⚠") {
+		t.Errorf("a quiet day has no warning:\n%s", quiet)
+	}
+}
+
+func radiodigestWords(t *testing.T, id string) string {
+	t.Helper()
+	w, ok := HomeWords(id)
+	if !ok {
+		t.Fatalf("no words for %s", id)
+	}
+	return w
+}
+
 func TestBriefText_NeedsANameAndSomethingToSay(t *testing.T) {
 	for name, req := range map[string]stacksdk.BriefNoticeRequest{
 		"no name":    {Stories: []stacksdk.NoticeItem{{Title: "x"}}},

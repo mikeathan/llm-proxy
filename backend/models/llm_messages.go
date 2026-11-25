@@ -265,6 +265,8 @@ type Timings struct {
 	CacheN     int `json:"cache_n"`
 	PromptN    int `json:"prompt_n"`
 	PredictedN int `json:"predicted_n"`
+	// PredictedPerSecond is the speed the server reports for the reply it generated; zero when it does not say.
+	PredictedPerSecond float64 `json:"predicted_per_second,omitempty"`
 }
 
 // ReportedUsage is the call's token count when the provider reported one: the

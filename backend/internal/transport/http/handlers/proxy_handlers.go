@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
 )
@@ -23,6 +25,13 @@ type ProxyHandlers struct {
 	// inbound gates external /v1 callers on local-model residency; nil leaves
 	// requests ungated (see inbound_gate.go).
 	inbound InboundGate
+	// counter counts each call an outside program makes to /v1 (ADR-0085); nil counts nothing.
+	counter ModelCallCounter
+}
+
+// ModelCallCounter takes one counted model call; modelstats.Store is the one in the service.
+type ModelCallCounter interface {
+	Record(modelstats.Call)
 }
 
 func NewProxyHandlers(runtime RuntimeService) *ProxyHandlers {
@@ -32,6 +41,9 @@ func NewProxyHandlers(runtime RuntimeService) *ProxyHandlers {
 // SetInboundGate installs the local-model admission gate for external /v1
 // callers. Called at the composition root; nil leaves requests ungated.
 func (h *ProxyHandlers) SetInboundGate(g InboundGate) { h.inbound = g }
+
+// SetUsageCounter makes the handler count the calls it forwards. Called at the composition root; nil counts nothing.
+func (h *ProxyHandlers) SetUsageCounter(c ModelCallCounter) { h.counter = c }
 
 // nextInboundKey mints a waiting caller's identity: its cancel handle, and its
 // row key in the operator UI. Cryptographically random because the caller can
@@ -288,8 +300,37 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 		inner.ServeHTTP(w, r)
 	})
 
-	rp.ServeHTTP(w, r)
+	// An outside program's call goes straight to the model server or the provider, never through the client the service's own calls use, so it is counted
+	// here: the model, whether it is local, and whether the answer was an error. The tokens are not read: the answer is streamed through untouched.
+	status := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	if h.counter != nil {
+		// Deferred, so a stream the proxy aborts half way (it panics to drop the connection) is still counted.
+		defer func() {
+			h.counter.Record(modelstats.Call{Model: cmp.Or(mi.Name, model), Local: !isCloud, Failed: status.code >= http.StatusBadRequest})
+		}()
+	}
+	rp.ServeHTTP(status, r)
 }
+
+// statusWriter remembers the status code of the answer and passes everything else through, flushes included: a streamed answer depends on them.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.code = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the real writer for deadlines and flushing.
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // writeEnsureModelError maps an EnsureModel failure onto the wire and reports
 // whether a response was written. A still-loading model and a busy local slot
