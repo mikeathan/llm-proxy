@@ -2,6 +2,7 @@ import type { RouteLocationNamedRaw } from 'vue-router'
 import { NETWORK_CARD_BOARD } from '../constants/dashboard'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
+import type { BriefPlace } from '../types/newsroom'
 import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, NewsroomTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
@@ -100,6 +101,18 @@ export const toRequirementFix = (section: RequirementFixSection): RouteLocationN
 
 /** The Newsroom page; without a tab it is the feed. */
 export const toNewsroom = (tab?: NewsroomTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.newsroom, params: tab ? { tab } : {} })
+
+/** The Following tab on one kind: the brief's topics and editions, or the watches that alert. */
+export const toFollowing = (kind: 'brief' | 'alerts'): RouteLocationNamedRaw => ({ ...toNewsroom('following'), query: { kind } })
+
+/** The Following tab with the Follow form open, its words filled in (an alert by default, from a story). */
+export const toFollow = (text = '', mode: 'brief' | 'alerts' = 'alerts'): RouteLocationNamedRaw => ({ ...toNewsroom('following'), query: { kind: mode, follow: text } })
+
+/** The brief, at an edition and in it a section or a story when given, so a link from a card lands where it points. */
+export const toBrief = (place: BriefPlace = {}): RouteLocationNamedRaw => {
+  const query = Object.fromEntries(Object.entries(place).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))
+  return { name: ROUTE_NAMES.newsroom, params: {}, ...(Object.keys(query).length ? { query } : {}) }
+}
 
 /** The Reminders page; without a tab it is the list of reminders. */
 export const toReminders = (tab?: RemindersTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders, params: tab ? { tab } : {} })

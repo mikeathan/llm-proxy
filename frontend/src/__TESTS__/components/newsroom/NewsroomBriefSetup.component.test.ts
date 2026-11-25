@@ -7,7 +7,7 @@ import NewsroomBriefSetup from '../../../components/newsroom/NewsroomBriefSetup.
 import type { BriefEdition, BriefSource, BriefTopic } from '../../../types/newsroom'
 
 const topic: BriefTopic = { id: 1, name: 'Technology', queries: ['AI chips'] }
-const edition: BriefEdition = { id: 2, name: 'Morning', ready_by: '07:00', days: [1, 2, 3, 4, 5], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true }
+const edition: BriefEdition = { id: 2, name: 'Morning', ready_by: '07:00', days: [1, 2, 3, 4, 5], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true, stories_per_section: 5, top_stories: 4, repeat_after: '24h0m0s', max_story_age: '48h0m0s' }
 
 // A topic with nothing to read yet, to open in the editor.
 const fresh: BriefTopic = { id: 9, name: 'Fresh', category: 'News' }
@@ -25,7 +25,7 @@ const editionForm = (w: ReturnType<typeof mount>) => w.findAll('form').find((f) 
 const props = (over: Record<string, unknown> = {}) => ({
   topics: [topic], editions: [edition], settings: { model_calls_per_day: 0, default: 200, max: 2000 }, sources: catalog, saving: false, error: '',
   saveTopic: vi.fn().mockResolvedValue(true), saveEdition: vi.fn().mockResolvedValue(true), saveLimit: vi.fn().mockResolvedValue(true),
-  addSource: vi.fn().mockResolvedValue(true), removeSource: vi.fn().mockResolvedValue(true), ...over,
+  addSource: vi.fn().mockResolvedValue(true), removeSource: vi.fn().mockResolvedValue(true), importSources: vi.fn().mockResolvedValue({ added: 1, skipped: 0 }), ...over,
 })
 
 describe('NewsroomBriefSetup', () => {
@@ -338,5 +338,17 @@ describe('NewsroomBriefSetup', () => {
     await flushPromises()
     expect(w.find('[data-test="custom-feed"]').exists()).toBe(false)
     expect(lookupMock).not.toHaveBeenCalled()
+  })
+
+  it("imports a feed reader's list into My sources, leaving out what is already there", async () => {
+    const importSources = vi.fn().mockResolvedValue({ added: 1, skipped: 0 })
+    const w = mount(NewsroomBriefSetup, { props: props({ importSources }) })
+    const file = new File([`<opml version="2.0"><body><outline title="New feed" xmlUrl="https://new.example/rss"/><outline title="Daily" xmlUrl="${catalog.find((s) => !s.builtin)?.target ?? 'https://x.example'}"/></body></opml>`], 'list.opml', { type: 'text/xml' })
+    const input = w.get('[data-test="opml-import"]')
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+    expect(importSources).toHaveBeenCalledWith([{ label: 'New feed', target: 'https://new.example/rss' }])
+    expect(w.get('[data-test="opml-result"]').text()).toBe('1 added, 1 already in a list or refused')
   })
 })

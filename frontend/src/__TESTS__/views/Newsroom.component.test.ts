@@ -5,16 +5,20 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { ROUTE_NAMES } from '../../types/routes'
 import type { NewsroomDay, NewsroomWatch } from '../../types/newsroom'
 
-const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock, briefTopicsMock, deleteAllMock } = vi.hoisted(() => ({
-  briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
+const { watchesMock, feedMock, createMock, removeMock, markReadMock, clearMock, runMock, confirmMock, briefTopicsMock, deleteAllMock, createTopicMock, saveEditionMock, editionsMock, lookupMock } = vi.hoisted(() => ({
+  briefTopicsMock: vi.fn(), deleteAllMock: vi.fn(), createTopicMock: vi.fn(), saveEditionMock: vi.fn(), editionsMock: vi.fn(), lookupMock: vi.fn(), watchesMock: vi.fn(), feedMock: vi.fn(), createMock: vi.fn(), removeMock: vi.fn(), markReadMock: vi.fn(), clearMock: vi.fn(), runMock: vi.fn(), confirmMock: vi.fn(),
 }))
 vi.mock('../../services/newsroom/newsroomService', () => ({
-  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock },
+  NewsroomService: { watches: watchesMock, feed: feedMock, create: createMock, save: vi.fn(), remove: removeMock, markRead: markReadMock, clear: clearMock, run: runMock, lookup: lookupMock },
 }))
 vi.mock('../../services/newsroom/briefService', () => ({
-  BriefService: { editions: vi.fn().mockResolvedValue([]), topics: briefTopicsMock, deleteAll: deleteAllMock, issues: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
+  BriefService: { editions: editionsMock, createTopic: createTopicMock, saveEdition: saveEditionMock, topics: briefTopicsMock, deleteAll: deleteAllMock, issues: vi.fn().mockResolvedValue([]), jobs: vi.fn().mockResolvedValue([]), latest: vi.fn().mockResolvedValue([]), sources: vi.fn().mockResolvedValue([]), settings: vi.fn().mockResolvedValue({ model_calls_per_day: 0, default: 200, max: 2000 }) },
 }))
 vi.mock('../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
+// The brief's side column reads Model use and the chips; quiet answers keep the test off the network.
+vi.mock('../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
+vi.mock('../../services/automation/dispatcherService', () => ({ DispatcherService: { getGlobalActivity: vi.fn().mockResolvedValue([]) } }))
+vi.mock('../../services/netaudit/netauditService', () => ({ NetauditService: { alerts: vi.fn().mockResolvedValue({ items: [] }) } }))
 vi.mock('../../composables/models/useModels', () => ({
   useModels: () => ({ state: ref({ config: { communication: { connectors: { 'my-telegram': { type: 'telegram', enabled: true, settings: {} } } } } }) }),
 }))
@@ -30,14 +34,25 @@ const day = (): NewsroomDay => ({
   watches: [{ watch_id: 1, watch: 'Go releases', updates: 2, unread: 2, last_at: '2026-11-20T10:00:00Z', current: entry(2, 'Go 1.26 released'), earlier: [entry(1, 'Go 1.26 RC2')] }],
 })
 
-async function mountView(path = '/newsroom', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()]) {
+async function mountView(path = '/newsroom/alerts', watches: NewsroomWatch[] = [watch()], feed: NewsroomDay[] = [day()]) {
   watchesMock.mockResolvedValue(watches)
   feedMock.mockResolvedValue(feed)
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(briefs|watches|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/newsroom/:tab(alerts|following|settings)?', name: ROUTE_NAMES.newsroom, component: { template: '<div />' } }] })
   await router.push(path)
   const w = mount(NewsroomView, { global: { plugins: [router], stubs: { Icon: true, BrandMark: true, StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' } } } })
   await flushPromises()
   return { w, router }
+}
+// The full watch form is reached from the Follow form, for every option.
+async function openWatchForm(w: ReturnType<typeof mount>) {
+  await w.get('[data-test="follow-open"]').trigger('click')
+  await flushPromises()
+  await w.get('[data-test="follow-advanced"]').trigger('click')
+  await flushPromises()
+}
+// The watches are on Following, under Alerts.
+async function mountWatches(watches: NewsroomWatch[] = [watch()]) {
+  return mountView('/newsroom/following?kind=alerts', watches)
 }
 const buttonByName = (w: ReturnType<typeof mount>, name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? b.text()))
 
@@ -46,35 +61,38 @@ beforeEach(() => {
   vi.clearAllMocks()
   confirmMock.mockResolvedValue(true)
   briefTopicsMock.mockResolvedValue([])
+  editionsMock.mockResolvedValue([])
+  lookupMock.mockResolvedValue({ found: true, sample: [{ title: 'A model shipped' }], choices: [] })
   deleteAllMock.mockResolvedValue(undefined)
   createMock.mockResolvedValue(watch())
   markReadMock.mockResolvedValue(undefined)
 })
 
 describe('NewsroomView', () => {
-  it('is a stack page: Feed, Briefs, Watches and a Settings tab that shows the stack switchboard', async () => {
-    const { w } = await mountView()
-    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Feed', 'Briefs', 'Watches', 'Settings'])
+  it('is a stack page that opens on the brief: Brief, Alerts, Following and a Settings tab that shows the stack switchboard', async () => {
+    const { w } = await mountView('/newsroom')
+    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Brief', 'Alerts', 'Following', 'Settings'])
+    expect(w.text()).toContain('No editions yet')
     const m = await mountView('/newsroom/settings')
     expect(m.w.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('newsroom')
   })
 
-  it('has a Briefs tab that says there are no editions yet and offers the setup', async () => {
-    const { w } = await mountView('/newsroom/briefs')
-    expect(w.text()).toContain('No editions yet')
-    await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
+  it('sets the brief up on Following, beside the watches, and the switch between them is in the address', async () => {
+    const { w, router } = await mountView('/newsroom/following')
     expect(w.text()).toContain('New section')
     expect(w.text()).toContain('Add an edition')
+    await w.findAll('[role="radio"]').find((b) => b.text() === 'Alerts')!.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.kind).toBe('alerts')
+    expect(w.text()).toContain('Go releases')
   })
 
   it('offers "Delete all briefs" only when there is something to delete, and only after a confirmation', async () => {
-    const empty = (await mountView('/newsroom/briefs')).w
-    await empty.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
+    const empty = (await mountView('/newsroom/following')).w
     expect(empty.find('[data-test="delete-all-briefs"]').exists()).toBe(false)
     briefTopicsMock.mockResolvedValue([{ id: 1, name: 'Go' }])
-    const { w } = await mountView('/newsroom/briefs')
-    expect(w.find('[data-test="delete-all-briefs"]').exists(), 'not on the reading view').toBe(false)
-    await w.findAll('button').find((b) => b.text() === 'Set up')!.trigger('click')
+    expect((await mountView('/newsroom')).w.find('[data-test="delete-all-briefs"]').exists(), 'not on the reading view').toBe(false)
+    const { w } = await mountView('/newsroom/following')
     confirmMock.mockResolvedValueOnce(false)
     await w.get('[data-test="delete-all-briefs"]').trigger('click')
     await flushPromises()
@@ -109,7 +127,7 @@ describe('NewsroomView', () => {
 
   it('folds older days to a header and opens one on a click', async () => {
     const older: NewsroomDay = { day: '2026-11-19', label: 'Yesterday', updates: 1, unread: 0, watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 0, last_at: '2026-11-19T10:00:00Z', current: { ...entry(9, 'Go 1.25.5 released', true), at: '2026-11-19T10:00:00Z' } }] }
-    const { w } = await mountView('/newsroom', [watch()], [day(), older])
+    const { w } = await mountView('/newsroom/alerts', [watch()], [day(), older])
     expect(w.text()).toContain('Yesterday')
     expect(w.text()).not.toContain('Go 1.25.5 released')
     await w.get('section[aria-label="Yesterday"] header button').trigger('click')
@@ -159,14 +177,14 @@ describe('NewsroomView', () => {
   })
 
   it('chooses a watch with a chip, and asks the server for that watch only', async () => {
-    const { w } = await mountView('/newsroom', [watch(), watch({ id: 2, name: 'Security' })])
+    const { w } = await mountView('/newsroom/alerts', [watch(), watch({ id: 2, name: 'Security' })])
     await w.findAll('[data-test="watch-chips"] button').find((b) => b.text() === 'Security')!.trigger('click')
     await flushPromises()
     expect(feedMock.mock.calls[feedMock.mock.calls.length - 1]![0]).toMatchObject({ watch: 2 })
   })
 
   it('says so when a filter leaves nothing to show', async () => {
-    const { w } = await mountView('/newsroom', [watch(), watch({ id: 2, name: 'Security' })])
+    const { w } = await mountView('/newsroom/alerts', [watch(), watch({ id: 2, name: 'Security' })])
     feedMock.mockResolvedValue([])
     await pickPeriod(w, '1')
     expect(w.get('[data-test="feed-filter-empty"]').text()).toContain('Nothing here')
@@ -182,14 +200,13 @@ describe('NewsroomView', () => {
   })
 
   it('asks to add a first watch when none is followed', async () => {
-    const { w } = await mountView('/newsroom', [], [])
+    const { w } = await mountView('/newsroom/alerts', [], [])
     expect(w.text()).toContain('You follow nothing yet')
   })
 
   it('adds a feed-only watch from the form', async () => {
-    const { w } = await mountView('/newsroom/watches')
-    await buttonByName(w, /New watch/)!.trigger('click')
-    await flushPromises()
+    const { w } = await mountWatches()
+    await openWatchForm(w)
     await w.get('form input[type="text"]').setValue('LLM news')
     const inputs = w.findAll('form input[type="text"]')
     await inputs[1]!.setValue('https://example.com/feed.xml')
@@ -201,9 +218,8 @@ describe('NewsroomView', () => {
   })
 
   it('starts from a suggestion for what to look for and sends the keywords as lists', async () => {
-    const { w } = await mountView('/newsroom/watches')
-    await buttonByName(w, /New watch/)!.trigger('click')
-    await flushPromises()
+    const { w } = await mountWatches()
+    await openWatchForm(w)
     await buttonByName(w, /Security problems/)!.trigger('click')
     const inputs = w.findAll('form input[type="text"]')
     expect((inputs[0]!.element as HTMLInputElement).value).toBe('Security')
@@ -220,16 +236,16 @@ describe('NewsroomView', () => {
 
   it('shows what a watch looks for, and the reason and first-check mark on a finding', async () => {
     const found = { ...entry(1, 'Qwen4 released'), why: 'a new model release', first: true }
-    const { w } = await mountView('/newsroom', [watch({ look_for: 'new models' })], [{ ...day(), watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 1, last_at: '2026-11-20T10:00:00Z', current: found }] }])
+    const { w } = await mountView('/newsroom/alerts', [watch({ look_for: 'new models' })], [{ ...day(), watches: [{ watch_id: 1, watch: 'Go releases', updates: 1, unread: 1, last_at: '2026-11-20T10:00:00Z', current: found }] }])
     await w.get('article button[aria-expanded]').trigger('click')
     expect(w.text()).toContain('Why: a new model release')
     expect(w.text()).toContain('First check')
-    await mountView('/newsroom/watches', [watch({ look_for: 'new models' })]).then(({ w: p }) => expect(p.text()).toContain('Looking for: new models'))
+    await mountWatches([watch({ look_for: 'new models' })]).then(({ w: p }) => expect(p.text()).toContain('Looking for: new models'))
   })
 
   it('folds the existing sources of a watch that has several, and opens one on a click', async () => {
     const many = watch({ sources: [{ kind: 'feed', target: 'https://a.example/feed' }, { kind: 'telegram', target: 'aipost' }, { kind: 'hackernews', target: 'rust' }] })
-    const { w } = await mountView('/newsroom/watches', [many])
+    const { w } = await mountWatches([many])
     await buttonByName(w, /Edit/)!.trigger('click')
     await flushPromises()
     const folded = () => w.findAll('form fieldset > div').map((d) => d.find('div.flex-col').attributes('style') ?? '')
@@ -240,9 +256,8 @@ describe('NewsroomView', () => {
   })
 
   it('does not send a watch with no name or no source', async () => {
-    const { w } = await mountView('/newsroom/watches')
-    await buttonByName(w, /New watch/)!.trigger('click')
-    await flushPromises()
+    const { w } = await mountWatches()
+    await openWatchForm(w)
     await w.get('form').trigger('submit')
     await flushPromises()
     expect(createMock).not.toHaveBeenCalled()
@@ -250,7 +265,7 @@ describe('NewsroomView', () => {
 
   it('lists the watches with their last result and checks one now', async () => {
     runMock.mockResolvedValue({ watch_id: 1, status: 'nothing_new', detail: '', new: 0 })
-    const { w } = await mountView('/newsroom/watches', [watch({ last_detail: 'source failing: timeout' })])
+    const { w } = await mountWatches([watch({ last_detail: 'source failing: timeout' })])
     expect(w.text()).toContain('Go releases')
     expect(w.text()).toContain('Every hour')
     expect(w.text()).toContain('Feed only')
@@ -263,7 +278,7 @@ describe('NewsroomView', () => {
   it('says the check is running on that watch while it works, then goes back', async () => {
     let finish: (v: unknown) => void = () => {}
     runMock.mockReturnValue(new Promise((r) => { finish = r }))
-    const { w } = await mountView('/newsroom/watches', [watch()])
+    const { w } = await mountWatches([watch()])
     await buttonByName(w, /Check now/)!.trigger('click')
     await flushPromises()
     expect(buttonByName(w, /Checking/)).toBeTruthy()
@@ -276,11 +291,46 @@ describe('NewsroomView', () => {
 
   it('asks before it deletes a watch, and does nothing when declined', async () => {
     confirmMock.mockResolvedValue(false)
-    const { w } = await mountView('/newsroom/watches')
+    const { w } = await mountWatches()
     await buttonByName(w, /Delete/)!.trigger('click')
     await flushPromises()
     expect(confirmMock).toHaveBeenCalled()
     expect(removeMock).not.toHaveBeenCalled()
   })
 
+
+  it('follows something from one form: in the brief and as an alert, joining the brief that reads its section', async () => {
+    const edition = { id: 2, name: 'Morning', ready_by: '07:00', days: [], collect_every: '2h0m0s', collect_for: '12h0m0s', enabled: true, sections: [{ kind: 'news', topic_id: 1 }], stories_per_section: 5, top_stories: 4, repeat_after: '24h0m0s', max_story_age: '48h0m0s' }
+    const ai = { id: 1, name: 'AI', category: 'Technology', queries: ['AI'] }
+    const added = { id: 9, name: 'open weights', category: 'Technology', queries: ['open weights'] }
+    briefTopicsMock.mockResolvedValue([ai])
+    editionsMock.mockResolvedValue([edition])
+    createTopicMock.mockImplementation(async () => {
+      briefTopicsMock.mockResolvedValue([ai, added])
+      return added
+    })
+    saveEditionMock.mockResolvedValue(edition)
+    const { w, router } = await mountView('/newsroom/following')
+    await w.get('[data-test="follow-open"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-test="follow-text"]').setValue('open weights')
+    await w.get('[data-test="follow-preview"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-test="follow-preview-list"]').text()).toContain('A model shipped')
+    await w.get('[data-mode="both"]').trigger('click')
+    await w.get('[data-test="follow-section"]').setValue('Technology')
+    await w.get('[data-test="follow-form"]').trigger('submit')
+    await flushPromises()
+    expect(createTopicMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'open weights', category: 'Technology', queries: ['open weights'] }))
+    expect(saveEditionMock).toHaveBeenCalledWith(2, expect.objectContaining({ sections: [{ kind: 'news', topic_id: 1 }, { kind: 'news', topic_id: 9 }] }))
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'open weights', sources: [{ kind: 'newssearch', target: 'open weights' }] }))
+    expect(router.currentRoute.value.query.follow).toBeUndefined()
+  })
+
+  it('opens the Follow form with a story\'s words, as an alert', async () => {
+    const { w } = await mountView('/newsroom/following?kind=alerts&follow=fed%20rates')
+    expect((w.get('[data-test="follow-text"]').element as HTMLInputElement).value).toBe('fed rates')
+    expect(w.get('[data-mode="alerts"]').attributes('aria-checked')).toBe('true')
+    expect(lookupMock).toHaveBeenCalledWith({ kind: 'newssearch', target: 'fed rates' }, expect.anything())
+  })
 })

@@ -63,7 +63,7 @@ func (p *Publisher) Tick(ctx context.Context) ([]Made, error) {
 			}
 			continue
 		}
-		is, err := p.make(ctx, e.ID, slot)
+		is, err := p.make(ctx, e.ID, slot, nil)
 		if errors.Is(err, ErrNotFound) {
 			continue // the owner deleted the edition while this pass ran
 		}
@@ -91,12 +91,12 @@ func (p *Publisher) dueSlot(e Edition, now time.Time) (time.Time, error) {
 }
 
 // MakeNow writes the edition now, whatever the schedule says, and stores it with no ready time, so it never stands in for a scheduled one.
-func (p *Publisher) MakeNow(ctx context.Context, editionID int64) (Issue, error) {
-	return p.make(ctx, editionID, time.Time{})
+func (p *Publisher) MakeNow(ctx context.Context, editionID int64, progress Progress) (Issue, error) {
+	return p.make(ctx, editionID, time.Time{}, progress)
 }
 
 // make writes and stores one edition for a ready time (the zero time for a manual one).
-func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Time) (Issue, error) {
+func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Time, progress Progress) (Issue, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	snap := p.Store.Snapshot()
@@ -110,7 +110,7 @@ func (p *Publisher) make(ctx context.Context, editionID int64, readyFor time.Tim
 		return Issue{}, ErrNotFound
 	}
 	now := p.now()
-	is := Compose(ctx, ComposeInput{Edition: *edition, Topics: snap.Topics, Pool: snap.Pool, Shown: snap.Shown, Model: p.Model, Now: now})
+	is := Compose(ctx, ComposeInput{Edition: *edition, Topics: snap.Topics, Pool: snap.Pool, Shown: snap.Shown, Model: p.Model, Now: now, Progress: progress})
 	is.ReadyFor = readyFor.UTC()
 	if edition.Home && p.Home != nil {
 		is.Home = p.Home(ctx)

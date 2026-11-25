@@ -98,14 +98,15 @@ func (c *Collector) CollectNow(ctx context.Context, id int64) (Outcome, error) {
 
 // CollectStale collects the topics of an edition that were never collected or not within its CollectEvery, so "write it now" does not write from an empty
 // pool. A topic that was collected recently is left alone. It returns what each collected topic did.
-func (c *Collector) CollectStale(ctx context.Context, editionID int64) ([]Outcome, error) {
+func (c *Collector) CollectStale(ctx context.Context, editionID int64, progress Progress) ([]Outcome, error) {
 	e, err := c.Store.Edition(editionID)
 	if err != nil {
 		return nil, err
 	}
 	now := c.now()
 	var out []Outcome
-	for _, s := range e.Sections {
+	for i, s := range e.Sections {
+		progress.tell(Step{Stage: StageReading, Done: i, Total: len(e.Sections)})
 		t, err := c.Store.Topic(s.TopicID)
 		if errors.Is(err, ErrNotFound) {
 			continue

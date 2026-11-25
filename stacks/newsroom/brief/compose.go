@@ -16,11 +16,12 @@ import (
 // Bounds on writing an edition: how much the model is shown and how much of its own writing is kept.
 const (
 	CandidatesPerSection = 15
-	StoriesPerSection    = 5
-	TopStories           = 4
-	// CandidateMaxAge is how old a story may be and still be a candidate; a story with no posted time counts from when it was first seen.
+	// StoriesPerSection and TopStories are the defaults of an edition's own settings (Edition.Reading).
+	StoriesPerSection = 5
+	TopStories        = 4
+	// CandidateMaxAge is the default of how old a story may be and still be a candidate; a story with no posted time counts from when it was first seen.
 	CandidateMaxAge = 48 * time.Hour
-	// ShownWindow is how long a story shown in an edition is not shown again, unless more outlets report it.
+	// ShownWindow is the default of how long a story shown in an edition is not shown again, unless more outlets report it.
 	ShownWindow     = 24 * time.Hour
 	MaxHeadlineRune = 90
 	MaxSummaryRune  = 240
@@ -134,17 +135,23 @@ type ComposeInput struct {
 	// Model may be nil: the edition is then made from the pool alone, ranked by outlets.
 	Model Model
 	Now   time.Time
+	// Progress is told each section before it is written, and the top stories last; nil tells no one.
+	Progress Progress
 }
 
 // Compose writes one edition: for each section it caps the candidates, asks the model to choose and word the best, keeps only what cites a shown story,
 // then asks once for the top stories across them. It never fails: a model that is missing, spent or wrong leaves the section ranked by outlets under
 // the stories' own headlines, and the section says so.
 func Compose(ctx context.Context, in ComposeInput) Issue {
-	c := composer{in: in, shown: shownIndex(in.Shown, in.Now), placed: map[string]bool{}}
+	in.Edition = in.Edition.Reading()
+	c := composer{in: in, shown: shownIndex(in.Shown, in.Now, in.Edition.RepeatAfter), placed: map[string]bool{}}
 	issue := Issue{EditionID: in.Edition.ID, Name: in.Edition.Name, MadeAt: in.Now.UTC()}
-	for _, g := range c.groups() {
+	groups := c.groups()
+	for i, g := range groups {
+		in.Progress.tell(Step{Stage: StageWriting, Done: i, Total: len(groups) + 1, Section: g.name})
 		issue.Sections = append(issue.Sections, c.section(ctx, g))
 	}
+	in.Progress.tell(Step{Stage: StageWriting, Done: len(groups), Total: len(groups) + 1})
 	issue.Top = c.top(ctx, issue.Sections)
 	issue.OutletsRead = c.outletsRead()
 	issue.ModelCalls = c.calls
@@ -159,7 +166,7 @@ func (c *composer) outletsRead() int {
 	}
 	seen := map[string]bool{}
 	for _, p := range c.in.Pool {
-		if !slices.ContainsFunc(p.Topics, func(id int64) bool { return slices.Contains(ids, id) }) || c.in.Now.Sub(storyTime(p)) > CandidateMaxAge {
+		if !slices.ContainsFunc(p.Topics, func(id int64) bool { return slices.Contains(ids, id) }) || c.in.Now.Sub(storyTime(p)) > c.in.Edition.MaxStoryAge {
 			continue
 		}
 		for _, r := range p.Reports {
@@ -227,10 +234,10 @@ func (c *composer) groups() []group {
 	return out
 }
 
-func shownIndex(in []Shown, now time.Time) map[string]Shown {
+func shownIndex(in []Shown, now time.Time, window time.Duration) map[string]Shown {
 	out := map[string]Shown{}
 	for _, s := range in {
-		if now.Sub(s.At) <= ShownWindow && s.At.After(out[s.Key].At) {
+		if now.Sub(s.At) <= window && s.At.After(out[s.Key].At) {
 			out[s.Key] = s
 		}
 	}
@@ -249,7 +256,7 @@ type candidate struct {
 func (c *composer) candidates(topicIDs []int64) []candidate {
 	var out []candidate
 	for _, p := range c.in.Pool {
-		if !slices.ContainsFunc(p.Topics, func(id int64) bool { return slices.Contains(topicIDs, id) }) || c.in.Now.Sub(storyTime(p)) > CandidateMaxAge {
+		if !slices.ContainsFunc(p.Topics, func(id int64) bool { return slices.Contains(topicIDs, id) }) || c.in.Now.Sub(storyTime(p)) > c.in.Edition.MaxStoryAge {
 			continue
 		}
 		if c.isPlaced(p.Key) {
@@ -362,13 +369,14 @@ func joinNotes(a, b string) string {
 
 // write turns the candidates into the section's stories: the model's choice when it gave a usable one, else the code's ranking. The note says which.
 func (c *composer) write(ctx context.Context, name string, cands []candidate) ([]Story, string) {
-	answer, why := c.ask(ctx, fmt.Sprintf(sectionSystem, StoriesPerSection), sectionPrompt(name, cands))
+	answer, why := c.ask(ctx, fmt.Sprintf(sectionSystem, c.in.Edition.StoriesPerSection), sectionPrompt(name, cands))
+	n := c.in.Edition.StoriesPerSection
 	if why != "" {
-		return plainStories(cands), why
+		return plainStories(cands, n), why
 	}
-	stories := checkedStories(answer, cands)
+	stories := checkedStories(answer, cands, n)
 	if len(stories) == 0 {
-		return plainStories(cands), "the model's answer could not be used, so these are ranked by how many outlets reported them"
+		return plainStories(cands, n), "the model's answer could not be used, so these are ranked by how many outlets reported them"
 	}
 	return stories, ""
 }
@@ -429,7 +437,7 @@ type rawStories struct {
 
 // checkedStories keeps only the entries that cite a shown candidate (once each) and bounds the model's words. A headline-only story keeps its own
 // headline and has no summary.
-func checkedStories(answer string, cands []candidate) []Story {
+func checkedStories(answer string, cands []candidate, most int) []Story {
 	obj, ok := sources.JSONObject(answer)
 	var raw rawStories
 	if !ok || json.Unmarshal([]byte(obj), &raw) != nil {
@@ -438,7 +446,7 @@ func checkedStories(answer string, cands []candidate) []Story {
 	used := map[int]bool{}
 	var out []Story
 	for _, r := range raw.Stories {
-		if r.Item < 1 || r.Item > len(cands) || used[r.Item] || len(out) >= StoriesPerSection {
+		if r.Item < 1 || r.Item > len(cands) || used[r.Item] || len(out) >= most {
 			continue
 		}
 		used[r.Item] = true
@@ -455,9 +463,9 @@ func checkedStories(answer string, cands []candidate) []Story {
 }
 
 // plainStories is the section with no model's help: the best candidates under their own headlines.
-func plainStories(cands []candidate) []Story {
-	out := make([]Story, 0, min(len(cands), StoriesPerSection))
-	for _, c := range cands[:min(len(cands), StoriesPerSection)] {
+func plainStories(cands []candidate, most int) []Story {
+	out := make([]Story, 0, min(len(cands), most))
+	for _, c := range cands[:min(len(cands), most)] {
 		out = append(out, storyOf(c))
 	}
 	return out
@@ -485,7 +493,8 @@ func (c *composer) top(ctx context.Context, sections []IssueSection) []Story {
 		all = append(all, s.Stories...)
 	}
 	ranked := rankedByOutlets(all)
-	if len(all) <= TopStories {
+	most := c.in.Edition.TopStories
+	if len(all) <= most {
 		return ranked
 	}
 	var b strings.Builder
@@ -494,14 +503,14 @@ func (c *composer) top(ctx context.Context, sections []IssueSection) []Story {
 		fmt.Fprintf(&b, "%d. %s (%d outlets)\n", i+1, s.Headline, len(s.Outlets))
 	}
 	b.WriteString("</stories>")
-	answer, why := c.ask(ctx, fmt.Sprintf(topSystem, TopStories), b.String())
+	answer, why := c.ask(ctx, fmt.Sprintf(topSystem, most), b.String())
 	if why != "" {
-		return ranked[:TopStories]
+		return ranked[:most]
 	}
-	if picked := checkedTop(answer, all); len(picked) > 0 {
+	if picked := checkedTop(answer, all, most); len(picked) > 0 {
 		return picked
 	}
-	return ranked[:TopStories]
+	return ranked[:most]
 }
 
 func rankedByOutlets(all []Story) []Story {
@@ -518,7 +527,7 @@ func rankedByOutlets(all []Story) []Story {
 	return out
 }
 
-func checkedTop(answer string, all []Story) []Story {
+func checkedTop(answer string, all []Story, most int) []Story {
 	obj, ok := sources.JSONObject(answer)
 	var raw struct {
 		Top []int `json:"top"`
@@ -529,7 +538,7 @@ func checkedTop(answer string, all []Story) []Story {
 	used := map[int]bool{}
 	var out []Story
 	for _, n := range raw.Top {
-		if n < 1 || n > len(all) || used[n] || len(out) >= TopStories {
+		if n < 1 || n > len(all) || used[n] || len(out) >= most {
 			continue
 		}
 		used[n] = true

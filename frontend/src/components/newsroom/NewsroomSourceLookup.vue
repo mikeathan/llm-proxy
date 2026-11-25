@@ -88,7 +88,7 @@ const when = (iso?: string): string => (iso ? new Date(iso).toLocaleDateString(u
       </div>
 
       <div v-else-if="preview" class="flex flex-col gap-1" data-test="lookup-problem">
-        <p role="status" class="m-0 text-[length:var(--text-small)] text-state-warning">{{ preview.problem }}</p>
+        <p role="status" class="m-0 text-[length:var(--text-small)] text-state-running">{{ preview.problem }}</p>
         <template v-if="preview.choices.length">
           <span class="text-[length:var(--text-small)] font-medium text-secondary">{{ LOOKUP_PICK_LABEL }}</span>
           <div class="flex flex-col items-start gap-1">

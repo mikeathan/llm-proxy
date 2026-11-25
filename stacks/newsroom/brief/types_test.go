@@ -107,3 +107,25 @@ func TestEditionCronMeansReadyByOnTheChosenDays(t *testing.T) {
 		t.Errorf("days are sorted and de-duplicated: %v", days)
 	}
 }
+
+// The reading settings default when empty and are refused out of range.
+func TestEditionNormalize_ReadingSettings(t *testing.T) {
+	base := Edition{Name: "Morning", ReadyBy: "07:00", Sections: []Section{{Kind: SectionNews, TopicID: 1}}}
+	got, err := base.Normalize(exists(1))
+	if err != nil || got.StoriesPerSection != StoriesPerSection || got.TopStories != TopStories || got.RepeatAfter != ShownWindow || got.MaxStoryAge != CandidateMaxAge {
+		t.Fatalf("defaults are filled: %+v, %v", got, err)
+	}
+	for _, bad := range []func(*Edition){
+		func(e *Edition) { e.StoriesPerSection = MaxStoriesPerSection + 1 },
+		func(e *Edition) { e.TopStories = MaxTopStories + 1 },
+		func(e *Edition) { e.RepeatAfter = MaxRepeatAfter + time.Hour },
+		func(e *Edition) { e.MaxStoryAge = time.Hour },
+		func(e *Edition) { e.MaxStoryAge = PoolRetention + time.Hour },
+	} {
+		e := base
+		bad(&e)
+		if _, err := e.Normalize(exists(1)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%+v must be refused, got %v", e, err)
+		}
+	}
+}

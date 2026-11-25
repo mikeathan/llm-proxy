@@ -25,10 +25,10 @@ const whenWords = (d: Date, now: Date): string => {
 export function briefStatus(edition: Pick<BriefEdition, 'ready_by' | 'days' | 'enabled'>, issue: Pick<BriefIssue, 'made_at' | 'ready_for'> | null, now = new Date()): BriefStatus {
   const next = edition.enabled === false ? null : nextReady(edition, now)
   const nextWords = next ? `The next one is written automatically ${whenWords(next, now)}.` : 'This brief is paused, so none is written automatically.'
-  if (!issue) return { tone: 'none', title: 'No brief written yet', detail: nextWords }
+  if (!issue) return { tone: 'none', title: 'No brief written yet', detail: nextWords, next: nextWords }
   const made = new Date(issue.made_at)
   const how = issue.ready_for ? 'written automatically' : 'written by hand'
-  if (sameDay(made, now)) return { tone: 'fresh', title: `Today's brief`, detail: `It was ${how} at ${clock(made)}. Nothing to press. ${nextWords}` }
+  if (sameDay(made, now)) return { tone: 'fresh', title: `Today's brief`, detail: `It was ${how} at ${clock(made)}. Nothing to press. ${nextWords}`, next: nextWords }
   const day = made.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-  return { tone: 'old', title: `This brief is from ${day}`, detail: `It is not today's. ${nextWords} You do not have to press anything.` }
+  return { tone: 'old', title: `This brief is from ${day}`, detail: `It is not today's. ${nextWords} You do not have to press anything.`, next: nextWords }
 }

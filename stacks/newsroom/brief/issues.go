@@ -26,7 +26,7 @@ type Snapshot struct {
 func (s *Store) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Snapshot{Topics: slices.Clone(s.doc.Topics), Editions: slices.Clone(s.doc.Editions), Pool: slices.Clone(s.doc.Pool), Shown: slices.Clone(s.doc.Shown)}
+	return Snapshot{Topics: slices.Clone(s.doc.Topics), Editions: slices.Clone(s.doc.Editions), Pool: slices.Clone(s.pool), Shown: slices.Clone(s.doc.Shown)}
 }
 
 // SaveIssue stores an edition as it was made, gives it its id, records every story in it as shown, and drops what is past its retention.
@@ -45,7 +45,7 @@ func (s *Store) SaveIssue(is Issue, now time.Time) (Issue, error) {
 func recordShown(shown []Shown, is Issue, now time.Time) []Shown {
 	latest := map[string]Shown{}
 	for _, sh := range shown {
-		if now.Sub(sh.At) <= ShownWindow {
+		if now.Sub(sh.At) <= MaxRepeatAfter { // kept for the longest window an edition may ask for
 			latest[sh.Key] = sh
 		}
 	}
@@ -99,6 +99,19 @@ func (s *Store) Issue(id int64) (Issue, error) {
 		}
 	}
 	return Issue{}, ErrNotFound
+}
+
+// IssueSummary is one written edition in a list: enough to pick it, never its stories.
+type IssueSummary struct {
+	ID        int64     `json:"id"`
+	EditionID int64     `json:"edition_id"`
+	MadeAt    time.Time `json:"made_at"`
+	Read      bool      `json:"read"`
+}
+
+// Summary is the issue as a list shows it.
+func (is Issue) Summary() IssueSummary {
+	return IssueSummary{ID: is.ID, EditionID: is.EditionID, MadeAt: is.MadeAt, Read: !is.ReadAt.IsZero()}
 }
 
 // LatestIssue is the newest edition made for one edition, and whether it was read: what a tab's dot and the dashboard card ask, without the issue itself.

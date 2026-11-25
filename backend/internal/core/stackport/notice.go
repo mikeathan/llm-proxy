@@ -57,7 +57,7 @@ const (
 const msgBriefEmpty = "a brief summary needs a name and at least one story or home fact"
 
 // BriefPagePath is where the Briefs page lives in the admin UI.
-const BriefPagePath = "/newsroom/briefs"
+const BriefPagePath = "/newsroom"
 
 // BriefPage is the address of the Briefs page for a connector whose stored webhook address is given: that address's own origin, and only when it is https,
 // since a plain address cannot be opened safely from a phone away from home. A webhook address that is empty, not https or without a host gives "" and the

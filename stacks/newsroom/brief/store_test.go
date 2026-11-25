@@ -141,3 +141,55 @@ func TestStore_ABadFileIsSetAsideAndTheStoreStartsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The pool has its own file: collecting writes it, reading a brief or changing an edition does not, and both come back after a restart.
+func TestStore_ThePoolIsItsOwnFile(t *testing.T) {
+	s, dir := newStore(t)
+	tp, err := s.CreateTopic(Topic{Name: "Economy", Queries: []string{"rates"}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordCollection(tp.ID, []sources.Item{{Title: "Central bank holds rates", Link: "https://example.com/a"}}, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dir.files[PoolFileName]; !ok {
+		t.Fatal("collecting writes the pool's file")
+	}
+	delete(dir.files, PoolFileName)
+	is, _ := s.SaveIssue(Issue{EditionID: 1, MadeAt: time.Now()}, time.Now())
+	if err := s.MarkRead(is.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dir.files[PoolFileName]; ok {
+		t.Fatal("reading a brief does not rewrite the pool")
+	}
+	if _, err := s.RecordCollection(tp.ID, nil, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewStore(dir)
+	if err != nil || len(again.Pool()) != 1 || len(again.Topics()) != 1 {
+		t.Fatalf("both files come back: pool %d, topics %d, %v", len(again.Pool()), len(again.Topics()), err)
+	}
+	dir.files[PoolFileName] = []byte("{not json")
+	if again, err = NewStore(dir); err != nil || len(again.Pool()) != 0 || len(again.Topics()) != 1 {
+		t.Fatalf("a bad pool file is set aside alone: %v", err)
+	}
+}
+
+// A briefs.json with no pool file beside it (written before the pool had its own file, or the pool set aside) makes every topic due, so the next pass
+// reads them and an edition is not written from an empty pool.
+func TestStore_NoPoolFileMakesEveryTopicDue(t *testing.T) {
+	s, dir := newStore(t)
+	tp, _ := s.CreateTopic(Topic{Name: "Economy", Queries: []string{"rates"}}, time.Now())
+	if _, err := s.RecordCollection(tp.ID, nil, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := NewStore(dir); kept.Topics()[0].LastCollected.IsZero() {
+		t.Fatal("with its pool file, a topic keeps when it was read")
+	}
+	delete(dir.files, PoolFileName)
+	again, err := NewStore(dir)
+	if err != nil || !again.Topics()[0].LastCollected.IsZero() {
+		t.Fatalf("without a pool file the topic is due again: %+v, %v", again.Topics(), err)
+	}
+}

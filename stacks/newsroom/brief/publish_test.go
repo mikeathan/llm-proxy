@@ -81,7 +81,7 @@ func TestPublisher_AnEditionSwitchedOffIsNotWritten(t *testing.T) {
 func TestPublisher_TheNextEditionDoesNotRepeatTheLast(t *testing.T) {
 	r, p, _ := publishRig(t, nil)
 	r.at(6, 0)
-	first, err := p.MakeNow(context.Background(), 2)
+	first, err := p.MakeNow(context.Background(), 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPublisher_TheNextEditionDoesNotRepeatTheLast(t *testing.T) {
 
 func TestPublisher_AMissingEditionIsNotFound(t *testing.T) {
 	_, p, _ := publishRig(t, nil)
-	if _, err := p.MakeNow(context.Background(), 999); err == nil {
+	if _, err := p.MakeNow(context.Background(), 999, nil); err == nil {
 		t.Error("no such edition")
 	}
 }
@@ -110,7 +110,7 @@ func TestPublisher_AMissingEditionIsNotFound(t *testing.T) {
 func TestStore_IssuesPersistAndAreRetained(t *testing.T) {
 	r, p, _ := publishRig(t, nil)
 	r.at(6, 0)
-	is, err := p.MakeNow(context.Background(), 2)
+	is, err := p.MakeNow(context.Background(), 2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPublisher_HomeBlockIsStoredAndNeverShownToTheModel(t *testing.T) {
 	line := stacksdk.HomeLine{ID: "network_online", Count: 3, Words: "SECRET-HOME-WORDS"}
 	p.Home = func(context.Context) []stacksdk.HomeLine { return []stacksdk.HomeLine{line} }
 	r.at(6, 45)
-	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil)
 	if err != nil || len(is.Home) != 1 || is.Home[0] != line {
 		t.Fatalf("home block: %+v, %v", is.Home, err)
 	}
@@ -151,7 +151,7 @@ func TestPublisher_HomeBlockIsStoredAndNeverShownToTheModel(t *testing.T) {
 	r2, p2, _ := publishRig(t, nil)
 	p2.Home = func(context.Context) []stacksdk.HomeLine { return []stacksdk.HomeLine{line} }
 	r2.at(6, 45)
-	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID); len(is.Home) != 0 {
+	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID, nil); len(is.Home) != 0 {
 		t.Errorf("an edition that did not ask has no block: %+v", is.Home)
 	}
 }
@@ -166,7 +166,7 @@ func TestPublisher_WatchesBlockOnlyWhenAsked(t *testing.T) {
 	r, p, _ := publishRig(t, func(e *Edition) { e.Watches = true })
 	p.Watches = hook
 	r.at(6, 45)
-	first, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	first, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil)
 	if err != nil || len(first.Watches) != 1 || first.Watches[0].Headline != "A model shipped" {
 		t.Fatalf("the block is missing: %+v, %v", first.Watches, err)
 	}
@@ -174,7 +174,7 @@ func TestPublisher_WatchesBlockOnlyWhenAsked(t *testing.T) {
 		t.Errorf("the first edition looks back %s, want %s", got, WatchesWindow)
 	}
 	r.at(8, 0)
-	if _, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID); err != nil {
+	if _, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !windows[1][0].Equal(first.MadeAt) {
@@ -184,7 +184,7 @@ func TestPublisher_WatchesBlockOnlyWhenAsked(t *testing.T) {
 	r2, p2, _ := publishRig(t, nil)
 	p2.Watches = hook
 	r2.at(6, 45)
-	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID); len(is.Watches) != 0 {
+	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID, nil); len(is.Watches) != 0 {
 		t.Errorf("an edition that did not ask has no block: %+v", is.Watches)
 	}
 }

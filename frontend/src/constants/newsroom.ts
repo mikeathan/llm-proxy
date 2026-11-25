@@ -1,11 +1,14 @@
-import type { BriefStarter, SourceGuide, SourceKind, SourceKindInfo, WatchStatus } from '../types/newsroom'
+import type { BriefReading, BriefStarter, BriefWriteStep, FollowMode, SourceGuide, SourceKind, SourceKindInfo, WatchStatus } from '../types/newsroom'
 import type { ChoiceOption, StatusState } from '../types/ui'
 
 // The words of the Newsroom screens.
 
 export const NEWSROOM_TITLE = 'Newsroom'
-export const NEWSROOM_SUBTITLE = 'What is new about the things you care about. Set up a watch once, or ask the assistant to.'
-export const NEWSROOM_TAB_LABELS = { feed: 'Feed', briefs: 'Briefs', watches: 'Watches', settings: 'Settings' } as const
+export const NEWSROOM_SUBTITLE = 'The news you choose, written up once or twice a day, and alerts the moment something you watch changes.'
+export const NEWSROOM_TAB_LABELS = { brief: 'Brief', alerts: 'Alerts', following: 'Following', settings: 'Settings' } as const
+/** The two kinds of thing you follow, on the Following tab: topics that go in the brief, and watches that alert you. */
+export const FOLLOWING_KIND_LABELS = { brief: 'In your brief', alerts: 'Alerts' } as const
+export const FOLLOWING_VIEW_LABEL = 'What you follow'
 export const NEWSROOM_LOAD_FAILED = 'The Newsroom could not be read.'
 export const NEWSROOM_ACTION_FAILED = 'The change could not be made.'
 export const NEWSROOM_RELOAD_HINT = 'Check that the service is running, then reload the page.'
@@ -260,10 +263,9 @@ export const NO_ISSUE_BODY = 'This edition is written shortly before its ready t
 export const MAKE_NOW_LABEL = 'Write it now'
 /** When a brief already exists the button makes another: it says so, since the page writes one by itself at the ready time. */
 export const MAKE_ANOTHER_LABEL = 'Write a new one now'
-export const MAKING_LABEL = 'Writing…'
 export const TOP_STORIES_LABEL = 'Top stories'
 export const SECTION_EMPTY = 'Nothing new here since the last edition.'
-export const SECTION_NEVER_READ = 'Nothing has been read for this topic yet. Press "Read now" on Set up, or wait for the next collection.'
+export const SECTION_NEVER_READ = 'Nothing has been read for this topic yet. Press "Read now" on the topic under Following, or wait for the next collection.'
 export const UPDATE_LABEL = 'Update'
 export const HEADLINE_ONLY_LABEL = 'Headline only'
 export const BRIEF_EDITION_LABEL = 'Edition'
@@ -280,8 +282,6 @@ export const briefAsOfWords = (when: string): string => `Collected ${when}`
 export const BRIEF_SECTION_SHOWN = 3
 export const SECTION_IN_TOP = 'This topic\'s stories are in the top stories above.'
 export const SECTION_HEADLINES_ONLY = 'These sources give headlines only, so there is no summary.'
-export const COLLAPSE_ALL_LABEL = 'Collapse all'
-export const EXPAND_ALL_LABEL = 'Expand all'
 export const showMoreWords = (n: number): string => `Show ${n} more`
 export const SHOW_FEWER_LABEL = 'Show fewer'
 export const LEAD_STORY_LABEL = 'Top story'
@@ -289,16 +289,14 @@ export const briefStoryCountWords = (n: number): string => `${n} ${n === 1 ? 'st
 /** A section's count: what the model wrote for it, and how many of those the top stories already show. */
 export const briefSectionCountWords = (total: number, inTop: number): string => (inTop > 0 ? `${briefStoryCountWords(total)} · ${inTop} in ${TOP_STORIES_LABEL}` : briefStoryCountWords(total))
 export const BRIEF_PROBLEMS_LABEL = 'Could not read'
-/** What to do about a source that could not be read: the brief goes on with what it collected; the fix is on the topic's Set up. */
+/** What to do about a source that could not be read: the brief goes on with what it collected; the fix is on the topic, under Following. */
 export const BRIEF_PROBLEMS_FIX = 'The brief used what it had already collected. Check the address on the topic, or remove the source.'
-export const BRIEF_PROBLEMS_ACTION = 'Open Set up'
+export const BRIEF_PROBLEMS_ACTION = 'Open Following'
 export const BRIEF_EARLIER_LABEL = 'Earlier briefs'
 export const briefEarlierOption = (when: string, latest: boolean): string => (latest ? `${when} (latest)` : when)
 export const briefOutletsWords = (n: number): string => `read from ${n} ${n === 1 ? 'outlet' : 'outlets'}`
 
 // Briefs setup.
-export const BRIEFS_TAB_LABELS = { read: 'Read', setup: 'Set up' } as const
-export const BRIEFS_VIEW_LABEL = 'Briefs'
 export const TOPICS_TITLE = 'Topics'
 export const EDITIONS_TITLE = 'Editions'
 export const NEW_TOPIC_LABEL = 'Add a topic'
@@ -397,7 +395,7 @@ export const HOME_FOLD_LABEL = 'Fold the Home facts'
 /** The header of the Home block: how many facts are serious and how many are worth a look. */
 export const homeStateWords = (critical: number, check: number): string =>
   [critical > 0 ? `${critical} critical` : '', check > 0 ? `${check} to check` : ''].filter(Boolean).join(' · ') || HOME_QUIET_LABEL
-export const WATCHES_BLOCK_LABEL = 'Your watches'
+export const WATCHES_BLOCK_LABEL = 'Alerts'
 export const WATCHES_SINCE_LAST = 'since the last edition'
 export const watchNewWords = (n: number): string => `${n} new`
 export const WATCH_SOURCE_PROBLEM = 'Source not read'
@@ -491,12 +489,6 @@ export const BRIEF_CARD_SET_UP = 'Set up a brief'
 export const BRIEF_CARD_WAITING = (ready: string): string => `Not written yet. It is ready at ${ready}.`
 export const BRIEF_CARD_OPEN = 'Read the whole brief'
 export const BRIEF_CARD_PICK_LABEL = 'Brief'
-export const BRIEF_CARD_TOP_TAB = 'Top stories'
-export const BRIEF_CARD_TABS_LABEL = 'Parts of the brief'
-export const BRIEF_CARD_SIDE_LABEL = 'Today'
-export const BRIEF_CARD_ALL_IN_BRIEF = (n: number): string => `All ${n} in the brief`
-export const BRIEF_CARD_HOME_QUIET = 'Home: all quiet'
-export const briefCardHomeCheck = (n: number): string => `Home: ${n} to check`
 export const TODAY_CARD_READ = 'Read the brief'
 export const BRIEF_CHIPS_LABEL = 'Needs a look elsewhere'
 export const briefFailedRunsWords = (n: number): string => (n === 1 ? '1 automation run failed in the last day' : `${n} automation runs failed in the last day`)
@@ -506,3 +498,80 @@ export const BRIEF_CARD_EMPTY_ISSUE = 'This brief has no stories.'
 export const briefCardCountWords = (stories: number, sections: number): string =>
   `${stories} ${stories === 1 ? 'story' : 'stories'}${sections > 1 ? ` in ${sections} sections` : ''}`
 export const briefCardLineWords = (name: string, stories: number): string => `${name} · ${stories} ${stories === 1 ? 'story' : 'stories'}`
+
+// A write by hand: the page follows it on the server until it ends.
+export const BRIEF_WRITE_POLL_MS = 2000
+export const writeStepWords = (s: BriefWriteStep): string => {
+  if (s.stage === 'reading') return s.total ? `Reading the sources (${Math.min(s.done + 1, s.total)} of ${s.total})…` : 'Reading the sources…'
+  if (s.section) return `Writing ${s.section} (${s.done + 1} of ${s.total})…`
+  return 'Choosing the top stories…'
+}
+
+// An edition's reading settings, under Fine-tune in the edition form. The defaults match the server's (brief/compose.go).
+export const DEFAULT_READING: BriefReading = { stories: 5, top: 4, repeatHours: 24, ageHours: 48 }
+export const READING_STORIES_OPTIONS = [3, 5, 7, 10] as const
+export const READING_TOP_OPTIONS = [3, 4, 5, 6, 8] as const
+export const READING_REPEAT_HOURS = [12, 24, 48, 72, 168] as const
+export const READING_AGE_HOURS = [12, 24, 48, 72] as const
+export const EDITION_FINE_TUNE_LABEL = 'Fine-tune'
+export const READING_STORIES_LABEL = 'Stories in each section'
+export const READING_TOP_LABEL = 'Top stories'
+export const READING_REPEAT_LABEL = 'Do not repeat a story for'
+export const READING_AGE_LABEL = 'Only stories newer than'
+export const READING_HINT = 'A story shown before comes back sooner when more outlets report it.'
+export const daysOrHoursWords = (h: number): string => (h % 24 === 0 ? `${h / 24} ${h === 24 ? 'day' : 'days'}` : `${h} hours`)
+
+// The brief as a page to read.
+export const BRIEF_INDEX_LABEL = 'In this brief'
+export const BRIEF_BESIDE_LABEL = 'Beside the news'
+export const BRIEF_KEYS_HINT = 'j and k move between stories · o opens one'
+export const BRIEF_END_WORDS = 'You are up to date.'
+export const BRIEF_PRINT_LABEL = 'Print'
+export const BRIEF_COPY_LABEL = 'Copy as text'
+export const BRIEF_COPIED = 'The brief is copied as text'
+export const BRIEF_COPY_FAILED = 'The brief could not be copied. Your browser did not allow it.'
+export const coverageWords = (n: number): string => `Reported by ${n} ${n === 1 ? 'outlet' : 'outlets'}`
+export const COVERAGE_TICKS = 8
+export const BRIEF_ATTENTION_LOOK = 'Look'
+
+// Following something from one form, a story's own words, and feedback on a story.
+export const FOLLOW_WORDS_MAX = 6
+export const MAX_TOPIC_QUERIES = 10
+export const MAX_TOPIC_IGNORE = 20
+export const STOP_WORDS: ReadonlySet<string> = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were', 'has', 'have', 'had', 'its', 'his', 'her', 'their', 'into', 'over', 'after', 'about', 'says', 'said', 'will', 'would', 'could', 'can', 'not', 'but', 'out', 'new', 'how', 'why', 'what', 'who', 'when', 'than', 'more', 'amid', 'as', 'all', 'you', 'your', 'our', 'his', 'she', 'him', 'they', 'them', 'off', 'up', 'down', 'just', 'now', 'get', 'gets', 'also', 'one', 'two', 'per', 'via', 'report', 'reports'])
+export const FOLLOW_LABEL = 'Follow'
+export const FOLLOW_TITLE = 'Follow something'
+export const FOLLOW_WHAT_LABEL = 'What do you want to follow?'
+export const FOLLOW_WHAT_PLACEHOLDER = 'For example: open-weights model releases'
+export const FOLLOW_HOW_LABEL = 'How do you want to hear about it?'
+export const FOLLOW_MODES: Readonly<Record<FollowMode, { label: string; hint: string }>> = {
+  brief: { label: 'In my brief', hint: 'Gathered through the day and written up in your brief, in the section you pick.' },
+  alerts: { label: 'Alert me at once', hint: 'Checked every hour. Anything new goes to Alerts, and to a connector if you choose one.' },
+  both: { label: 'Both', hint: 'Written up in your brief, and an alert as soon as something new appears.' },
+}
+export const FOLLOW_SECTION_LABEL = 'Section of the brief'
+export const FOLLOW_SECTION_HINT = 'A section you have, or a new one. Empty uses the words above.'
+export const FOLLOW_FEED_LABEL = 'Also read this feed (optional)'
+export const FOLLOW_LOOK_FOR_LABEL = 'Only items about (optional)'
+export const FOLLOW_LOOK_FOR_PLACEHOLDER = 'For example: a new model, not a benchmark'
+export const FOLLOW_CHANNEL_LABEL = 'Also tell me on'
+export const FOLLOW_PREVIEW_LABEL = 'Preview'
+export const FOLLOW_PREVIEW_HEADING = 'What a news search finds now'
+export const FOLLOW_PREVIEW_NONE = 'A news search finds nothing for these words right now. It may still find something later.'
+export const FOLLOW_SAVE_LABEL = 'Follow'
+export const followDoneWords = (mode: FollowMode, joined: number): string =>
+  mode === 'alerts' ? 'Following: alerts are on' : joined > 0 ? `Following: in ${joined === 1 ? 'your brief' : `${joined} briefs`}${mode === 'both' ? ' and in Alerts' : ''}` : `Following: the topic is added${mode === 'both' ? ' and alerts are on' : ''}. Add its section to a brief to read it there.`
+export const STORY_MORE_LABEL = 'More like this'
+export const STORY_LESS_LABEL = 'Less like this'
+export const STORY_FOLLOW_LABEL = 'Follow this story'
+export const STORY_TUNE_LABEL = 'Tune this story'
+export const storyMoreHint = (topic: string): string => `Pick the words: they become one more search of ${topic}.`
+export const storyLessHint = (topic: string): string => `Pick the words: a story that mentions one of them is skipped in ${topic} from now on.`
+export const storyTuneApply = (more: boolean): string => (more ? 'Add the search' : 'Skip these words')
+export const STORY_TUNE_FULL = 'That topic already has as many searches or skip words as it can hold, or these are already there. Change it under Following.'
+export const storyTunedWords = (more: boolean, topic: string): string => (more ? `${topic} searches for that too from the next collection` : `${topic} skips those words from the next collection`)
+export const OPML_IMPORT_LABEL = 'Import a list (OPML)'
+export const OPML_EXPORT_LABEL = 'Export my sources (OPML)'
+export const OPML_NONE = 'The file holds no feed addresses this list can use.'
+export const opmlImportedWords = (added: number, skipped: number): string => `${added} added${skipped ? `, ${skipped} already in a list or refused` : ''}`
+export const OPML_FILE_NAME = 'my-sources.opml'

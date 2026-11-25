@@ -4,7 +4,7 @@ date: 2026-11-21
 last_reviewed: 2026-11-21
 related_specs: [SPEC-013, SPEC-011, SPEC-007, SPEC-003]
 constitution_references: [I.1, II.13, III.2, IV.6, V.2]
-related_plans: [topic-watch.md, newsroom-briefs-handoff-2026-11-25.md, standing-goals.md, attention-policy.md, ../cross-cutting/reminders-stack.md, ../cross-cutting/network-radio-joined-by-tag.md]
+related_plans: [topic-watch.md, newsroom-review-2026-11-25.md, standing-goals.md, attention-policy.md, ../cross-cutting/reminders-stack.md, ../cross-cutting/network-radio-joined-by-tag.md]
 evidence: Read 2026-11-21 - stacks/newsroom (watches, sources), stacks/sdk/ports.go (Model, Fetch, StackFinding), backend/internal/core/stackport/model.go, backend/internal/app/stack_model.go, frontend/src/styles/tokens.css; live feed tests on 2026-11-21 (curl from a Mac, then through vertex's own look-up endpoint /admin/api/newsroom/sources/lookup); owner answers of 2026-11-20 and 2026-11-21. The filename is kept for existing links; the plan is now called Briefs.
 ---
 

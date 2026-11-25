@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"llm-proxy-stacks/sdk"
 
@@ -25,6 +26,11 @@ const (
 	maxBodyCeil = 1 << 20
 )
 
+// fetchTimeout bounds one GET from the first byte sent to the last byte read. The guarded client limits only the dial and the TLS
+// handshake, so without this a server that sends its headers and then trickles the body would hold the stack's caller (one loop
+// for every module) for as long as it liked. A variable so a test can shorten it.
+var fetchTimeout = 30 * time.Second
+
 // Opener makes the guarded GET: *tools.NetworkTools.
 type Opener interface {
 	OpenAccepting(ctx context.Context, target, accept string) (*http.Response, error)
@@ -40,6 +46,8 @@ func (f Fetch) Get(ctx context.Context, req stacksdk.FetchRequest) (stacksdk.Fet
 	if u, err := url.Parse(req.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return stacksdk.FetchResponse{}, stacksdk.Errorf(stacksdk.CodeInvalid, msgInvalid)
 	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
 	resp, err := f.Opener.OpenAccepting(ctx, req.URL, req.Accept)
 	if err != nil {
 		return stacksdk.FetchResponse{}, refusal(ctx, err)

@@ -9,7 +9,7 @@ import NewsroomBriefLimit from "./NewsroomBriefLimit.vue"
 import NewsroomBriefMySources from "./NewsroomBriefMySources.vue"
 import { EDITIONS_TITLE, EDITION_OFF_LABEL, EDITION_ON_BADGE, MODEL_LIMIT_TITLE, MY_SOURCES_TITLE, NEW_EDITION_LABEL, NO_EDITIONS_SETUP_BODY, NO_EDITIONS_TITLE, editionCardWords, gatherWords } from "../../constants/newsroom"
 import { editionBlocks, hoursOf, sectionGroups } from "../../utils/newsroom/briefForm"
-import type { BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
+import type { OpmlFeed, BriefEdition, BriefEditionEdit, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from "../../types/newsroom"
 
 // Topics and editions: what is read (the Topics panel), and what is written from it. The edition editing state is here; the page owns the data and does the saving, deleting and
 // reading (it asks before anything is deleted), and each action answers whether it worked so the form closes only on success.
@@ -31,6 +31,7 @@ const props = defineProps<{
   saveLimit: (calls: number) => Promise<boolean>
   addSource: (label: string, target: string) => Promise<boolean>
   removeSource: (id: number) => Promise<boolean>
+  importSources: (feeds: OpmlFeed[]) => Promise<{ added: number; skipped: number }>
 }>()
 const emit = defineEmits<{
   (e: "delete-topic", topic: BriefTopic): void
@@ -101,7 +102,7 @@ const idOf = (t: Target): number | null => (typeof t === "number" ? t : null)
     </Panel>
 
     <Panel :title="MY_SOURCES_TITLE">
-      <NewsroomBriefMySources :sources="sources" :saving="saving" :error="error" :add="addSource" :remove="removeSource" />
+      <NewsroomBriefMySources :sources="sources" :saving="saving" :error="error" :add="addSource" :remove="removeSource" :import-list="importSources" />
     </Panel>
 
     <Panel v-if="settings" :title="MODEL_LIMIT_TITLE">

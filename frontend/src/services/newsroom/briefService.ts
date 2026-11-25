@@ -1,4 +1,4 @@
-import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefLatest, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
+import type { BriefEdition, BriefEditionEdit, BriefIssue, BriefIssueSummary, BriefJob, BriefLatest, BriefSettings, BriefSource, BriefTopic, BriefTopicEdit } from '../../types/newsroom'
 import { apiFetch } from '../httpClient'
 import { failureReason } from '../failureReason'
 
@@ -18,8 +18,8 @@ export class BriefService {
     return (await res.json()) ?? []
   }
 
-  /** The editions already made, newest first; one edition's when its id is given. */
-  static async issues(editionId?: number): Promise<BriefIssue[]> {
+  /** The editions already made, newest first, as a list (no stories); one edition's when its id is given. */
+  static async issues(editionId?: number): Promise<BriefIssueSummary[]> {
     const query = editionId === undefined ? '' : `?edition=${editionId}`
     const res = await apiFetch(`${BASE}/issues${query}`)
     if (!res.ok) throw await failureReason(res, 'read the editions')
@@ -47,11 +47,19 @@ export class BriefService {
     if (!res.ok) throw await failureReason(res, 'mark the edition read')
   }
 
-  /** Writes the edition now from what has been collected. */
-  static async makeNow(editionId: number): Promise<BriefIssue> {
+  /** Starts writing the edition now; the write goes on in the background and is followed with jobs(). */
+  static async makeNow(editionId: number): Promise<BriefJob> {
     const res = await apiFetch(`${BASE}/editions/${editionId}/issue`, { method: 'POST' })
     if (!res.ok) throw await failureReason(res, 'write the edition')
     return res.json()
+  }
+
+  /** The writes by hand that are going on, and those that ended in the last few minutes. */
+  static async jobs(): Promise<BriefJob[]> {
+    const res = await apiFetch(`${BASE}/jobs`)
+    if (!res.ok) throw await failureReason(res, 'read how the writing is going')
+    const body: unknown = await res.json()
+    return Array.isArray(body) ? (body as BriefJob[]) : []
   }
 
   static async settings(): Promise<BriefSettings> {

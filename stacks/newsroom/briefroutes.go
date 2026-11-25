@@ -35,6 +35,7 @@ const (
 	RouteBriefSources  = "/admin/api/newsroom/briefs/sources"
 	RouteBriefSource   = "/admin/api/newsroom/briefs/sources/{id}"
 	RouteBriefAll      = "/admin/api/newsroom/briefs/all"
+	RouteBriefJobs     = "/admin/api/newsroom/briefs/jobs"
 	maxIssuesView      = 30
 	// DefaultModelCalls and MaxModelCalls mirror the core's model port (stackport.ModelDailyLimit and ModelDailyLimitMax), which holds the real limit;
 	// the app's tests keep the two in step. They are here so the screen can say what an empty setting means.
@@ -56,10 +57,14 @@ type editionView struct {
 	brief.Edition
 	CollectEvery string `json:"collect_every"`
 	CollectFor   string `json:"collect_for"`
+	RepeatAfter  string `json:"repeat_after"`
+	MaxStoryAge  string `json:"max_story_age"`
 }
 
+// editionOut shows the reading settings with their defaults, so an edition stored before they existed reads as what it does.
 func editionOut(e brief.Edition) editionView {
-	return editionView{Edition: e, CollectEvery: e.CollectEvery.String(), CollectFor: e.CollectFor.String()}
+	e = e.Reading()
+	return editionView{Edition: e, CollectEvery: e.CollectEvery.String(), CollectFor: e.CollectFor.String(), RepeatAfter: e.RepeatAfter.String(), MaxStoryAge: e.MaxStoryAge.String()}
 }
 
 // editionIn is what a create or an update of an edition carries.
@@ -67,6 +72,8 @@ type editionIn struct {
 	brief.Edition
 	CollectEvery string `json:"collect_every"`
 	CollectFor   string `json:"collect_for"`
+	RepeatAfter  string `json:"repeat_after"`
+	MaxStoryAge  string `json:"max_story_age"`
 }
 
 func (in editionIn) edition() (brief.Edition, error) {
@@ -75,7 +82,7 @@ func (in editionIn) edition() (brief.Edition, error) {
 		text string
 		to   *time.Duration
 		what string
-	}{{in.CollectEvery, &e.CollectEvery, "collect every"}, {in.CollectFor, &e.CollectFor, "collect for"}} {
+	}{{in.CollectEvery, &e.CollectEvery, "collect every"}, {in.CollectFor, &e.CollectFor, "collect for"}, {in.RepeatAfter, &e.RepeatAfter, "repeat after"}, {in.MaxStoryAge, &e.MaxStoryAge, "max story age"}} {
 		if f.text == "" {
 			continue
 		}
@@ -144,6 +151,8 @@ func (s *Stack) handleBriefs(ctx context.Context, req stacksdk.Request) (stacksd
 		return handleIssues(key, id, req.Query, store)
 	case RouteBriefSettings:
 		return s.briefSettings(ctx, req)
+	case RouteBriefJobs:
+		return jsonResponse(http.StatusOK, s.jobs.List(time.Now()))
 	}
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 }
@@ -185,21 +194,52 @@ func (s *Stack) briefAction(ctx context.Context, route string, id int64, parts b
 		return stacksdk.Response{}, ErrBriefsOff
 	}
 	if route == RouteBriefMake {
-		// Topics that have not been read lately are read first, or the edition would be written from an empty pool.
-		if _, err := parts.collector.CollectStale(ctx, id); err != nil {
-			return stacksdk.Response{}, failBrief(err)
-		}
-		is, err := parts.publisher.MakeNow(ctx, id)
-		if err != nil {
-			return stacksdk.Response{}, failBrief(err)
-		}
-		return jsonResponse(http.StatusCreated, is)
+		return s.startWrite(id, parts)
 	}
 	o, err := parts.collector.CollectNow(ctx, id)
 	if err != nil {
 		return stacksdk.Response{}, failBrief(err)
 	}
 	return jsonResponse(http.StatusOK, o)
+}
+
+// startWrite begins writing an edition by hand in its own goroutine and answers at once with the write's state: reading the stale topics and asking the model
+// for every section can take minutes on a local model, longer than a request should wait. The page follows it on GET .../briefs/jobs.
+func (s *Stack) startWrite(id int64, parts briefParts) (stacksdk.Response, error) {
+	if _, err := parts.store.Edition(id); err != nil {
+		return stacksdk.Response{}, failBrief(err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancel == nil {
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeUnavailable, msgBriefsNotRunning)
+	}
+	job, err := s.jobs.Begin(id, time.Now())
+	if errors.Is(err, brief.ErrBusy) {
+		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeUnavailable, err.Error())
+	}
+	run := s.run
+	s.bg.Go(func() { s.write(run, id, parts) })
+	return jsonResponse(http.StatusAccepted, job)
+}
+
+// write reads the edition's topics not read lately, writes the edition and records how it ended. The reason a write failed is the store's or the
+// collector's own sentence, never a source's or a model's text.
+func (s *Stack) write(ctx context.Context, id int64, parts briefParts) {
+	progress := s.jobs.Progress(id)
+	var issueID int64
+	_, err := parts.collector.CollectStale(ctx, id, progress)
+	if err == nil {
+		var is brief.Issue
+		is, err = parts.publisher.MakeNow(ctx, id, progress)
+		issueID = is.ID
+	}
+	problem := ""
+	if err != nil {
+		problem = failBrief(err).Error()
+		s.logLine(stacksdk.LevelWarn, "edition not written", "edition", strconv.FormatInt(id, 10), "error", err.Error())
+	}
+	_ = s.jobs.End(id, issueID, problem, time.Now())
 }
 
 // handleIssues answers the routes that read the editions already made (the newest few, or one by id), say which are unread, and note one as read. Reading
@@ -228,7 +268,12 @@ func handleIssues(key string, id int64, rawQuery string, store *brief.Store) (st
 			}
 		}
 		out := store.Issues(edition)
-		return jsonResponse(http.StatusOK, nonNil(out[:min(len(out), maxIssuesView)]))
+		// The list is what a picker needs; the page asks for the one issue it shows by id, so a poll never carries every section of thirty editions.
+		list := make([]brief.IssueSummary, 0, min(len(out), maxIssuesView))
+		for _, is := range out[:min(len(out), maxIssuesView)] {
+			list = append(list, is.Summary())
+		}
+		return jsonResponse(http.StatusOK, list)
 	}
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+key)
 }
@@ -269,7 +314,7 @@ func handleEditions(key string, id int64, req stacksdk.Request, store *brief.Sto
 
 // The shapes of a real path under RouteBriefs, by the number of segments: the collection, then the collection and an id, then an action on one item.
 var (
-	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "latest": RouteBriefLatest, "settings": RouteBriefSettings, "sources": RouteBriefSources, "all": RouteBriefAll}
+	briefCollections = map[string]string{"topics": RouteBriefTopics, "editions": RouteBriefEditions, "pool": RouteBriefPool, "issues": RouteBriefIssues, "latest": RouteBriefLatest, "settings": RouteBriefSettings, "jobs": RouteBriefJobs, "sources": RouteBriefSources, "all": RouteBriefAll}
 	briefActions     = map[string]string{"topics/collect": RouteBriefCollect, "editions/issue": RouteBriefMake, "issues/read": RouteBriefRead}
 	briefItems       = map[string]string{"topics": RouteBriefTopic, "editions": RouteBriefEdition, "issues": RouteBriefIssue, "sources": RouteBriefSource}
 )

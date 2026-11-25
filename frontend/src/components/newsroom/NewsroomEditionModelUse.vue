@@ -1,35 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, ref } from "vue"
 import Icon from "../icons/Icon.vue"
 import Sparkline from "../common/display/Sparkline.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
-import { usePolling } from "../../composables/ui/usePolling"
-import { ModelStatsService } from "../../services/modelStatsService"
+import { useModelUse } from "../../composables/newsroom/useModelUse"
 import {
-  MODEL_USE_CALLS_TODAY, MODEL_USE_CHART_SUMMARY, MODEL_USE_CLOUD, MODEL_USE_COLUMNS, MODEL_USE_DAYS, MODEL_USE_DAYS_HEADING, MODEL_USE_FAILED, MODEL_USE_FOLD_LABEL, MODEL_USE_HOURS_HEADING, MODEL_USE_HOUR_LABELS, hourLabel, hourTitle, MODEL_USE_KIND, MODEL_USE_LABEL,
-  MODEL_USE_LOADING, MODEL_USE_LOCAL, MODEL_USE_NO_CALLS, MODEL_USE_NO_TOKENS, MODEL_USE_NONE_TODAY, MODEL_USE_OPEN_LABEL, MODEL_USE_POLL_MS, MODEL_USE_TODAY_HEADING, MODEL_USE_UNAVAILABLE,
+  MODEL_USE_CALLS_TODAY, MODEL_USE_CHART_SUMMARY, MODEL_USE_CLOUD, MODEL_USE_COLUMNS, MODEL_USE_DAYS_HEADING, MODEL_USE_FAILED, MODEL_USE_FOLD_LABEL, MODEL_USE_HOURS_HEADING, MODEL_USE_HOUR_LABELS, hourLabel, hourTitle, MODEL_USE_KIND, MODEL_USE_LABEL,
+  MODEL_USE_LOADING, MODEL_USE_LOCAL, MODEL_USE_NO_CALLS, MODEL_USE_NO_TOKENS, MODEL_USE_NONE_TODAY, MODEL_USE_OPEN_LABEL, MODEL_USE_TODAY_HEADING, MODEL_USE_UNAVAILABLE,
 } from "../../constants/modelStats"
 import { formatTokenCount } from "../../utils/format/units"
 import { callsToday, chartColumns, hourColumns, speedOf, tokensOf, trendOf, weekTotals, weekdayOf } from "../../utils/modelUse"
-import type { ModelStatsReport } from "../../types/modelStats"
 
 // How much each model was used: a line with today's calls and a small trend, which opens into the week as stacked columns (local and cloud) and today's models with
 // their tokens and speed. Only numbers: no prompt, reply or key is counted (ADR-0085). The numbers are live, not part of the edition, so this block is the same in an
 // old edition as in today's. A server that cannot answer is said, and there is nothing to fold.
-const report = ref<ModelStatsReport | null>(null)
-const failed = ref(false)
+const { report, failed } = useModelUse()
 const open = ref(false)
-
-async function load() {
-  try {
-    report.value = await ModelStatsService.get(MODEL_USE_DAYS)
-    failed.value = false
-  } catch {
-    failed.value = report.value === null
-  }
-}
-onMounted(() => void load())
-usePolling(() => void load(), MODEL_USE_POLL_MS)
 
 const total = computed(() => (report.value ? callsToday(report.value) : 0))
 const columns = computed(() => chartColumns(report.value?.days ?? []))
