@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editionEdit, fromLines, fromWords, groupSources, hoursOf, topicEdit, topicFields, editionBlocks, editionJoining, editionSectionKeys, quickTopic, sectionGroups, topicIdsOf, topicReads } from '../../../utils/newsroom/briefForm'
+import { editionEdit, fromLines, fromWords, groupSources, hoursOf, topicEdit, topicFields, editionBlocks, editionJoining, editionSectionKeys, quickTopic, readingOf, sectionGroups, topicIdsOf, topicReads } from '../../../utils/newsroom/briefForm'
 import type { BriefSource, BriefTopic, BriefEdition } from '../../../types/newsroom'
 
 describe('briefForm', () => {
@@ -50,10 +50,17 @@ describe('briefForm', () => {
   })
 
   it('sends an edition with durations as strings and sections in the order chosen', () => {
-    expect(editionEdit({ name: ' Morning ', readyBy: '07:00', days: [1, 2], topics: [5, 4], enabled: true, every: 2, forHours: 12, watches: true, home: true, day: true, sendTo: 'telegram' })).toEqual({
+    expect(editionEdit({ name: ' Morning ', readyBy: '07:00', days: [1, 2], topics: [5, 4], enabled: true, every: 2, forHours: 12, watches: true, home: true, day: true, sendTo: 'telegram', reading: { stories: 7, top: 3, repeatHours: 48, ageHours: 24 } })).toEqual({
       name: 'Morning', ready_by: '07:00', days: [1, 2], enabled: true, watches: true, home: true, day: true, send_to: 'telegram', collect_every: '2h', collect_for: '12h',
       sections: [{ kind: 'news', topic_id: 5 }, { kind: 'news', topic_id: 4 }],
+      stories_per_section: 7, top_stories: 3, repeat_after: '48h', max_story_age: '24h',
     })
+  })
+
+  it('reads an edition\'s reading settings in hours, and the defaults for a new one', () => {
+    expect(readingOf(null)).toEqual({ stories: 5, top: 4, repeatHours: 24, ageHours: 48 })
+    const e = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [], enabled: true, stories_per_section: 3, top_stories: 6, repeat_after: '168h0m0s', max_story_age: '12h0m0s' }
+    expect(readingOf(e)).toEqual({ stories: 3, top: 6, repeatHours: 168, ageHours: 12 })
   })
 
   describe('sections', () => {
@@ -67,18 +74,18 @@ describe('briefForm', () => {
 
     it('says which sections an edition reads, and turns picked sections back into topic ids in section order', () => {
       const g = sectionGroups(topics)
-      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 2 }, { kind: 'news', topic_id: 1 }], enabled: true, home: true, day: true }
+      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 2 }, { kind: 'news', topic_id: 1 }], enabled: true, home: true, day: true, stories_per_section: 5, top_stories: 4, repeat_after: '24h0m0s', max_story_age: '48h0m0s' }
       expect(editionSectionKeys(e, g)).toEqual([g[0]!.key, g[1]!.key])
       expect(topicIdsOf([g[1]!.key, g[0]!.key], g)).toEqual([1, 3, 2])
       expect(editionBlocks(e, g)).toEqual(['News', 'Technology', 'Home', 'Your day'])
     })
 
     it('adds a topic to an edition that already reads its section, and to no other', () => {
-      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true }
+      const e: BriefEdition = { id: 1, name: 'M', ready_by: '07:00', days: [1], collect_every: '2h0m0s', collect_for: '12h0m0s', sections: [{ kind: 'news', topic_id: 1 }], enabled: true, stories_per_section: 5, top_stories: 4, repeat_after: '24h0m0s', max_story_age: '48h0m0s' }
       expect(editionJoining(e, topics, t(5, 'World', 'News'))?.sections).toEqual([{ kind: 'news', topic_id: 1 }, { kind: 'news', topic_id: 5 }])
       // What the owner switched on besides news survives a topic joining: nothing is silently switched off.
       const full: BriefEdition = { ...e, watches: true, home: true, day: true, send_to: 'telegram' }
-      expect(editionJoining(full, topics, t(5, 'World', 'News'))).toMatchObject({ watches: true, home: true, day: true, send_to: 'telegram' })
+      expect(editionJoining({ ...full, top_stories: 6 }, topics, t(5, 'World', 'News'))).toMatchObject({ watches: true, home: true, day: true, send_to: 'telegram', top_stories: 6, stories_per_section: 5 })
       expect(editionJoining(e, topics, t(6, 'Chips', 'Technology'))).toBeNull()
       expect(editionJoining(e, topics, t(7, 'Alone'))).toBeNull()
       expect(editionJoining({ ...e, sections: Array.from({ length: 12 }, (_, i) => ({ kind: 'news' as const, topic_id: i + 100 })) }, [...topics, t(100, 'X', 'News')], t(5, 'World', 'News'))).toBeNull()

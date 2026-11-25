@@ -11,7 +11,7 @@ const { chips } = useBriefChips()
 <template>
   <ul v-if="chips.length" class="m-0 flex list-none flex-wrap gap-2 p-0" :aria-label="BRIEF_CHIPS_LABEL" data-test="brief-chips">
     <li v-for="c in chips" :key="c.key">
-      <RouterLink :to="c.to" class="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-md)] border border-state-warning px-3 text-[length:var(--text-small)] text-primary hover:bg-surface-hover sm:min-h-8" :data-chip="c.key">{{ c.label }} →</RouterLink>
+      <RouterLink :to="c.to" class="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-md)] border border-state-running px-3 text-[length:var(--text-small)] text-primary hover:bg-surface-hover sm:min-h-8" :data-chip="c.key">{{ c.label }} →</RouterLink>
     </li>
   </ul>
 </template>

@@ -73,7 +73,7 @@ const hasWindowBody = computed(() => changeGroups.value.length > 0 || activity.v
     <div class="flex min-w-0 flex-col gap-2">
       <Disclosure v-if="window" :title="window.window" :summary="windowSummary(window)" :expandable="hasWindowBody" :open="!!open[SECTION.window]" data-test="overview-window" @update:open="setOpen(SECTION.window, $event)">
         <div class="flex flex-col gap-3">
-          <p v-if="window.unread.length" class="m-0 text-[length:var(--text-small)] text-state-warning" data-test="window-unread">Could not be read, so these figures are incomplete: {{ window.unread.join(", ") }}.</p>
+          <p v-if="window.unread.length" class="m-0 text-[length:var(--text-small)] text-state-running" data-test="window-unread">Could not be read, so these figures are incomplete: {{ window.unread.join(", ") }}.</p>
           <div v-for="g in changeGroups" :key="g.label" class="flex flex-col gap-1" data-test="window-changes">
             <span class="text-[length:var(--text-small)] text-muted">{{ g.label }}</span>
             <ul class="m-0 flex list-none flex-col gap-1 p-0">

@@ -30,6 +30,7 @@ const (
 	SettingsKey   = "newsroom"
 	WatchesFile   = "watches.json"
 	BriefsFile    = brief.FileName
+	BriefPoolFile = brief.PoolFileName
 )
 
 // The routes the Newsroom screen reads, and the tools the assistant calls.
@@ -68,11 +69,16 @@ type Stack struct {
 	store  *watches.Store
 	runner *watches.Runner
 	// briefs and collector are the Brief module; the collector is nil when the core gave no schedule port.
-	briefs      *brief.Store
-	collector   *brief.Collector
-	publisher   *brief.Publisher
-	cancel      context.CancelFunc
-	done        chan struct{}
+	briefs    *brief.Store
+	collector *brief.Collector
+	publisher *brief.Publisher
+	// jobs are the editions being written by hand, each in its own goroutine (briefroutes.go).
+	jobs   brief.Jobs
+	cancel context.CancelFunc
+	// run is the stack's lifecycle context while it runs; bg counts every goroutine started under it (the two loops and the writes by hand), so Stop
+	// waits for all of them. A goroutine is started only under s.mu while cancel is set, so none is added after Stop began waiting.
+	run         context.Context
+	bg          *sync.WaitGroup
 	lastRun     time.Time
 	lastCollect time.Time
 	// lookups remembers recent look-up answers and keeps them polite (sourceroutes.go).
@@ -145,9 +151,10 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: RouteBriefSources},
 			{Method: http.MethodDelete, Path: RouteBriefSource},
 			{Method: http.MethodDelete, Path: RouteBriefAll},
+			{Method: http.MethodGet, Path: RouteBriefJobs},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Storage:  []string{WatchesFile, BriefsFile},
+		Storage:  []string{WatchesFile, BriefsFile, BriefPoolFile},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortFetch, stacksdk.PortModel, stacksdk.PortNotice, stacksdk.PortSchedule, stacksdk.PortHome, stacksdk.PortDay},
 	}
 }
@@ -198,8 +205,13 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 		s.collector = &brief.Collector{Timing: timing, Store: briefs, Readers: readers}
 		s.publisher = &brief.Publisher{Timing: timing, Store: briefs, Model: model, Watches: func(since, until time.Time) []brief.WatchLine { return watchLines(store, since, until) }, Home: homeLines(h.Home), Day: dayReader(h.Day), Send: briefSender(h.Notice)}
 	}
-	s.cancel, s.done = cancel, make(chan struct{})
-	go s.loop(run, s.runner, s.collector, s.publisher, s.done)
+	s.cancel, s.run, s.bg = cancel, run, &sync.WaitGroup{}
+	// The watches and the briefs each have their own loop, so writing an edition (minutes on a local model) never holds up a watch's check.
+	runner, collector, publisher := s.runner, s.collector, s.publisher // read here: Stop clears the fields while the loops run
+	s.bg.Go(func() { s.watchLoop(run, runner) })
+	if collector != nil {
+		s.bg.Go(func() { s.briefLoop(run, collector, publisher) })
+	}
 	return nil
 }
 
@@ -234,10 +246,9 @@ func noticeSender(p stacksdk.Notice) watches.Notifier {
 	}
 }
 
-// loop is the one place the stack runs in the background: on each pass it ticks the watches while the Watches module is on, and the brief collector while
-// the Briefs module is on.
-func (s *Stack) loop(ctx context.Context, r *watches.Runner, c *brief.Collector, p *brief.Publisher, done chan struct{}) {
-	defer close(done)
+// every runs pass on each tick until ctx ends. The stack's background work is its two loops, both started in Start: the watches while the Watches module is
+// on, and the brief collector and publisher while the Briefs module is on.
+func (s *Stack) every(ctx context.Context, pass func(Settings)) {
 	t := time.NewTicker(s.tick)
 	defer t.Stop()
 	for {
@@ -245,21 +256,35 @@ func (s *Stack) loop(ctx context.Context, r *watches.Runner, c *brief.Collector,
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			set := s.settings(ctx)
-			if !set.Disabled {
-				for _, o := range r.Tick(ctx) {
-					s.logLine(stacksdk.LevelInfo, "watch read", "watch", strconv.FormatInt(o.WatchID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
-				}
-				s.mu.Lock()
-				s.lastRun = time.Now().UTC()
-				s.mu.Unlock()
-			}
-			if c != nil && !set.BriefsDisabled {
-				s.collect(ctx, c)
-				s.publish(ctx, p)
-			}
+			pass(s.settings(ctx))
 		}
 	}
+}
+
+// watchLoop reads the watches that are due.
+func (s *Stack) watchLoop(ctx context.Context, r *watches.Runner) {
+	s.every(ctx, func(set Settings) {
+		if set.Disabled {
+			return
+		}
+		for _, o := range r.Tick(ctx) {
+			s.logLine(stacksdk.LevelInfo, "watch read", "watch", strconv.FormatInt(o.WatchID, 10), "status", string(o.Status), "new", strconv.Itoa(o.New))
+		}
+		s.mu.Lock()
+		s.lastRun = time.Now().UTC()
+		s.mu.Unlock()
+	})
+}
+
+// briefLoop collects the topics that are due, then writes and sends the editions that are due.
+func (s *Stack) briefLoop(ctx context.Context, c *brief.Collector, p *brief.Publisher) {
+	s.every(ctx, func(set Settings) {
+		if set.BriefsDisabled {
+			return
+		}
+		s.collect(ctx, c)
+		s.publish(ctx, p)
+	})
 }
 
 // collect runs one pass of the brief collector and logs what each topic did (the fact of a collection, never a headline).
@@ -293,17 +318,17 @@ func (s *Stack) publish(ctx context.Context, p *brief.Publisher) {
 	}
 }
 
-// Stop ends the loop and waits for it.
+// Stop ends the loops and any write by hand, and waits for them.
 func (s *Stack) Stop(context.Context) error {
 	s.mu.Lock()
-	cancel, done := s.cancel, s.done
-	s.cancel, s.done, s.store, s.runner, s.briefs, s.collector, s.publisher = nil, nil, nil, nil, nil, nil, nil
+	cancel, bg := s.cancel, s.bg
+	s.cancel, s.run, s.bg, s.store, s.runner, s.briefs, s.collector, s.publisher = nil, nil, nil, nil, nil, nil, nil, nil
 	s.mu.Unlock()
 	if cancel == nil {
 		return nil
 	}
 	cancel()
-	<-done
+	bg.Wait()
 	return nil
 }
 

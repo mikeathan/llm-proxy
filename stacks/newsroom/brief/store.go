@@ -12,19 +12,23 @@ import (
 	"llm-proxy-stacks/sdk"
 )
 
-// FileName is the one file the Brief module keeps in the stack's data folder (a manifest Storage entry).
-const FileName = "briefs.json"
+// FileName is the Brief module's settings and written editions, and PoolFileName the stories collected for them, in the stack's data folder (manifest
+// Storage entries). The pool is the large part and changes with every collection, so it has its own file: reading a brief or changing a topic rewrites
+// only the small one.
+const (
+	FileName     = "briefs.json"
+	PoolFileName = "briefs-pool.json"
+)
 
 const fileVersion = 1
 
 type document struct {
-	Version   int        `json:"version"`
-	NextID    int64      `json:"next_id"`
-	NextPool  int64      `json:"next_pool"`
-	NextIssue int64      `json:"next_issue"`
-	Topics    []Topic    `json:"topics"`
-	Editions  []Edition  `json:"editions"`
-	Pool      []PoolItem `json:"pool,omitempty"`
+	Version   int       `json:"version"`
+	NextID    int64     `json:"next_id"`
+	NextPool  int64     `json:"next_pool"`
+	NextIssue int64     `json:"next_issue"`
+	Topics    []Topic   `json:"topics"`
+	Editions  []Edition `json:"editions"`
 	// Issues are the editions made, kept for IssueRetention; Shown records which stories they carried, for the already-shown rule.
 	Issues []Issue `json:"issues,omitempty"`
 	Shown  []Shown `json:"shown,omitempty"`
@@ -32,54 +36,95 @@ type document struct {
 	MySources []MySource `json:"my_sources,omitempty"`
 }
 
-// Store keeps topics, editions and the pool in one file, written atomically through the stack's DataDir. Every method is safe for concurrent use; each
+// poolDocument is the pool's own file.
+type poolDocument struct {
+	Version int        `json:"version"`
+	Pool    []PoolItem `json:"pool"`
+}
+
+// Store keeps topics and editions in one file and the pool in another, written atomically through the stack's DataDir. Every method is safe for concurrent use; each
 // change is saved before it returns, so a crash loses nothing the caller was told succeeded. Topics and editions share one id counter.
 type Store struct {
-	mu  sync.Mutex
-	dir stacksdk.DataDir
-	doc document
+	mu   sync.Mutex
+	dir  stacksdk.DataDir
+	doc  document
+	pool []PoolItem
 }
 
 func emptyDoc() document { return document{Version: fileVersion, NextID: 1, NextPool: 1, NextIssue: 1} }
 
-// NewStore reads the file, or starts empty when there is none. A file that cannot be understood is set aside (DataDir.Quarantine) and the store starts
-// empty, so one bad write never stops the module for good.
+// NewStore reads both files, or starts empty when there are none. A file that cannot be understood is set aside (DataDir.Quarantine) and that part starts
+// empty, so one bad write never stops the module for good. A briefs.json written before the pool had its own file carries its pool inline; that copy is
+// not read (the pool is a cache of headlines) and goes with the next save, and every topic is marked never read so the next pass refills it.
 func NewStore(dir stacksdk.DataDir) (*Store, error) {
 	s := &Store{dir: dir, doc: emptyDoc()}
-	raw, err := dir.Read(FileName)
+	var doc document
+	found, err := readFile(dir, FileName, &doc, func() bool { return doc.Version == fileVersion })
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		doc.NextID, doc.NextPool, doc.NextIssue = max(doc.NextID, 1), max(doc.NextPool, 1), max(doc.NextIssue, 1)
+		s.doc = doc
+	}
+	var pool poolDocument
+	if found, err = readFile(dir, PoolFileName, &pool, func() bool { return pool.Version == fileVersion }); err != nil {
+		return nil, err
+	}
+	if found {
+		s.pool = pool.Pool
+	} else {
+		// No pool to go with the topics (a briefs.json from before the pool had its own file, or a pool file set aside): every topic is due, so the
+		// next pass reads them all instead of an edition being written from nothing until each topic's interval comes round.
+		for i := range s.doc.Topics {
+			s.doc.Topics[i].LastCollected = time.Time{}
+		}
+	}
+	return s, nil
+}
+
+// readFile reads one file into v and says whether it was there and understood (ok checks what was read); a file that is not is set aside.
+func readFile(dir stacksdk.DataDir, name string, v any, ok func() bool) (bool, error) {
+	raw, err := dir.Read(name)
 	if err != nil {
 		var se *stacksdk.Error
 		if errors.As(err, &se) && se.Code == stacksdk.CodeNotFound {
-			return s, nil
+			return false, nil
 		}
-		return nil, fmt.Errorf("read %s: %w", FileName, err)
+		return false, fmt.Errorf("read %s: %w", name, err)
 	}
-	var doc document
-	if json.Unmarshal(raw, &doc) != nil || doc.Version != fileVersion {
-		if qerr := dir.Quarantine(FileName); qerr != nil {
-			return nil, fmt.Errorf("set aside %s: %w", FileName, qerr)
+	if json.Unmarshal(raw, v) != nil || !ok() {
+		if qerr := dir.Quarantine(name); qerr != nil {
+			return false, fmt.Errorf("set aside %s: %w", name, qerr)
 		}
-		return s, nil
+		return false, nil
 	}
-	doc.NextID, doc.NextPool, doc.NextIssue = max(doc.NextID, 1), max(doc.NextPool, 1), max(doc.NextIssue, 1)
-	s.doc = doc
-	return s, nil
+	return true, nil
 }
 
 // Erase forgets every topic, edition and story and saves the empty document, for a factory reset.
 func (s *Store) Erase() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.doc = emptyDoc()
-	return s.saveLocked()
+	s.doc, s.pool = emptyDoc(), nil
+	return errors.Join(s.saveLocked(), s.savePoolLocked())
 }
 
+// saveLocked writes the topics, editions and written editions; savePoolLocked writes the pool.
 func (s *Store) saveLocked() error {
 	raw, err := json.Marshal(s.doc)
 	if err != nil {
 		return err
 	}
 	return s.dir.Write(FileName, raw)
+}
+
+func (s *Store) savePoolLocked() error {
+	raw, err := json.Marshal(poolDocument{Version: fileVersion, Pool: s.pool})
+	if err != nil {
+		return err
+	}
+	return s.dir.Write(PoolFileName, raw)
 }
 
 // Topics returns the topics in id order.
@@ -159,15 +204,15 @@ func (s *Store) DeleteTopic(id int64) error {
 		}
 	}
 	s.doc.Topics = slices.Delete(s.doc.Topics, i, i+1)
-	kept := s.doc.Pool[:0:0]
-	for _, p := range s.doc.Pool {
+	kept := s.pool[:0:0]
+	for _, p := range s.pool {
 		p.Topics = slices.DeleteFunc(slices.Clone(p.Topics), func(t int64) bool { return t == id })
 		if len(p.Topics) > 0 {
 			kept = append(kept, p)
 		}
 	}
-	s.doc.Pool = kept
-	return s.saveLocked()
+	s.pool = kept
+	return errors.Join(s.saveLocked(), s.savePoolLocked())
 }
 
 // Editions returns the editions in id order.
@@ -242,10 +287,14 @@ func (s *Store) RecordCollection(topicID int64, items []sources.Item, problems [
 	if i < 0 {
 		return 0, ErrNotFound
 	}
-	pool, next, added := merge(s.doc.Pool, s.doc.NextPool, s.doc.Topics[i], items, now.UTC())
-	s.doc.Pool, s.doc.NextPool = pool, next
+	pool, next, added := merge(s.pool, s.doc.NextPool, s.doc.Topics[i], items, now.UTC())
+	s.pool, s.doc.NextPool = pool, next
 	t := &s.doc.Topics[i]
 	t.LastCollected, t.LastNew, t.LastProblems = now.UTC(), added, slices.Clone(problems)
+	// The pool first: a crash between the two leaves the topic due again, never marked read with its stories lost.
+	if err := s.savePoolLocked(); err != nil {
+		return 0, err
+	}
 	return added, s.saveLocked()
 }
 
@@ -253,7 +302,7 @@ func (s *Store) RecordCollection(topicID int64, items []sources.Item, problems [
 func (s *Store) Pool() []PoolItem {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := slices.Clone(s.doc.Pool)
+	out := slices.Clone(s.pool)
 	slices.SortStableFunc(out, func(a, b PoolItem) int {
 		if c := b.FirstSeen.Compare(a.FirstSeen); c != 0 {
 			return c

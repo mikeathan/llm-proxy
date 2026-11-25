@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Newsroom redesign: mocks (sample data)</title>
+<link rel="stylesheet" href="../briefs-mocks/tokens.css">
+<style>
+/* Square corners everywhere (owner rule), hairline separation, one brand accent, colour only for state. */
+:root{--rail:184px;--side:300px}
+body{font-size:14px}
+.top{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;border-bottom:1px solid rgb(var(--hair));background:rgb(var(--canvas))}
+.top .grow{flex:1}
+.wrap{max-width:1320px;margin:0 auto;padding:20px 24px 64px}
+.view{display:none}.view.on{display:block}
+.note{display:none}.notes .note{display:flex}
+.note{gap:8px;align-items:flex-start;margin:6px 0;padding:6px 8px;border-left:3px solid rgb(var(--brand));background:rgb(var(--brand)/.08);font-size:12px;color:rgb(var(--t2))}
+.note b{color:rgb(var(--brand));font:600 11px 'JetBrains Mono',monospace}
+.pin{display:none}.notes .pin{display:inline-flex}
+.pin{align-items:center;justify-content:center;width:18px;height:18px;background:rgb(var(--brand));color:rgb(var(--onacc));font:600 10px 'JetBrains Mono',monospace;flex:none}
+/* page header + tabs */
+.ph{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin-bottom:14px}
+.ph h1{margin:0;font-size:22px;font-weight:600}
+.tabs{display:flex;gap:0;border-bottom:1px solid rgb(var(--hair));margin-bottom:18px;overflow-x:auto}
+.tabs a{padding:10px 14px;color:rgb(var(--t3));font-weight:500;border-bottom:2px solid transparent;white-space:nowrap;display:flex;gap:6px;align-items:center}
+.tabs a.on{color:rgb(var(--t1));border-color:rgb(var(--brand))}
+.dot{width:7px;height:7px;background:rgb(var(--brand));display:inline-block}
+/* masthead */
+.mast{border-top:4px solid rgb(var(--t1));padding-top:2px}
+.mast .rule2{border-top:1px solid rgb(var(--t1));margin-bottom:10px}
+.mast .row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}
+.nameplate{margin:0;font-size:40px;line-height:1;font-weight:700;letter-spacing:-.02em}
+.dateline{display:flex;flex-wrap:wrap;gap:4px 14px;margin:10px 0 0;padding:6px 0;border-top:1px solid rgb(var(--hair));border-bottom:1px solid rgb(var(--hair));font:500 11px 'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:rgb(var(--t3))}
+.status{margin:8px 0 18px;font-size:12px;color:rgb(var(--t4))}
+/* three columns */
+.paper{display:grid;grid-template-columns:var(--rail) minmax(0,1fr) var(--side);gap:28px;align-items:start}
+.railbox{position:sticky;top:64px;display:flex;flex-direction:column;gap:2px}
+.railbox h4{margin:0 0 6px}
+.railbox a{display:flex;align-items:center;gap:8px;padding:7px 8px;color:rgb(var(--t2));border-left:2px solid transparent}
+.railbox a .n{margin-left:auto;font:500 11px 'JetBrains Mono',monospace;color:rgb(var(--t4))}
+.railbox a.on{color:rgb(var(--t1));border-left-color:rgb(var(--brand));background:rgb(var(--raised))}
+.railbox a.warn{color:rgb(var(--err))}
+.railbox hr{border:0;border-top:1px solid rgb(var(--hair));margin:10px 0}
+/* lead */
+.lead{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;padding-bottom:20px;border-bottom:1px solid rgb(var(--hair))}
+.kicker{font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:rgb(var(--brand))}
+.lead h2{margin:6px 0 8px;font-size:28px;line-height:1.15;font-weight:700;letter-spacing:-.01em}
+.lead p{margin:0 0 10px;color:rgb(var(--t2));font-size:15px;line-height:1.55}
+.meta{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font-size:12px;color:rgb(var(--t4))}
+.cov{display:inline-flex;gap:2px;vertical-align:middle}.cov i{width:6px;height:10px;background:rgb(var(--track))}.cov i.f{background:rgb(var(--t2))}
+.art{display:block;width:100%;height:auto;background:rgb(var(--raised))}
+.top3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:18px 0;border-bottom:3px double rgb(var(--hair))}
+.top3 article+article{border-left:1px solid rgb(var(--hair));padding-left:20px}
+.top3 h3{margin:6px 0;font-size:16px;line-height:1.3}
+.top3 p{margin:0 0 6px;font-size:13px;color:rgb(var(--t2))}
+/* sections */
+.sec{padding:22px 0 6px;scroll-margin-top:70px}
+.sech{display:flex;align-items:center;gap:12px;border-top:2px solid rgb(var(--t1));padding-top:8px;margin-bottom:6px}
+.sech h3{margin:0;font:600 13px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase}
+.sech .faint{font-size:12px}
+.sech .grow{flex:1}
+.stories{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}
+.story{padding:12px 0;border-bottom:1px solid rgb(var(--hair))}
+.story h4{margin:0 0 4px;font-size:15px;line-height:1.35;font-weight:600}
+.story p{margin:0 0 6px;font-size:13px;color:rgb(var(--t2))}
+.more{display:inline-flex;margin-top:8px;font-size:12px}
+.end{margin-top:28px;padding:14px 0;border-top:3px double rgb(var(--hair));display:flex;gap:10px;align-items:center;color:rgb(var(--t3));font-size:13px}
+.end .sq{width:10px;height:10px;background:rgb(var(--brand))}
+/* beside */
+.side{display:flex;flex-direction:column;gap:16px}
+.box{border:1px solid rgb(var(--hair));background:rgb(var(--raised))}
+.box>header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgb(var(--hair))}
+.box>header .grow{flex:1}
+.box .b{padding:10px 12px}
+.crit{border:1px solid rgb(var(--err));background:rgb(var(--err)/.08)}
+.crit .b{display:flex;flex-direction:column;gap:6px}
+.dayrow{display:flex;gap:12px;padding:5px 0;font-size:13px}.dayrow .mono{color:rgb(var(--brand));min-width:44px}
+.alert{padding:8px 0;border-bottom:1px solid rgb(var(--hair));font-size:13px}.alert:last-child{border-bottom:0}
+.spark{display:flex;align-items:flex-end;gap:3px;height:32px}.spark i{flex:1;background:rgb(var(--brand))}.spark i.c{background:rgb(var(--info))}
+/* cards view */
+.board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
+.card{border:1px solid rgb(var(--hair));background:rgb(var(--raised));display:flex;flex-direction:column}
+.card>header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgb(var(--hair))}
+.card>header .grow{flex:1}
+.card .body{padding:14px}
+.c6{grid-column:span 6}.c12{grid-column:span 12}.c4{grid-column:span 4}.c8{grid-column:span 8}
+.front{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:18px}
+.heads{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 18px}
+.heads a,.hl{display:block;padding:8px 0;border-bottom:1px solid rgb(var(--hair));color:rgb(var(--t1));font-weight:600;font-size:14px;line-height:1.35}
+.index{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid rgb(var(--hair));margin-top:12px}
+.index a{padding:8px 12px 8px 0;margin-right:12px;font-size:12px;color:rgb(var(--t2))}
+.index a b{font:500 11px 'JetBrains Mono',monospace;color:rgb(var(--t4));margin-left:4px}
+.ladder{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px}
+/* follow sheet */
+.sheet{max-width:640px;margin:0 auto;border:1px solid rgb(var(--strong));background:rgb(var(--raised));box-shadow:6px 6px 0 rgb(var(--brand)/.35)}
+.sheet>header{padding:14px 16px;border-bottom:1px solid rgb(var(--hair));display:flex;align-items:center}
+.sheet .b{padding:16px;display:flex;flex-direction:column;gap:14px}
+.in{width:100%;min-height:40px;padding:8px 10px;border:1px solid rgb(var(--control));background:rgb(var(--canvas));color:rgb(var(--t1));font:14px Inter}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.opt{border:1px solid rgb(var(--control));padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:6px;background:rgb(var(--canvas))}
+.opt.on{border-color:rgb(var(--brand));box-shadow:inset 0 0 0 1px rgb(var(--brand))}
+.opt .t{font-weight:600}
+.opt .d{font-size:12px;color:rgb(var(--t3))}
+.preview{border:1px dashed rgb(var(--strong));padding:10px 12px;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+/* phone */
+.phone{width:390px;margin:0 auto;border:1px solid rgb(var(--strong));min-height:800px;background:rgb(var(--canvas))}
+.phone .pin-tabs{position:sticky;top:0;display:flex;overflow-x:auto;gap:0;border-bottom:1px solid rgb(var(--hair));background:rgb(var(--canvas));scroll-snap-type:x mandatory}
+.phone .pin-tabs a{scroll-snap-align:start;padding:13px 14px;white-space:nowrap;color:rgb(var(--t3));border-bottom:2px solid transparent;font-size:13px}
+.phone .pin-tabs a.on{color:rgb(var(--t1));border-color:rgb(var(--brand))}
+.phone .pad{padding:14px}
+.phone .nameplate{font-size:30px}
+.phone .lead{grid-template-columns:1fr}
+.phone .stories{grid-template-columns:1fr}
+.phone .lead h2{font-size:22px}
+.phone .bar{display:flex;border-top:1px solid rgb(var(--hair));background:rgb(var(--canvas))}
+.phone .bar a{flex:1;text-align:center;padding:12px 0;font-size:11px;color:rgb(var(--t3))}
+.phone .bar a.on{color:rgb(var(--brand))}
+@media(max-width:1100px){.paper{grid-template-columns:minmax(0,1fr) var(--side)}.rail{display:none}}
+@media(max-width:800px){.paper{display:flex;flex-direction:column}.side{display:contents}.side .crit{order:-1}.side>.box:not(.crit),.side>.note{order:2}.top3 .art{display:none}.lead,.front{grid-template-columns:1fr}.top3,.stories,.heads,.ladder,.opts{grid-template-columns:1fr}.top3 article+article{border-left:0;padding-left:0;border-top:1px solid rgb(var(--hair));padding-top:12px}.board>*{grid-column:span 12}}
+</style>
+</head>
+<body class="notes">
+<div class="top">
+  <span class="micro eyebrow">Newsroom redesign · mocks · sample data</span><span class="grow"></span>
+  <div class="seg" id="views">
+    <button data-v="reader" aria-pressed="true">1 · Reader page</button>
+    <button data-v="cards" aria-pressed="false">2 · Cards</button>
+    <button data-v="follow" aria-pressed="false">3 · Follow sheet</button>
+    <button data-v="phone" aria-pressed="false">4 · Phone</button>
+  </div>
+  <button class="btn" id="theme">Theme</button>
+  <button class="btn" id="notes">Notes</button>
+</div>
+
+<div class="wrap">
+
+<!-- ═════════════ 1 · READER PAGE ═════════════ -->
+<section class="view on" id="v-reader">
+  <div class="ph"><div><div class="micro eyebrow">Stacks</div><h1>Newsroom</h1></div></div>
+  <nav class="tabs">
+    <a class="on" href="#">Brief <span class="dot"></span></a><a href="#">Alerts <span class="faint mono">3</span></a><a href="#">Following</a><a href="#">Settings</a>
+  </nav>
+  <div class="note"><b>R1</b><span>The page opens on the brief: it is the product. "Feed" becomes <b>Alerts</b> (what a watch found at once) and "Watches" plus brief topics become one <b>Following</b> tab (see mock 3). Four tabs, one job each.</span></div>
+
+  <div class="mast">
+    <div class="rule2"></div>
+    <div class="row">
+      <h2 class="nameplate">Morning Brief</h2><span class="tag info">New</span>
+      <span class="grow" style="flex:1"></span>
+      <div class="seg"><button aria-pressed="true">Morning</button><button aria-pressed="false">Evening</button></div>
+      <button class="btn">Earlier ▾</button><button class="btn">Write a new one</button>
+    </div>
+    <div class="dateline"><span>Wednesday 25 November 2026</span><span>No. 14</span><span>Read from 23 outlets</span><span>9 model calls · local</span><span>Summary sent to Telegram 06:41</span></div>
+  </div>
+  <p class="status">Today's brief, written automatically at 06:40. The next one is written at 18:00.</p>
+  <div class="note"><b>R2</b><span>A real nameplate: a thick and a thin rule, a big name and a one-line dateline in mono caps (date, issue number, outlets, model calls, send state). It replaces today's masthead, status card and send line: three rows become one.</span></div>
+
+  <div class="paper">
+    <nav class="rail"><div class="railbox">
+      <h4 class="micro faint">In this brief</h4>
+      <a class="on" href="#top">Top stories <span class="n">4</span></a>
+      <a href="#world">World <span class="n">5</span></a>
+      <a href="#tech">Technology <span class="n">5</span></a>
+      <a href="#biz">Business <span class="n">3</span></a>
+      <a href="#sci">Science <span class="n">4</span></a>
+      <hr>
+      <h4 class="micro faint">Beside</h4>
+      <a class="warn" href="#">■ Needs a look <span class="n">1</span></a>
+      <a href="#">Your day <span class="n">3</span></a>
+      <a href="#">Alerts <span class="n">3</span></a>
+      <hr>
+      <span class="faint" style="font-size:12px;padding:0 8px">j / k next story · o open</span>
+    </div>
+    <div class="note"><b>R3</b><span>A sticky index replaces "Collapse all" and the folding cards. Every section is open, and the index jumps to it. On a phone it becomes a row of tabs that sticks under the header (mock 4).</span></div>
+    </nav>
+
+    <main>
+      <article class="lead" id="top">
+        <svg class="art" data-seed="Lead: chip export rules" viewBox="0 0 400 260"></svg>
+        <div>
+          <div class="kicker">Lead · Technology</div>
+          <h2><a href="#" style="color:inherit">Sample: three chipmakers agree a shared standard for on-device AI accelerators</a></h2>
+          <p>Sample summary: the groups say a common instruction set will let one model build run on phones and laptops from different vendors, with a first draft due in spring.</p>
+          <div class="meta"><span class="cov" title="Reported by 5 outlets"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span><span>5 outlets · Outlet A, Outlet B, Outlet C +2</span><span>posted 2 h ago</span></div>
+        </div>
+      </article>
+      <div class="note"><b>R4</b><span><b>Halftone plate</b>: generated art drawn in the browser from the headline (a hash gives the pattern, the theme gives the ink). It sits in the retro dither style, works offline and never loads a publisher's image, so opening the brief tells no one what you read. <b>Coverage meter</b>: one tick per outlet, so you can see how important a story is at a glance.</span></div>
+      <div class="top3">
+        <article><svg class="art" data-seed="Top: rail strike" viewBox="0 0 400 160"></svg><div class="kicker" style="margin-top:8px">World</div><h3>Sample: rail unions call off next week's strike after a late offer</h3><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i></span>4 outlets · 3 h</div></article>
+        <article><svg class="art" data-seed="Top: rates" viewBox="0 0 400 160"></svg><div class="kicker" style="margin-top:8px">Business</div><h3>Sample: central bank holds rates and signals one cut next year</h3><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>3 outlets · 5 h</div></article>
+        <article><svg class="art" data-seed="Top: probe" viewBox="0 0 400 160"></svg><div class="kicker" style="margin-top:8px">Science</div><h3>Sample: probe sends first close images of a near-Earth asteroid</h3><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i></span>3 outlets · 7 h <span class="tag warn">Update</span></div></article>
+      </div>
+
+      <section class="sec" id="world">
+        <div class="sech"><svg class="plate" data-plate="world" width="44" height="26" viewBox="0 0 120 72"></svg><h3>World</h3><span class="grow"></span><span class="faint">5 stories · 1 in top · read 40 min ago</span></div>
+        <div class="stories">
+          <div class="story"><h4>Sample: coalition talks resume with a new mediator</h4><p>Sample summary of one or two sentences, from what the source said.</p><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i></i><i></i></span>2 outlets · 4 h</div></div>
+          <div class="story"><h4>Sample: floods close the main coastal road for a second day</h4><p>Sample summary of one or two sentences.</p><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span>3 outlets · 6 h</div></div>
+          <div class="story"><h4>Sample: border crossing reopens to freight</h4><div class="meta"><span class="cov"><i class="f"></i><i></i><i></i><i></i></span>1 outlet · 9 h · headline only</div></div>
+          <div class="story"><h4>Sample: summit agrees a fund for drought relief</h4><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i></i><i></i></span>2 outlets · 11 h · headline only</div></div>
+        </div>
+      </section>
+      <section class="sec" id="tech">
+        <div class="sech"><svg class="plate" data-plate="tech" width="44" height="26" viewBox="0 0 120 72"></svg><h3>Technology</h3><span class="grow"></span><span class="faint">5 stories · 1 in top · read 40 min ago</span></div>
+        <div class="stories">
+          <div class="story"><h4>Sample: browser makers agree to phase out a tracking header</h4><p>Sample summary.</p><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span>3 outlets · 2 h</div></div>
+          <div class="story"><h4>Sample: open-weights model tops a coding benchmark</h4><p>Sample summary.</p><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i></i><i></i></span>2 outlets · 5 h</div></div>
+        </div>
+        <a class="more" href="#">2 more in Technology →</a>
+      </section>
+      <section class="sec" id="biz">
+        <div class="sech"><svg class="plate" data-plate="economy" width="44" height="26" viewBox="0 0 120 72"></svg><h3>Business</h3><span class="grow"></span><span class="faint">3 stories · read 40 min ago</span></div>
+        <p class="faint" style="font-size:12px;margin:4px 0">These sources give headlines only, so there is no summary. <a href="#">Add a feed that has text →</a></p>
+        <div class="stories">
+          <div class="story"><h4>Sample: retailer posts its best quarter in five years</h4><div class="meta">1 outlet · 3 h</div></div>
+          <div class="story"><h4>Sample: airline orders 40 narrow-body jets</h4><div class="meta">2 outlets · 8 h</div></div>
+        </div>
+      </section>
+      <div class="end"><span class="sq"></span>You are up to date. The next brief is written at 18:00. <span style="flex:1"></span><a href="#">Print</a> · <a href="#">Copy as text</a></div>
+      <div class="note"><b>R5</b><span>An <b>end mark</b> says you are up to date, and nothing ever scrolls on for ever. "Copy as text" uses the same plain words the phone summary uses.</span></div>
+    </main>
+
+    <aside class="side">
+      <div class="box crit"><header><span class="tag err">Needs a look</span></header><div class="b"><span>An open Wi-Fi network near you is using the name of yours.</span><a href="#">Look at it in Radio →</a></div></div>
+      <div class="box"><header><svg class="plate" data-plate="home" width="34" height="20" viewBox="0 0 120 72"></svg><b>Your day</b><span class="grow"></span><span class="faint mono" style="font-size:11px">TOMORROW</span></header><div class="b">
+        <div class="dayrow"><span class="mono">08:30</span>Sample: dentist</div><div class="dayrow"><span class="mono">12:00</span>Sample: call the builder</div><div class="dayrow"><span class="mono">19:00</span>Sample: bins out</div></div></div>
+      <div class="box"><header><svg class="plate" data-plate="watch" width="34" height="20" viewBox="0 0 120 72"></svg><b>Alerts</b><span class="grow"></span><a href="#" style="font-size:12px">All →</a></header><div class="b">
+        <div class="alert"><span class="faint" style="font-size:11px">Model releases · 1 h</span><br>Sample: a new 8B model with a 128k context</div>
+        <div class="alert"><span class="faint" style="font-size:11px">Rust releases · 3 h</span><br>Sample: 1.95 is out</div></div></div>
+      <div class="box"><header><b>Home</b><span class="grow"></span><span class="tag ok">Quiet</span></header><div class="b faint" style="font-size:13px">14 devices seen · nothing new since yesterday</div></div>
+      <div class="box"><header><b>Model use</b><span class="grow"></span><span class="faint" style="font-size:12px">142 calls today</span></header><div class="b"><div class="spark"><i style="height:40%"></i><i style="height:55%"></i><i class="c" style="height:20%"></i><i style="height:70%"></i><i style="height:35%"></i><i style="height:60%"></i><i style="height:90%"></i></div></div></div>
+      <div class="note"><b>R6</b><span>The side column is the order you would read it in: needs a look, then your day, then alerts, then home, then model use. <b>Alerts</b> (the old Feed) joins the brief here, so the two halves of the Newsroom finally meet. <b>Model use</b> is shown without the Home switch (a proposal: SPEC-013 1.23 ties it to Home today).</span></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ═════════════ 2 · CARDS ═════════════ -->
+<section class="view" id="v-cards">
+  <div class="ph"><div><div class="micro eyebrow">Dashboard</div><h1>Home</h1></div></div>
+  <div class="note"><b>C1</b><span>Option B (cards show and link, ADR-0064, held strictly). There is one Brief card in three densities, and no tabs inside a card. Each headline, section and "needs a look" line links to <span class="mono">/newsroom/brief?edition=2&amp;section=tech#story-881</span>, so a tap lands on that exact place in the reader. Today every link goes to the top of the Briefs tab.</span></div>
+  <div class="board">
+    <div class="card c12">
+      <header><span class="micro faint">Newsroom</span><b>Morning Brief</b><span class="tag info">New</span><span class="grow"></span><span class="faint" style="font-size:12px">06:40 · 21 stories · 4 sections</span><a href="#" style="font-size:12px">Read →</a></header>
+      <div class="body">
+        <div class="box crit" style="margin-bottom:12px"><div class="b" style="flex-direction:row;align-items:center;gap:12px"><span class="tag err">Needs a look</span><span style="flex:1">An open Wi-Fi network near you is using the name of yours.</span><a href="#">Look →</a></div></div>
+        <div class="front">
+          <div><svg class="art" data-seed="Lead: chip export rules" viewBox="0 0 400 150"></svg><div class="kicker" style="margin-top:8px">Lead · Technology</div><a class="hl" href="#" style="font-size:18px;border:0">Sample: three chipmakers agree a shared standard for on-device AI accelerators</a><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span>5 outlets · 2 h</div></div>
+          <div>
+            <div class="heads">
+              <div><div class="kicker">World</div><a href="#">Sample: rail unions call off next week's strike</a><a href="#">Sample: coalition talks resume</a></div>
+              <div><div class="kicker">Business</div><a href="#">Sample: central bank holds rates</a><a href="#">Sample: retailer posts best quarter</a></div>
+              <div><div class="kicker">Science</div><a href="#">Sample: probe sends first close images</a><a href="#">Sample: new antibiotic class in trials</a></div>
+            </div>
+            <div class="index"><a href="#">Top stories<b>4</b></a><a href="#">World<b>5</b></a><a href="#">Technology<b>5</b></a><a href="#">Business<b>3</b></a><a href="#">Science<b>4</b></a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card c6">
+      <header><span class="micro faint">Today</span><span class="grow"></span><a href="#" style="font-size:12px">Brief →</a></header>
+      <div class="body" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:8px;align-items:center"><span class="tag err">1 to look at</span><span class="tag warn">2 runs failed</span></div>
+        <div class="dayrow"><span class="mono">08:30</span>Sample: dentist</div>
+        <div style="display:flex;gap:12px;align-items:flex-start;border-top:1px solid rgb(var(--hair));padding-top:10px"><svg class="art" data-seed="Lead: chip export rules" viewBox="0 0 120 90" style="width:96px;flex:none"></svg><div><div class="kicker">Lead</div><a class="hl" href="#" style="border:0;padding:2px 0">Sample: three chipmakers agree a shared AI accelerator standard</a></div></div>
+      </div>
+    </div>
+    <div class="card c6">
+      <header><span class="micro faint">Recent conversations</span></header>
+      <div class="body faint">(other card)</div>
+    </div>
+  </div>
+  <div class="note"><b>C2</b><span>The density ladder below. One component (<span class="mono">BriefSummary</span>) renders each size, so the lead block, the needs-a-look list and the polling exist once. Today the Brief card, the Today card and the edition page each have their own copy.</span></div>
+  <div class="ladder">
+    <div class="card"><header><span class="micro faint">XS · one line</span></header><div class="body"><span class="tag info">New</span> Morning Brief · 21 stories · <a href="#">Sample: chipmakers agree…</a></div></div>
+    <div class="card"><header><span class="micro faint">S · glance</span></header><div class="body"><div class="kicker">Lead</div><a class="hl" href="#" style="border:0">Sample: chipmakers agree a shared standard</a><div class="index" style="margin-top:6px"><a href="#">World<b>5</b></a><a href="#">Tech<b>5</b></a><a href="#">Biz<b>3</b></a></div></div></div>
+    <div class="card"><header><span class="micro faint">M · front page</span></header><div class="body faint">The 12-column card above, folded to one column: lead art, the lead, 3 headlines and the index.</div></div>
+  </div>
+  <div class="note"><b>C3</b><span>Option A (the alternative): keep tabs in the big card and make it the main reader on the dashboard. Then the Newsroom page's Brief tab shrinks to setup and history. It costs an amendment to ADR-0064 and it splits reading across two places, which goes against "one path per job". That is why these mocks show B.</span></div>
+</section>
+
+<!-- ═════════════ 3 · FOLLOW SHEET ═════════════ -->
+<section class="view" id="v-follow">
+  <div class="note" style="max-width:640px;margin:0 auto 12px"><b>F1</b><span>A watch and a brief topic are both "something I follow, read from some sources". Today they have two forms, two source editors and two tabs. One <b>Follow</b> sheet asks what to follow, then how you want to hear about it. The stored objects can stay as they are (a topic, a watch, or both). Only the way in becomes one.</span></div>
+  <div class="sheet">
+    <header><b style="font-size:16px">Follow something</b><span style="flex:1"></span><button class="btn mv">✕</button></header>
+    <div class="b">
+      <label class="micro faint">What do you want to follow?</label>
+      <input class="in" value="open-weights model releases">
+      <div class="chips"><span class="chip">+ Hacker News search</span><span class="chip">+ News search · en-GB</span><span class="chip">+ t.me/s/aipost</span><span class="chip">+ Browse well-known sources</span></div>
+      <label class="micro faint">How do you want to hear about it?</label>
+      <div class="opts">
+        <div class="opt on"><span class="t">In my brief</span><span class="d">Gathered all day and written up once in the Morning Brief, in the section you pick.</span></div>
+        <div class="opt"><span class="t">Alert me at once</span><span class="d">Checked every hour. Anything new goes to Alerts, and to Telegram if you choose.</span></div>
+        <div class="opt"><span class="t">Both</span><span class="d">The digest, plus an alert as soon as something new appears.</span></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:180px"><label class="micro faint">Section</label><input class="in" value="Technology"></div><div style="flex:1;min-width:180px"><label class="micro faint">Only items about (optional)</label><input class="in" placeholder="e.g. a new model, not a benchmark"></div></div>
+      <div class="preview"><span class="micro faint">Preview · from a look-up just now</span><div class="alert">Sample: a new 8B open-weights model with a 128k context</div><div class="alert">Sample: lab publishes the weights of its 70B model</div><div class="alert">Sample: benchmark round-up for November</div></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn">Cancel</button><button class="btn primary">Follow</button></div>
+    </div>
+  </div>
+  <div class="note" style="max-width:640px;margin:12px auto 0"><b>F2</b><span>The preview is the existing source look-up, run for every source together, so you can see what you would get before you save. "Only items about" is the watch's <span class="mono">look_for</span>, offered here in the same place for both kinds.</span></div>
+</section>
+
+<!-- ═════════════ 4 · PHONE ═════════════ -->
+<section class="view" id="v-phone">
+  <div class="phone">
+    <div class="pad" style="padding-bottom:0">
+      <div class="mast"><div class="rule2"></div><div class="row"><h2 class="nameplate">Morning Brief</h2><span class="tag info">New</span></div>
+      <div class="dateline"><span>Wed 25 Nov</span><span>No. 14</span><span>23 outlets</span></div></div>
+    </div>
+    <nav class="pin-tabs"><a class="on">Top</a><a>Needs a look ■</a><a>World 5</a><a>Technology 5</a><a>Business 3</a><a>Science 4</a><a>Your day</a></nav>
+    <div class="pad">
+      <div class="box crit" style="margin-bottom:14px"><div class="b"><span class="tag err">Needs a look</span><span>An open Wi-Fi network near you is using the name of yours.</span><a href="#">Look at it in Radio →</a></div></div>
+      <article class="lead"><svg class="art" data-seed="Lead: chip export rules" viewBox="0 0 400 220"></svg><div><div class="kicker">Lead · Technology</div><h2>Sample: three chipmakers agree a shared standard for on-device AI accelerators</h2><p>Sample summary in one or two sentences.</p><div class="meta"><span class="cov"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span>5 outlets · 2 h</div></div></article>
+      <div class="story"><div class="kicker">World</div><h4>Sample: rail unions call off next week's strike</h4><div class="meta">4 outlets · 3 h</div></div>
+      <div class="story"><div class="kicker">Business</div><h4>Sample: central bank holds rates</h4><div class="meta">3 outlets · 5 h</div></div>
+    </div>
+    <div class="bar"><a class="on">Brief</a><a>Alerts</a><a>Following</a><a>Settings</a></div>
+  </div>
+  <div class="note" style="max-width:390px;margin:12px auto 0"><b>P1</b><span>On a phone the index is a row of tabs that sticks under the header and scrolls sideways (scroll-snap). "Needs a look" is a tab of its own, near the front. Each tab is 44 px tall.</span></div>
+</section>
+</div>
+
+<script>
+// Line-art plates: the same shapes as NewsroomPlate.vue.
+const PLATES={world:'<circle cx="60" cy="36" r="26"/><ellipse cx="60" cy="36" rx="12" ry="26"/><path d="M34 36h52M38 24h44M38 48h44"/>',tech:'<rect x="40" y="22" width="40" height="28"/><path d="M50 22v-8M60 22v-8M70 22v-8M50 50v8M60 50v8M70 50v8M40 32h-8M40 42h-8M80 32h8M80 42h8"/>',economy:'<path d="M14 58V40M30 58V30M46 58V44M62 58V22M78 58V34M94 58V16"/><path d="M12 46l20-14 16 10 18-22 22 6"/>',home:'<path d="M26 58V34l34-20 34 20v24z"/><rect x="52" y="40" width="16" height="18"/>',watch:'<path d="M20 52c10-24 20-24 30-8s20 12 50-20"/><circle cx="50" cy="44" r="4"/>'};
+document.querySelectorAll('svg[data-plate]').forEach(s=>{s.setAttribute('fill','none');s.setAttribute('stroke','rgb(var(--brand))');s.setAttribute('stroke-width','2');s.innerHTML=PLATES[s.dataset.plate]||''});
+// Halftone plates: a deterministic dot field from a hash of the headline. Two drifting "light sources" make a shape; dot size is the brightness.
+function hash(str){let h=2166136261;for(const c of str){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
+function rng(seed){return()=>{seed=Math.imul(seed^seed>>>15,seed|1);seed^=seed+Math.imul(seed^seed>>>7,seed|61);return((seed^seed>>>14)>>>0)/4294967296}}
+document.querySelectorAll('svg[data-seed]').forEach(s=>{
+  const [,,w,h]=s.getAttribute('viewBox').split(' ').map(Number);const r=rng(hash(s.dataset.seed));
+  const a={x:r()*w,y:r()*h},b={x:r()*w,y:r()*h},ang=r()*Math.PI,step=Math.max(7,Math.round(w/48));
+  let out='';
+  for(let y=step/2;y<h;y+=step)for(let x=step/2;x<w;x+=step){
+    const da=Math.hypot(x-a.x,y-a.y)/w,db=Math.hypot(x-b.x,y-b.y)/w;
+    const band=(Math.sin((x*Math.cos(ang)+y*Math.sin(ang))/(w/6))+1)/2;
+    const v=Math.min(1,Math.max(0,1.15-da*1.6)*0.7+Math.max(0,0.8-db*2)*0.6+band*0.18);
+    const rad=v*step*0.52; if(rad<0.6)continue;
+    out+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+rad.toFixed(2)+'"/>';
+  }
+  s.innerHTML='<g fill="rgb(var(--brand))" fill-opacity=".9">'+out+'</g>';
+});
+const setView=v=>{document.querySelectorAll('.view').forEach(e=>e.classList.toggle('on',e.id==='v-'+v));document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===v))};
+document.querySelectorAll('#views button').forEach(b=>b.onclick=()=>setView(b.dataset.v));
+document.getElementById('theme').onclick=()=>{const d=document.documentElement;d.dataset.theme=d.dataset.theme==='light'?'dark':'light'};
+document.getElementById('notes').onclick=()=>document.body.classList.toggle('notes');
+document.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{document.querySelectorAll('.opt').forEach(x=>x.classList.remove('on'));o.classList.add('on')});
+const q=new URLSearchParams(location.search);if(q.get('theme'))document.documentElement.dataset.theme=q.get('theme');if(q.get('view'))setView(q.get('view'));if(q.get('notes')==='0')document.body.classList.remove('notes');
+</script>
+</body>
+</html>

@@ -30,7 +30,7 @@ const sorting = computed(() => props.view.listened_cycles < props.view.min_liste
       <span v-if="sorting" class="text-[length:var(--text-small)] text-muted" data-test="radio-status-sorting">{{ radioStatusSorting(view.listened_cycles, view.min_listened_cycles) }}</span>
     </template>
     <template v-else>
-      <span v-if="resume" class="text-state-warning" data-test="radio-status-stopped">{{ radioStatusStopped(resume.why, resume.hours_left) }}</span>
+      <span v-if="resume" class="text-state-running" data-test="radio-status-stopped">{{ radioStatusStopped(resume.why, resume.hours_left) }}</span>
       <span v-else class="text-secondary" data-test="radio-status-idle">{{ RADIO_STATUS_IDLE }}</span>
       <RouterLink :to="toRadio()" class="inline-flex min-h-11 items-center text-accent-brand hover:underline" :data-test="resume ? 'radio-status-resume' : 'radio-status-start'">{{ resume ? RADIO_STATUS_RESUME : RADIO_STATUS_START }}</RouterLink>
     </template>

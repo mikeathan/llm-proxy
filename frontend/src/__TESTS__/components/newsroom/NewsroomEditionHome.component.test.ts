@@ -6,9 +6,13 @@ import { toNetwork, toNetworkCard, toRadio, toRadioFinding } from '../../../rout
 import type { BriefHomeLine, BriefIssue } from '../../../types/newsroom'
 
 vi.mock('../../../services/modelStatsService', () => ({ ModelStatsService: { get: vi.fn().mockResolvedValue({ days: [], today: [] }) } }))
+// The edition's side column also shows the chips, which read two other services; quiet answers keep the test off the network.
+vi.mock('../../../services/automation/dispatcherService', () => ({ DispatcherService: { getGlobalActivity: vi.fn().mockResolvedValue([]) } }))
+vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: { alerts: vi.fn().mockResolvedValue({ items: [] }) } }))
 
 const issue = (home?: BriefHomeLine[]): BriefIssue => ({ id: 1, edition_id: 2, name: 'Morning', made_at: '2026-11-22T06:40:00Z', sections: [], model_calls: 0, home })
-const mountIt = (home?: BriefHomeLine[]) => mount(NewsroomEdition, { props: { issue: issue(home) }, global: { stubs: { RouterLink: RouterLinkStub } } })
+const STATUS = { tone: 'fresh' as const, title: "Today's brief", detail: 'Written.', next: 'The next one is at 18:00.' }
+const mountIt = (home?: BriefHomeLine[]) => mount(NewsroomEdition, { props: { issue: issue(home), status: STATUS }, global: { stubs: { RouterLink: RouterLinkStub } } })
 const mountHome = (lines: BriefHomeLine[]) => mount(NewsroomEditionHome, { props: { lines }, global: { stubs: { RouterLink: RouterLinkStub } } })
 
 const ONLINE: BriefHomeLine = { id: 'network_online', count: 16, words: 'Devices the network sees right now.', level: 'info' }

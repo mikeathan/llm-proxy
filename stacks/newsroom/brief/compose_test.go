@@ -331,3 +331,48 @@ func TestTopic_NoCategoryMeansItsOwnNameAndNormalizeFillsIt(t *testing.T) {
 		t.Errorf("normalize: %+v %v", n, err)
 	}
 }
+
+// An edition's own reading settings decide how many stories a section and the top carry, how long a shown story stays out and how old a story may be.
+func TestCompose_TheEditionsReadingSettingsAreUsed(t *testing.T) {
+	var pool []PoolItem
+	titles := []string{"Rail strike called off", "Central bank holds rates", "Probe images an asteroid", "Floods close coastal road", "Retailer posts record quarter", "Airline orders new jets"}
+	for i, title := range titles {
+		pool = append(pool, poolStory(int64(i+1), title, "", 6-i, 7, time.Duration(i+1)*time.Hour))
+	}
+	in := oneSection(pool...)
+	in.Edition.StoriesPerSection, in.Edition.TopStories = 2, 1
+	got := Compose(context.Background(), in)
+	if n := len(got.Sections[0].Stories); n != 2 {
+		t.Fatalf("stories per section 2 keeps 2, got %d", n)
+	}
+	if len(got.Top) != 1 {
+		t.Fatalf("top stories 1 keeps 1, got %d", len(got.Top))
+	}
+
+	old := oneSection(poolStory(1, "A story from ten hours ago about rail", "", 3, 7, 10*time.Hour), poolStory(2, "A story from an hour ago about ports", "", 1, 7, time.Hour))
+	old.Edition.MaxStoryAge = 6 * time.Hour
+	if st := Compose(context.Background(), old).Sections[0].Stories; len(st) != 1 || st[0].PoolID != 2 {
+		t.Fatalf("a story older than the edition's age limit is left out: %+v", st)
+	}
+
+	shown := oneSection(poolStory(1, "Shown thirty hours ago about tides", "", 2, 7, time.Hour))
+	shown.Shown = []Shown{{Key: TitleKey("Shown thirty hours ago about tides"), At: composeNow.Add(-30 * time.Hour), Outlets: 2}}
+	if st := Compose(context.Background(), shown).Sections[0].Stories; len(st) != 1 {
+		t.Fatalf("with the default day, a story shown 30 h ago may come back: %+v", st)
+	}
+	shown.Edition.RepeatAfter = 48 * time.Hour
+	if st := Compose(context.Background(), shown).Sections[0].Stories; len(st) != 0 {
+		t.Fatalf("with two days, a story shown 30 h ago stays out: %+v", st)
+	}
+}
+
+// Each section is told before it is written, and the top stories last, so a page can say how far a write has got.
+func TestCompose_TellsEachStepOfTheWrite(t *testing.T) {
+	var steps []Step
+	in := oneSection(poolStory(1, "Rail strike called off", "", 2, 7, time.Hour))
+	in.Progress = func(s Step) { steps = append(steps, s) }
+	Compose(context.Background(), in)
+	if len(steps) != 2 || steps[0] != (Step{Stage: StageWriting, Done: 0, Total: 2, Section: "Tech"}) || steps[1].Done != 1 || steps[1].Section != "" {
+		t.Fatalf("steps: %+v", steps)
+	}
+}

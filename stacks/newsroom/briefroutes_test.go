@@ -99,19 +99,20 @@ func TestBriefRoutes_AnEditionIsMadeOnRequestAndReadBack(t *testing.T) {
 	if _, err := call(t, s, "POST", fmt.Sprintf("%stopics/%d/collect", RouteBriefs, topic.ID), ""); err != nil {
 		t.Fatal(err)
 	}
-	made, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), "")
-	if err != nil || made.Status != http.StatusCreated || !strings.Contains(string(made.Body), "First") || !strings.Contains(string(made.Body), "no model is set up") {
-		t.Fatalf("make: %s %v", made.Body, err)
+	started, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), "")
+	if err != nil || started.Status != http.StatusAccepted || !strings.Contains(string(started.Body), `"state":"writing"`) {
+		t.Fatalf("a write by hand answers at once: %s %v", started.Body, err)
 	}
-	var is struct {
-		ID int64 `json:"id"`
+	job := waitForWrite(t, s, ed.ID)
+	if job.State != "done" || job.IssueID == 0 {
+		t.Fatalf("the write ends done with its issue: %+v", job)
 	}
-	_ = json.Unmarshal(made.Body, &is)
-	if resp, err = call(t, s, "GET", fmt.Sprintf("%sissues/%d", RouteBriefs, is.ID), ""); err != nil || string(resp.Body) != string(made.Body) {
-		t.Errorf("by id: %s %v", resp.Body, err)
+	made, err := call(t, s, "GET", fmt.Sprintf("%sissues/%d", RouteBriefs, job.IssueID), "")
+	if err != nil || !strings.Contains(string(made.Body), "First") || !strings.Contains(string(made.Body), "no model is set up") {
+		t.Fatalf("by id: %s %v", made.Body, err)
 	}
-	if resp, err = call(t, s, "GET", RouteBriefIssues, ""); err != nil || !strings.HasPrefix(string(resp.Body), "[{") {
-		t.Errorf("list: %s %v", resp.Body, err)
+	if resp, err = call(t, s, "GET", RouteBriefIssues, ""); err != nil || !strings.HasPrefix(string(resp.Body), "[{") || strings.Contains(string(resp.Body), "sections") {
+		t.Errorf("the list names each issue and carries no stories: %s %v", resp.Body, err)
 	}
 	if _, err = call(t, s, "POST", RouteBriefs+"editions/99/issue", ""); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("an unknown edition is not found, got %v", err)
@@ -281,7 +282,7 @@ func TestBriefRoutes_WatchesAndHomeFlagsRoundTripAndFillTheEdition(t *testing.T)
 	if _, err = call(t, s, "PUT", path, body); err != nil {
 		t.Fatal(err)
 	}
-	made, err := call(t, s, "POST", path+"/issue", "")
+	made, err := writeNow(t, s, ed.ID)
 	if err != nil || !strings.Contains(string(made.Body), "Radio is off, so nothing is said about the air.") {
 		t.Fatalf("the edition carries the home block: %s %v", made.Body, err)
 	}
@@ -314,8 +315,7 @@ func TestBriefRoutes_DayAndSendToRoundTripAndFillTheEdition(t *testing.T) {
 		ID int64 `json:"id"`
 	}
 	_ = json.Unmarshal(resp.Body, &ed)
-	path := fmt.Sprintf("%seditions/%d", RouteBriefs, ed.ID)
-	made, err := call(t, s, "POST", path+"/issue", "")
+	made, err := writeNow(t, s, ed.ID)
 	if err != nil || !strings.Contains(string(made.Body), `"day":{"items":[{"clock":"14:00","title":"Call the dentist"}]}`) {
 		t.Fatalf("the edition carries the day block: %s %v", made.Body, err)
 	}
@@ -349,6 +349,7 @@ func TestBriefRoutes_LatestAndMarkRead(t *testing.T) {
 	if _, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), ""); err != nil {
 		t.Fatal(err)
 	}
+	waitForWrite(t, s, ed.ID)
 	if resp, _ := call(t, s, "GET", RouteBriefLatest, ""); !strings.Contains(string(resp.Body), `"issue_id":1`) || !strings.Contains(string(resp.Body), `"read":false`) {
 		t.Fatalf("a made edition is unread: %s", resp.Body)
 	}
@@ -363,5 +364,68 @@ func TestBriefRoutes_LatestAndMarkRead(t *testing.T) {
 	}
 	if _, err := call(t, s, "POST", RouteBriefs+"issues/99/read", ""); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("an unknown issue is not found, got %v", err)
+	}
+}
+
+// writeJob is what GET .../briefs/jobs says of one write.
+type writeJob struct {
+	EditionID int64  `json:"edition_id"`
+	State     string `json:"state"`
+	IssueID   int64  `json:"issue_id"`
+	Problem   string `json:"problem"`
+}
+
+// waitForWrite polls the writes until the edition's has ended.
+func waitForWrite(t *testing.T, s *Stack, edition int64) writeJob {
+	t.Helper()
+	for range 200 {
+		resp, err := call(t, s, "GET", RouteBriefJobs, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var jobs []writeJob
+		_ = json.Unmarshal(resp.Body, &jobs)
+		for _, j := range jobs {
+			if j.EditionID == edition && j.State != "writing" {
+				return j
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the write did not end")
+	return writeJob{}
+}
+
+// writeNow writes the edition by hand, waits for the write and reads the issue it wrote.
+func writeNow(t *testing.T, s *Stack, edition int64) (stacksdk.Response, error) {
+	t.Helper()
+	if _, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, edition), ""); err != nil {
+		return stacksdk.Response{}, err
+	}
+	job := waitForWrite(t, s, edition)
+	if job.State != "done" {
+		t.Fatalf("the write failed: %+v", job)
+	}
+	return call(t, s, "GET", fmt.Sprintf("%sissues/%d", RouteBriefs, job.IssueID), "")
+}
+
+// A second write of an edition is refused while one is writing.
+func TestBriefRoutes_OneWriteOfAnEditionAtATime(t *testing.T) {
+	s := startBriefs(t, "", &rssFetch{}, time.Hour)
+	resp, _ := call(t, s, "POST", RouteBriefTopics, topicBody)
+	var topic struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &topic)
+	resp, _ = call(t, s, "POST", RouteBriefEditions, editionBody(topic.ID))
+	var ed struct {
+		ID int64 `json:"id"`
+	}
+	_ = json.Unmarshal(resp.Body, &ed)
+	if _, err := s.jobs.Begin(ed.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, s, "POST", fmt.Sprintf("%seditions/%d/issue", RouteBriefs, ed.ID), ""); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Fatalf("a write while one is writing is refused, got %v", err)
 	}
 }

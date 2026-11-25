@@ -5,6 +5,7 @@ const service = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('../../../services/modelStatsService', () => ({ ModelStatsService: service }))
 
 import NewsroomEditionModelUse from '../../../components/newsroom/NewsroomEditionModelUse.vue'
+import { resetModelUse } from '../../../composables/newsroom/useModelUse'
 import type { ModelStatsReport } from '../../../types/modelStats'
 
 const week = (today: { local: number; cloud: number }): ModelStatsReport['days'] =>
@@ -18,7 +19,10 @@ const report = (over: Partial<ModelStatsReport> = {}): ModelStatsReport => ({
   ...over,
 })
 const mounted: { unmount(): void }[] = []
-afterEach(() => { mounted.splice(0).forEach((w) => w.unmount()) })
+afterEach(() => {
+  mounted.splice(0).forEach((w) => w.unmount())
+  resetModelUse()
+})
 const mountIt = async () => {
   const w = mount(NewsroomEditionModelUse)
   mounted.push(w)
@@ -80,6 +84,9 @@ describe('NewsroomEditionModelUse', () => {
   it('says one call in the singular, and says so when nothing was called today', async () => {
     service.get.mockResolvedValue(report({ today: [{ model: 'm', local: true, calls: 1, failed: 0, prompt_tokens: 1, completion_tokens: 1 }] }))
     expect((await mountIt()).get('[data-test="model-use-total"]').text()).toBe('1 call today')
+    // The numbers are shared by every block on screen; a fresh page asks again.
+    mounted.splice(0).forEach((m) => m.unmount())
+    resetModelUse()
     service.get.mockResolvedValue(report({ today: [] }))
     const w = await mountIt()
     expect(w.get('[data-test="model-use-total"]').text()).toBe('No calls today')

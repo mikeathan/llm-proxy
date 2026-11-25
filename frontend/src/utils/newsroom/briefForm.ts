@@ -1,5 +1,5 @@
-import { MAX_EDITION_TOPICS } from '../../constants/newsroom'
-import type { SectionGroup, BriefEdition, BriefEditionEdit, BriefSource, BriefStarter, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
+import { DEFAULT_READING, MAX_EDITION_TOPICS } from '../../constants/newsroom'
+import type { SectionGroup, BriefEdition, BriefReading, BriefEditionEdit, BriefSource, BriefStarter, BriefTopic, BriefTopicEdit, NewsroomSource } from '../../types/newsroom'
 
 /** One value per line, trimmed, blanks and repeats dropped. */
 export const fromLines = (text: string): string[] => [...new Set(text.split('\n').map((l) => l.trim()).filter((l) => l !== ''))]
@@ -60,7 +60,20 @@ export function groupSources(entries: readonly BriefSource[], topicName: string,
   return ranked.map((category) => ({ category, entries: entries.filter((e) => e.category === category) })).filter((g) => g.entries.length > 0)
 }
 
-export function editionEdit(f: { name: string; readyBy: string; days: number[]; topics: number[]; enabled: boolean; every: number; forHours: number; watches: boolean; home: boolean; day: boolean; sendTo: string }): BriefEditionEdit {
+export function editionEdit(f: {
+  name: string
+  readyBy: string
+  days: number[]
+  topics: number[]
+  enabled: boolean
+  every: number
+  forHours: number
+  watches: boolean
+  home: boolean
+  day: boolean
+  sendTo: string
+  reading: BriefReading
+}): BriefEditionEdit {
   return {
     name: f.name.trim(),
     ready_by: f.readyBy,
@@ -73,6 +86,20 @@ export function editionEdit(f: { name: string; readyBy: string; days: number[]; 
     collect_every: hoursToDuration(f.every),
     collect_for: hoursToDuration(f.forHours),
     sections: f.topics.map((topic_id) => ({ kind: 'news' as const, topic_id })),
+    stories_per_section: f.reading.stories,
+    top_stories: f.reading.top,
+    repeat_after: hoursToDuration(f.reading.repeatHours),
+    max_story_age: hoursToDuration(f.reading.ageHours),
+  }
+}
+
+/** An edition's reading settings in the form's units (hours), the defaults when the edition is new. */
+export function readingOf(e: BriefEdition | null): BriefReading {
+  return {
+    stories: e?.stories_per_section || DEFAULT_READING.stories,
+    top: e?.top_stories || DEFAULT_READING.top,
+    repeatHours: hoursOf(e?.repeat_after ?? '') ?? DEFAULT_READING.repeatHours,
+    ageHours: hoursOf(e?.max_story_age ?? '') ?? DEFAULT_READING.ageHours,
   }
 }
 
@@ -161,6 +188,7 @@ export function editionJoining(e: BriefEdition, topics: readonly BriefTopic[], a
     name: e.name, ready_by: e.ready_by, days: e.days, enabled: e.enabled, watches: !!e.watches, home: !!e.home, day: !!e.day, send_to: e.send_to ?? '',
     collect_every: e.collect_every, collect_for: e.collect_for,
     sections: [...e.sections, { kind: 'news', topic_id: added.id }],
+    stories_per_section: e.stories_per_section, top_stories: e.top_stories, repeat_after: e.repeat_after, max_story_age: e.max_story_age,
   }
 }
 

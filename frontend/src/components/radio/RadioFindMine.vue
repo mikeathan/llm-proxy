@@ -52,7 +52,7 @@ function save(id: string): void {
       <p class="m-0 text-[length:var(--text-small)] text-muted">{{ RADIO_FIND_STEPS }}</p>
       <p v-if="!candidates.length" class="m-0 text-secondary" data-test="radio-find-none">{{ RADIO_FIND_NONE }}</p>
       <template v-else>
-        <p v-if="lead" class="m-0 text-[length:var(--text-small)]" :class="lead.clear ? 'text-primary' : 'text-state-warning'" data-test="radio-find-lead">{{ radioFindLead(lead.db, lead.clear) }}</p>
+        <p v-if="lead" class="m-0 text-[length:var(--text-small)]" :class="lead.clear ? 'text-primary' : 'text-state-running'" data-test="radio-find-lead">{{ radioFindLead(lead.db, lead.clear) }}</p>
         <p class="m-0 text-[length:var(--text-small)] text-muted">{{ RADIO_FIND_OPEN_HINT }}</p>
       </template>
       <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0">

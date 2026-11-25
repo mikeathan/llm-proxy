@@ -1,146 +1,180 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { RouterLink } from "vue-router"
-import { toSettings } from "../../router/routes"
+import { toNewsroom, toSettings } from "../../router/routes"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import Icon from "../icons/Icon.vue"
+import StatusTag from "../common/display/StatusTag.vue"
+import NewsroomBriefAttention from "./NewsroomBriefAttention.vue"
+import NewsroomBriefChips from "./NewsroomBriefChips.vue"
 import NewsroomBriefStory from "./NewsroomBriefStory.vue"
 import NewsroomEditionDay from "./NewsroomEditionDay.vue"
 import NewsroomEditionHome from "./NewsroomEditionHome.vue"
 import NewsroomEditionModelUse from "./NewsroomEditionModelUse.vue"
 import NewsroomEditionWatches from "./NewsroomEditionWatches.vue"
 import NewsroomPlate from "./NewsroomPlate.vue"
+import { useStoryKeys } from "../../composables/newsroom/useStoryKeys"
+import { useToast } from "../../composables/useToast"
 import { formatRelativeTime } from "../../utils/format/time"
+import { briefText } from "../../utils/newsroom/briefText"
+import { splitHome } from "../../utils/newsroom/homeLines"
 import {
-  BRIEF_PROBLEMS_ACTION, BRIEF_SEND_FIX, BRIEF_SEND_PROBLEM, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL, BRIEF_SECTION_SHOWN, COLLAPSE_ALL_LABEL, EXPAND_ALL_LABEL, LEAD_STORY_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
+  BRIEF_BESIDE_LABEL, BRIEF_COPIED, BRIEF_COPY_FAILED, BRIEF_COPY_LABEL, BRIEF_END_WORDS, BRIEF_INDEX_LABEL, BRIEF_KEYS_HINT, BRIEF_PRINT_LABEL, BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL,
+  BRIEF_SECTION_SHOWN, BRIEF_SEND_FIX, BRIEF_SEND_PROBLEM, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
   briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, briefSentWords, showMoreWords,
 } from "../../constants/newsroom"
-import type { BriefIssue, BriefSection, BriefStory } from "../../types/newsroom"
+import type { BriefIssue, BriefSection, BriefStatus, BriefStory } from "../../types/newsroom"
 
-// One edition as it was made: a masthead, the lead story, the other top stories, then a foldable card for each topic. A card never grows past a few
-// stories (the rest sit behind "Show more"), so a long edition stays one screen of headlines. The first two cards are open. A card says what the reader
-// should know about it (collected long ago, not written by the model) and which sources could not be read, so a thin section explains itself.
-const OPEN_AT_FIRST = 2
-const props = defineProps<{ issue: BriefIssue }>()
-// A source that could not be read is fixed on Set up; the page that holds both views switches.
-defineEmits<{ (e: "open-setup"): void }>()
-
-// A section the reader opened or folded by hand overrides the default; "all" sets every card at once.
-const toggled = ref<Record<number, boolean>>({})
-const expanded = ref<Record<number, boolean>>({})
-const isOpen = (topicId: number, index: number): boolean => toggled.value[topicId] ?? index < OPEN_AT_FIRST
-const toggle = (topicId: number, index: number) => (toggled.value = { ...toggled.value, [topicId]: !isOpen(topicId, index) })
-const anyOpen = computed(() => props.issue.sections.some((s, i) => isOpen(s.topic_id, i)))
-function setAll(open: boolean) {
-  toggled.value = Object.fromEntries(props.issue.sections.map((s) => [s.topic_id, open]))
-  if (!open) expanded.value = {}
+// One edition as it was written, laid out as a paper to read (ADR-0086): a nameplate and one dateline, the lead and the other top stories, then every section
+// open, one after another, and an end mark. On a wide screen an index of the sections sits on the left and what is beside the news on the right (needs a look,
+// your day, alerts, home, model use); on a phone the index is a row of links that stays under the header and the side column follows the top stories. Every
+// section and story is an anchor, so a card links straight to it, and j and k move between the stories.
+// `topics` names the topic behind each section (its first topic's id), so a story there can be tuned; without it the stories carry no actions.
+const props = defineProps<{ issue: BriefIssue; status: BriefStatus; isNew?: boolean; topics?: Record<number, string> }>()
+const emit = defineEmits<{ (e: "tune", topicId: number, more: boolean, words: string[]): void; (e: "follow", words: string[]): void }>()
+// The topic each story came from: the section that holds it.
+const topicOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.topic_id] as const))))
+const topicName = (s: BriefStory): string | undefined => {
+  const id = topicOf.value.get(s.pool_id)
+  return id === undefined ? undefined : props.topics?.[id]
 }
+const tune = (s: BriefStory, more: boolean, words: string[]) => {
+  const id = topicOf.value.get(s.pool_id)
+  if (id !== undefined) emit("tune", id, more, words)
+}
+const root = ref<HTMLElement | null>(null)
+useStoryKeys(root)
+const toast = useToast()
+
+const expanded = ref<Record<number, boolean>>({})
 const showAll = (topicId: number) => expanded.value[topicId] === true
 const flipAll = (topicId: number) => (expanded.value = { ...expanded.value, [topicId]: !showAll(topicId) })
 const shown = <T,>(stories: T[], topicId: number): T[] => (showAll(topicId) ? stories : stories.slice(0, BRIEF_SECTION_SHOWN))
 
-// A card whose every story is headline-only says so once, instead of tagging each story.
-// A story already in the top stories is not repeated in its card.
+// A story already in the top stories is not repeated in its section, and a section whose every story is headline-only says so once.
 const topIds = computed(() => new Set((props.issue.top ?? []).map((s) => s.pool_id)))
 const storiesOf = (sec: BriefSection): BriefStory[] => sec.stories.filter((s) => !topIds.value.has(s.pool_id))
 const headlinesOnly = (sec: BriefSection): boolean => storiesOf(sec).length > 0 && storiesOf(sec).every((s) => s.headline_only)
-
-// Which section a top story came from, so a story from outside the topic's heading does not look misplaced.
-const sectionOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.name] as const))))
 const inTopCount = (sec: BriefSection): number => sec.stories.length - storiesOf(sec).length
+const sectionOf = computed(() => new Map(props.issue.sections.flatMap((sec) => sec.stories.map((s) => [s.pool_id, sec.name] as const))))
+
+const lead = computed(() => props.issue.top?.[0])
+const otherTop = computed(() => props.issue.top?.slice(1) ?? [])
+const home = computed(() => splitHome(props.issue.home ?? []))
+// The critical facts are said first, above everything beside the news; the Home block keeps the rest.
+const homeRest = computed(() => [...home.value.check, ...home.value.routine])
+const sectionAnchor = (sec: BriefSection) => `brief-section-${sec.topic_id}`
 
 // "nothing" is an issue with nothing to say: no send was made, so neither a problem nor a sent line.
 const sendProblem = computed(() => (props.issue.send_state && props.issue.send_state !== "nothing" ? props.issue.send_state : null))
 const sentClock = computed(() => (props.issue.sent_at ? new Date(props.issue.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""))
-
-const lead = computed(() => props.issue.top?.[0])
-const otherTop = computed(() => props.issue.top?.slice(1) ?? [])
 const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))
+
+async function copy() {
+  try {
+    await navigator.clipboard.writeText(briefText(props.issue, madeDate.value))
+    toast.success(BRIEF_COPIED)
+  } catch {
+    toast.error(BRIEF_COPY_FAILED)
+  }
+}
+const print = () => window.print()
 </script>
 
 <template>
-  <div class="flex flex-col gap-5 print:gap-3" data-test="edition">
-    <header class="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-t-2 border-accent-brand pt-3">
-      <div class="flex min-w-0 flex-col gap-1">
-        <h2 class="m-0 break-words text-[length:var(--text-h2,1.75rem)] font-semibold leading-tight text-primary" data-test="masthead">{{ issue.name }}</h2>
-        <p class="m-0 text-[length:var(--text-small)] text-faint">{{ madeDate }} · {{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}<template v-if="issue.outlets_read"> · {{ briefOutletsWords(issue.outlets_read) }}</template></p>
-        <p v-if="sendProblem" class="m-0 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-warning print:hidden" role="status" data-test="send-problem">
-          {{ BRIEF_SEND_PROBLEM[sendProblem] }}
-          <RouterLink v-if="sendProblem === 'refused'" :to="toSettings('communication')" class="text-accent-info-text hover:underline" data-test="send-fix">{{ BRIEF_SEND_FIX }}</RouterLink>
-        </p>
-        <p v-else-if="sentClock" class="m-0 text-[length:var(--text-small)] text-faint print:hidden" data-test="send-sent">{{ briefSentWords(sentClock) }}</p>
+  <div ref="root" class="flex flex-col gap-5 print:gap-3" data-test="edition">
+    <header class="flex flex-col border-t-4 border-text-primary pt-0.5" data-test="nameplate">
+      <div class="mb-3 border-t border-text-primary" />
+      <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
+        <h2 class="m-0 flex min-w-0 flex-wrap items-center gap-3 break-words text-[length:var(--text-display,2.5rem)] font-bold leading-none tracking-tight text-primary" data-test="masthead">
+          {{ issue.name }}<StatusTag v-if="isNew" state="info" :label="NEW_BRIEF_LABEL" />
+        </h2>
+        <div class="ml-auto flex flex-wrap items-center gap-2 print:hidden"><slot name="masthead-end" /></div>
       </div>
-      <div class="flex flex-wrap items-center gap-3 print:hidden">
-        <slot name="masthead-end" />
-        <BaseButton v-if="issue.sections.length > 1" size="sm" variant="secondary" data-test="collapse-all" @click="setAll(!anyOpen)">{{ anyOpen ? COLLAPSE_ALL_LABEL : EXPAND_ALL_LABEL }}</BaseButton>
-      </div>
+      <p class="m-0 mt-3 flex flex-wrap gap-x-4 gap-y-1 border-y border-hairline py-1.5 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-muted" data-test="dateline">
+        <span>{{ madeDate }}</span>
+        <span>{{ briefMadeWords(formatRelativeTime(issue.made_at), issue.model_calls) }}</span>
+        <span v-if="issue.outlets_read">{{ briefOutletsWords(issue.outlets_read) }}</span>
+        <span v-if="!sendProblem && sentClock" class="print:hidden" data-test="send-sent">{{ briefSentWords(sentClock) }}</span>
+      </p>
+      <p v-if="sendProblem" class="m-0 mt-2 flex flex-wrap items-center gap-x-2 text-[length:var(--text-small)] text-state-running print:hidden" role="status" data-test="send-problem">
+        {{ BRIEF_SEND_PROBLEM[sendProblem] }}
+        <RouterLink v-if="sendProblem === 'refused'" :to="toSettings('communication')" class="text-accent-info-text hover:underline" data-test="send-fix">{{ BRIEF_SEND_FIX }}</RouterLink>
+      </p>
+      <p :class="['m-0 mt-2 text-[length:var(--text-small)] print:hidden', status.tone === 'old' ? 'font-medium text-state-running' : 'text-faint']" :data-tone="status.tone" data-test="brief-status">
+        <template v-if="status.tone === 'old'">{{ status.title }}. </template>{{ status.detail }}
+      </p>
     </header>
 
-    <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] print:block" data-test="edition-body">
-    <!-- On a wide screen the news is one column and the side column sits beside it. Below that the news column dissolves into the grid, so the side column falls
-         between the top stories and the sections: what needs a look is near the top of a phone, not under every card. -->
-    <div class="contents min-w-0 lg:flex lg:flex-col lg:gap-5 print:flex print:flex-col print:gap-5" data-test="edition-main">
-    <section v-if="lead" class="order-1 flex flex-col gap-2 lg:order-none" :aria-label="TOP_STORIES_LABEL">
-      <div class="flex items-start gap-4 rounded-[var(--radius-md)] bg-surface-raised p-4" data-test="lead-story">
-        <div class="min-w-0 flex-1">
-          <p class="m-0 text-[length:var(--text-small)] font-medium uppercase tracking-wide text-accent-brand">{{ LEAD_STORY_LABEL }}</p>
-          <NewsroomBriefStory :story="lead" :section="sectionOf.get(lead.pool_id)" lead quiet />
-        </div>
-        <NewsroomPlate class="hidden sm:block" :label="issue.name" size="lg" />
-      </div>
-      <ul v-if="otherTop.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-        <li v-for="s in otherTop" :key="s.pool_id"><NewsroomBriefStory :story="s" :section="sectionOf.get(s.pool_id)" quiet /></li>
-      </ul>
-    </section>
+    <!-- On a phone and a tablet: the sections as one row of links that stays in view. -->
+    <nav v-if="issue.sections.length > 1" class="sticky top-0 z-10 -mx-1 flex gap-0 overflow-x-auto border-b border-hairline bg-canvas lg:hidden print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-row">
+      <a v-if="lead" href="#brief-top" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ TOP_STORIES_LABEL }}</a>
+      <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ sec.name }} <span class="font-mono text-faint">{{ sec.stories.length }}</span></a>
+    </nav>
 
-    <div class="order-3 flex min-w-0 flex-col gap-5 lg:order-none print:gap-3">
-    <section v-for="(sec, i) in issue.sections" :key="sec.topic_id" class="flex flex-col rounded-[var(--radius-md)] bg-surface-raised" :aria-label="sec.name">
-      <header class="flex items-center gap-3 p-3">
-        <NewsroomPlate :label="sec.name" :category="sec.category" />
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2"
-          :aria-expanded="isOpen(sec.topic_id, i)"
-          @click="toggle(sec.topic_id, i)"
-        >
-          <span class="flex min-w-0 flex-1 flex-col">
-            <h2 class="m-0 break-words text-[length:var(--text-body)] font-medium text-primary">{{ sec.name }}</h2>
-            <span class="text-[length:var(--text-small)] text-faint">{{ briefSectionCountWords(sec.stories.length, inTopCount(sec)) }}<template v-if="sec.as_of"> · {{ briefAsOfWords(formatRelativeTime(sec.as_of)) }}</template></span>
-          </span>
-          <Icon name="chevron-down" size="xs" :class-name="['flex-none text-faint transition-transform duration-fast', isOpen(sec.topic_id, i) ? '' : '-rotate-90'].join(' ')" />
-        </button>
-      </header>
-      <div v-if="isOpen(sec.topic_id, i)" class="flex flex-col border-t border-hairline px-3 pb-2">
-        <p v-if="sec.note" class="m-0 pt-2 text-[length:var(--text-small)] text-state-running" data-test="section-note">{{ sec.note }}</p>
-        <div v-if="sec.problems?.length" class="pt-2 text-[length:var(--text-small)] text-state-error" data-test="section-problems">
-          <p class="m-0 font-medium">{{ BRIEF_PROBLEMS_LABEL }}</p>
-          <ul class="m-0 list-none p-0"><li v-for="p in sec.problems" :key="p" class="break-words">{{ p }}</li></ul>
-          <p class="m-0 pt-1 text-faint" data-test="problems-fix">{{ BRIEF_PROBLEMS_FIX }}</p>
-          <BaseButton class-name="mt-1 print:hidden" size="sm" variant="secondary" data-test="problems-open-setup" @click="$emit('open-setup')">{{ BRIEF_PROBLEMS_ACTION }}</BaseButton>
+    <div class="grid items-start gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_19rem] print:block" data-test="edition-body">
+      <nav class="sticky top-4 hidden flex-col gap-0.5 lg:flex print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-rail">
+        <span class="mb-1 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-faint">{{ BRIEF_INDEX_LABEL }}</span>
+        <a v-if="lead" href="#brief-top" class="flex items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-[length:var(--text-small)] text-secondary hover:border-accent-brand hover:text-primary">{{ TOP_STORIES_LABEL }}<span class="ml-auto font-mono text-faint">{{ issue.top?.length }}</span></a>
+        <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-[length:var(--text-small)] text-secondary hover:border-accent-brand hover:text-primary">
+          <span class="min-w-0 break-words">{{ sec.name }}</span><span class="ml-auto font-mono text-faint">{{ sec.stories.length }}</span>
+        </a>
+        <span class="mt-3 text-[length:var(--text-small)] text-faint">{{ BRIEF_KEYS_HINT }}</span>
+      </nav>
+
+      <!-- The news column dissolves below the wide layout, so the side column falls between the top stories and the sections on a phone. -->
+      <div class="contents min-w-0 lg:flex lg:flex-col lg:gap-6 print:flex print:flex-col print:gap-5" data-test="edition-main">
+        <section v-if="lead" id="brief-top" class="order-1 flex scroll-mt-24 flex-col lg:order-none" :aria-label="TOP_STORIES_LABEL">
+          <div class="border-b border-hairline pb-3" data-test="lead-story">
+            <p class="m-0 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-accent-brand">{{ LEAD_STORY_LABEL }}<template v-if="sectionOf.get(lead.pool_id)"> · {{ sectionOf.get(lead.pool_id) }}</template></p>
+            <NewsroomBriefStory :story="lead" lead quiet anchor :topic="topicName(lead)" @tune="(more, w) => tune(lead!, more, w)" @follow="emit('follow', $event)" />
+          </div>
+          <ul v-if="otherTop.length" class="m-0 grid list-none gap-x-6 border-b-4 border-double border-hairline p-0 md:grid-cols-3" data-test="top-stories">
+            <li v-for="s in otherTop" :key="s.pool_id" class="min-w-0 border-hairline md:[&:not(:first-child)]:border-l md:[&:not(:first-child)]:pl-6"><NewsroomBriefStory :story="s" :section="sectionOf.get(s.pool_id)" quiet anchor :topic="topicName(s)" @tune="(more, w) => tune(s, more, w)" @follow="emit('follow', $event)" /></li>
+          </ul>
+        </section>
+
+        <div class="order-3 flex min-w-0 flex-col gap-6 lg:order-none print:gap-3">
+          <section v-for="sec in issue.sections" :id="sectionAnchor(sec)" :key="sec.topic_id" class="flex scroll-mt-24 flex-col" :aria-label="sec.name" data-test="section">
+            <header class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t-2 border-text-primary pt-2">
+              <NewsroomPlate :label="sec.name" :category="sec.category" />
+              <h2 class="m-0 min-w-0 break-words font-mono text-[length:var(--text-body)] font-semibold uppercase tracking-wider text-primary">{{ sec.name }}</h2>
+              <span class="ml-auto text-[length:var(--text-small)] text-faint">{{ briefSectionCountWords(sec.stories.length, inTopCount(sec)) }}<template v-if="sec.as_of"> · {{ briefAsOfWords(formatRelativeTime(sec.as_of)) }}</template></span>
+            </header>
+            <p v-if="sec.note" class="m-0 pt-2 text-[length:var(--text-small)] text-state-running" data-test="section-note">{{ sec.note }}</p>
+            <div v-if="sec.problems?.length" class="pt-2 text-[length:var(--text-small)] text-state-error" data-test="section-problems">
+              <p class="m-0 font-medium">{{ BRIEF_PROBLEMS_LABEL }}</p>
+              <ul class="m-0 list-none p-0"><li v-for="p in sec.problems" :key="p" class="break-words">{{ p }}</li></ul>
+              <p class="m-0 pt-1 text-faint" data-test="problems-fix">{{ BRIEF_PROBLEMS_FIX }}</p>
+              <RouterLink :to="toNewsroom('following')" class="text-accent-info-text hover:underline print:hidden" data-test="problems-open-setup">{{ BRIEF_PROBLEMS_ACTION }} →</RouterLink>
+            </div>
+            <p v-if="headlinesOnly(sec)" class="m-0 pt-2 text-[length:var(--text-small)] text-faint" data-test="headlines-only">{{ SECTION_HEADLINES_ONLY }}</p>
+            <ul v-if="storiesOf(sec).length" class="m-0 grid list-none gap-x-6 p-0 md:grid-cols-2">
+              <li v-for="s in shown(storiesOf(sec), sec.topic_id)" :key="s.pool_id" class="min-w-0 border-b border-hairline"><NewsroomBriefStory :story="s" :quiet="headlinesOnly(sec)" anchor :topic="topicName(s)" @tune="(more, w) => tune(s, more, w)" @follow="emit('follow', $event)" /></li>
+            </ul>
+            <p v-else class="m-0 py-3 text-muted">{{ sec.stories.length ? SECTION_IN_TOP : sec.as_of ? SECTION_EMPTY : SECTION_NEVER_READ }}</p>
+            <BaseButton v-if="storiesOf(sec).length > BRIEF_SECTION_SHOWN" class-name="mt-2 self-start print:hidden" size="sm" variant="ghost" data-test="show-more" @click="flipAll(sec.topic_id)">
+              {{ showAll(sec.topic_id) ? SHOW_FEWER_LABEL : showMoreWords(storiesOf(sec).length - BRIEF_SECTION_SHOWN) }}
+            </BaseButton>
+          </section>
+          <footer class="flex flex-wrap items-center gap-3 border-t-4 border-double border-hairline pt-3 text-[length:var(--text-small)] text-muted" data-test="end-mark">
+            <span class="inline-block h-2.5 w-2.5 flex-none bg-accent-brand" aria-hidden="true" />
+            <span>{{ BRIEF_END_WORDS }} {{ status.next }}</span>
+            <span class="ml-auto flex gap-2 print:hidden">
+              <BaseButton size="sm" variant="ghost" data-test="print" @click="print">{{ BRIEF_PRINT_LABEL }}</BaseButton>
+              <BaseButton size="sm" variant="ghost" data-test="copy-text" @click="copy">{{ BRIEF_COPY_LABEL }}</BaseButton>
+            </span>
+          </footer>
         </div>
-        <p v-if="headlinesOnly(sec)" class="m-0 pt-2 text-[length:var(--text-small)] text-faint" data-test="headlines-only">{{ SECTION_HEADLINES_ONLY }}</p>
-        <ul v-if="storiesOf(sec).length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-          <li v-for="s in shown(storiesOf(sec), sec.topic_id)" :key="s.pool_id"><NewsroomBriefStory :story="s" :quiet="headlinesOnly(sec)" /></li>
-        </ul>
-        <p v-else class="m-0 py-3 text-muted">{{ sec.stories.length ? SECTION_IN_TOP : sec.as_of ? SECTION_EMPTY : SECTION_NEVER_READ }}</p>
-        <BaseButton
-          v-if="storiesOf(sec).length > BRIEF_SECTION_SHOWN"
-          class-name="self-start"
-          size="sm"
-          variant="ghost"
-          data-test="show-more"
-          @click="flipAll(sec.topic_id)"
-        >{{ showAll(sec.topic_id) ? SHOW_FEWER_LABEL : showMoreWords(storiesOf(sec).length - BRIEF_SECTION_SHOWN) }}</BaseButton>
       </div>
-    </section>
-    </div>
-    </div>
-    <aside v-if="issue.day || issue.home?.length || issue.watches?.length" class="order-2 flex min-w-0 flex-col gap-5 lg:order-none print:mt-3" data-test="edition-side" aria-label="Beside the news">
-      <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
-      <NewsroomEditionHome v-if="issue.home?.length" :lines="issue.home" />
-      <NewsroomEditionModelUse v-if="issue.home?.length" />
-      <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
-    </aside>
+
+      <aside class="order-2 flex min-w-0 flex-col gap-4 lg:order-none print:mt-3" data-test="edition-side" :aria-label="BRIEF_BESIDE_LABEL">
+        <NewsroomBriefAttention :lines="home.critical" stacked />
+        <NewsroomBriefChips />
+        <NewsroomEditionDay v-if="issue.day" :day="issue.day" />
+        <NewsroomEditionWatches v-if="issue.watches?.length" :lines="issue.watches" />
+        <NewsroomEditionHome v-if="homeRest.length" :lines="homeRest" />
+        <NewsroomEditionModelUse />
+      </aside>
     </div>
   </div>
 </template>

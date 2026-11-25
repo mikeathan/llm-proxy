@@ -9,10 +9,11 @@ import type { NewsroomDay, NewsroomFeedFilter, NewsroomRunOutcome, NewsroomWatch
 const reasonOf = (e: unknown, fallback: string): string => (e instanceof Error && e.message ? e.message : fallback)
 
 /**
- * The Newsroom page's data: the watches and the feed under the current filter, refreshed on a timer while the page is on screen. A refresh that was
- * overtaken by a newer one (a filter changed while it was in flight) is dropped, so the feed never shows the answer to an old filter.
+ * The Newsroom page's data: the watches and the feed under the current filter, refreshed on a timer while the page is on screen and `active` says the
+ * tab that shows them is open (the brief, the page's first tab, does not need them). A refresh that was overtaken by a newer one (a filter changed while it
+ * was in flight) is dropped, so the feed never shows the answer to an old filter.
  */
-export function useNewsroom() {
+export function useNewsroom(active: () => boolean = () => true) {
   const watches = ref<NewsroomWatch[]>([])
   const feed = ref<NewsroomDay[]>([])
   const filter = ref<NewsroomFeedFilter>({ watch: null, unreadOnly: false, days: null })
@@ -26,6 +27,7 @@ export function useNewsroom() {
   let latest = 0
 
   async function load() {
+    if (!active()) return
     const mine = ++latest
     try {
       const [t, f] = await Promise.all([NewsroomService.watches(), NewsroomService.feed(filter.value, browserTimeZone())])
@@ -74,6 +76,7 @@ export function useNewsroom() {
   }
 
   watch(filter, () => void load(), { deep: true })
+  watch(active, (on) => { if (on) void load() })
   onMounted(load)
   usePolling(load, POLL_INTERVAL_MS)
 

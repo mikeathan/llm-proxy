@@ -4,6 +4,7 @@
 package brief
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"regexp"
@@ -30,6 +31,14 @@ const (
 	MinCollectFor     = time.Hour
 	MaxCollectFor     = 24 * time.Hour
 	DefaultCollectFor = 12 * time.Hour
+	// Bounds of an edition's reading settings; their defaults are StoriesPerSection, TopStories, ShownWindow and CandidateMaxAge (compose.go).
+	MaxStoriesPerSection = 10
+	MaxTopStories        = 8
+	MinRepeatAfter       = time.Hour
+	MaxRepeatAfter       = 7 * 24 * time.Hour
+	MinStoryAge          = 6 * time.Hour
+	// MaxStoryAge is the pool's own retention: an older story is no longer there to choose.
+	MaxStoryAge = PoolRetention
 )
 
 // ErrInvalid wraps every refusal of a topic or edition the owner described; a transport maps it to a 400.
@@ -108,8 +117,14 @@ type Edition struct {
 	// Day adds a "Your day" block: the owner's own reminders for today, or for tomorrow when the edition is ready from noon on (ADR-0083). Off by default.
 	Day bool `json:"day,omitempty"`
 	// SendTo is the connector type (such as "telegram") a short summary of each scheduled issue is sent to; "" sends none. Off by default (ADR-0083).
-	SendTo    string    `json:"send_to,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitzero"`
+	SendTo string `json:"send_to,omitempty"`
+	// Reading settings: how many stories a section and the top stories carry, how long a shown story is not shown again (unless more outlets report
+	// it), and how old a story may be. Zero is the default; Normalize fills it.
+	StoriesPerSection int           `json:"stories_per_section,omitempty"`
+	TopStories        int           `json:"top_stories,omitempty"`
+	RepeatAfter       time.Duration `json:"repeat_after,omitempty"`
+	MaxStoryAge       time.Duration `json:"max_story_age,omitempty"`
+	CreatedAt         time.Time     `json:"created_at,omitzero"`
 }
 
 var (
@@ -229,11 +244,39 @@ func (e Edition) Normalize(topics func(id int64) bool) (Edition, error) {
 	if e.CollectEvery, e.CollectFor, err = collectWindow(e.CollectEvery, e.CollectFor); err != nil {
 		return Edition{}, err
 	}
+	if e, err = e.withReading(); err != nil {
+		return Edition{}, err
+	}
 	if e.SendTo = strings.TrimSpace(e.SendTo); e.SendTo != "" && !sendToRe.MatchString(e.SendTo) {
 		return Edition{}, fmt.Errorf("%w: send to is a connector type such as telegram", ErrInvalid)
 	}
 	if e.Sections, err = cleanSections(e.Sections, topics, e.Watches || e.Home || e.Day); err != nil {
 		return Edition{}, err
+	}
+	return e, nil
+}
+
+// Reading is the edition's reading settings with the defaults in place of zero, for an edition stored before they existed.
+func (e Edition) Reading() Edition {
+	e.StoriesPerSection = cmp.Or(e.StoriesPerSection, StoriesPerSection)
+	e.TopStories = cmp.Or(e.TopStories, TopStories)
+	e.RepeatAfter = cmp.Or(e.RepeatAfter, ShownWindow)
+	e.MaxStoryAge = cmp.Or(e.MaxStoryAge, CandidateMaxAge)
+	return e
+}
+
+// withReading fills the reading settings' defaults and checks each is in range.
+func (e Edition) withReading() (Edition, error) {
+	e = e.Reading()
+	switch {
+	case e.StoriesPerSection < 1 || e.StoriesPerSection > MaxStoriesPerSection:
+		return Edition{}, fmt.Errorf("%w: stories per section is 1 to %d", ErrInvalid, MaxStoriesPerSection)
+	case e.TopStories < 1 || e.TopStories > MaxTopStories:
+		return Edition{}, fmt.Errorf("%w: top stories is 1 to %d", ErrInvalid, MaxTopStories)
+	case e.RepeatAfter < MinRepeatAfter || e.RepeatAfter > MaxRepeatAfter:
+		return Edition{}, fmt.Errorf("%w: do not repeat a story for %s to %s", ErrInvalid, MinRepeatAfter, MaxRepeatAfter)
+	case e.MaxStoryAge < MinStoryAge || e.MaxStoryAge > MaxStoryAge:
+		return Edition{}, fmt.Errorf("%w: only stories newer than %s to %s", ErrInvalid, MinStoryAge, MaxStoryAge)
 	}
 	return e, nil
 }

@@ -32,7 +32,7 @@ func TestPublisher_DayBlockIsStoredAndNeverShownToTheModel(t *testing.T) {
 		return []stacksdk.DayItem{{Clock: "14:00", Title: "SECRET-REMINDER-TITLE"}}, nil
 	}
 	r.at(6, 45)
-	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil)
 	if err != nil || is.Day == nil || len(is.Day.Items) != 1 || is.Day.Items[0].Title != "SECRET-REMINDER-TITLE" || is.Day.Tomorrow || is.Day.Unavailable {
 		t.Fatalf("day block: %+v, %v", is.Day, err)
 	}
@@ -52,7 +52,7 @@ func TestPublisher_DayBlockIsStoredAndNeverShownToTheModel(t *testing.T) {
 		return []stacksdk.DayItem{{Clock: "1", Title: "x"}}, nil
 	}
 	r2.at(6, 45)
-	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID); is.Day != nil {
+	if is, _ := p2.MakeNow(context.Background(), r2.store.Editions()[0].ID, nil); is.Day != nil {
 		t.Errorf("an edition that did not ask has no block: %+v", is.Day)
 	}
 }
@@ -72,13 +72,13 @@ func TestPublisher_DayThatCannotBeReadIsMarkedUnavailable(t *testing.T) {
 		return nil, stacksdk.Errorf(stacksdk.CodeUnavailable, "Reminders is off or could not be read")
 	}
 	r.at(6, 45)
-	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID)
+	is, err := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil)
 	if err != nil || is.Day == nil || !is.Day.Unavailable || len(is.Day.Items) != 0 {
 		t.Fatalf("%+v, %v", is.Day, err)
 	}
 	// A quiet day is a block with no items and is not unavailable.
 	p.Day = func(context.Context, bool) ([]stacksdk.DayItem, error) { return nil, nil }
-	if is, _ := p.MakeNow(context.Background(), r.store.Editions()[0].ID); is.Day == nil || is.Day.Unavailable || is.Day.Items == nil {
+	if is, _ := p.MakeNow(context.Background(), r.store.Editions()[0].ID, nil); is.Day == nil || is.Day.Unavailable || is.Day.Items == nil {
 		t.Errorf("quiet day: %+v", is.Day)
 	}
 }
@@ -170,7 +170,7 @@ func TestPublisher_DeliverTriesAgainAfterAFailureAndNotAtAllWithoutAChannelOrFor
 
 	r3, p3, s3 := sendRigFor(t, "telegram")
 	r3.at(6, 45)
-	if _, err := p3.MakeNow(context.Background(), r3.store.Editions()[0].ID); err != nil {
+	if _, err := p3.MakeNow(context.Background(), r3.store.Editions()[0].ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := p3.Deliver(context.Background()); len(got) != 0 || len(s3.sent) != 0 {

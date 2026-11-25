@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy-stacks/sdk"
 
@@ -93,5 +94,29 @@ func TestFetch_RefusesAnAddressThatIsNotHTTPWithoutAsking(t *testing.T) {
 	}
 	if o.gotURL != "" {
 		t.Errorf("the guard was asked about %q", o.gotURL)
+	}
+}
+
+// slowBody hands out the headers and then sends nothing until the request's context ends, like a server that trickles its body.
+type slowOpener struct{}
+
+func (slowOpener) OpenAccepting(ctx context.Context, _, _ string) (*http.Response, error) {
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(blockingReader{ctx})}, nil
+}
+
+type blockingReader struct{ ctx context.Context }
+
+func (b blockingReader) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func TestFetch_ASlowBodyRunsOutOfTimeInsteadOfHoldingTheCaller(t *testing.T) {
+	old := fetchTimeout
+	fetchTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { fetchTimeout = old })
+	_, err := Fetch{Opener: slowOpener{}}.Get(context.Background(), stacksdk.FetchRequest{URL: "https://example.org"})
+	if stacksdk.CodeOf(err) != stacksdk.CodeTimeout {
+		t.Fatalf("a body that never ends must time out, got %v", err)
 	}
 }

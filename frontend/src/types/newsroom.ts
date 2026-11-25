@@ -309,6 +309,76 @@ export interface BriefEdition {
   day?: boolean
   /** The connector type a short summary of each scheduled brief goes to ("telegram"); absent sends none. */
   send_to?: string
+  /** Reading settings, with the server's defaults filled in: stories in a section, top stories, how long a shown story stays out and how old a story may be
+   * (durations such as "24h0m0s"). */
+  stories_per_section: number
+  top_stories: number
+  repeat_after: string
+  max_story_age: string
+}
+
+/** An edition's reading settings in the form's units: stories per section, top stories, and two spans in hours. */
+export interface BriefReading {
+  stories: number
+  top: number
+  repeatHours: number
+  ageHours: number
+}
+
+/** One feed read from an OPML file. */
+export interface OpmlFeed {
+  label: string
+  target: string
+}
+
+/** How something is followed: written up in the brief, an alert at once, or both. */
+export type FollowMode = 'brief' | 'alerts' | 'both'
+
+/** What the Follow form sends: the words to follow, how, and the details each way needs. */
+export interface BriefFollowEdit {
+  text: string
+  mode: FollowMode
+  /** The brief section it goes in; empty uses the words themselves. */
+  section: string
+  /** A feed address to read as well; empty for none. */
+  feed: string
+  /** For an alert: what it should be about, in the owner's words (optional), and the connector to tell ("" is Alerts only). */
+  lookFor: string
+  channel: string
+}
+
+/** One written edition in a list: enough to pick it, never its stories. */
+export interface BriefIssueSummary {
+  id: number
+  edition_id: number
+  made_at: string
+  read: boolean
+}
+
+/** How far a write by hand has got: reading the topics not read lately, or writing a section (the top stories last, with no section). */
+export interface BriefWriteStep {
+  stage: 'reading' | 'writing'
+  done: number
+  total: number
+  section?: string
+}
+
+/** One write of an edition by hand, as GET .../briefs/jobs says it. */
+export interface BriefJob {
+  edition_id: number
+  state: 'writing' | 'done' | 'failed'
+  step: BriefWriteStep
+  issue_id?: number
+  problem?: string
+  started_at: string
+  ended_at?: string
+}
+
+/** Where a link into the brief lands: an edition, and in it a section (its first topic's id) or a story (its pool id). */
+export interface BriefPlace {
+  edition?: number
+  section?: number
+  story?: number
 }
 
 export interface BriefTopic {
@@ -373,6 +443,10 @@ export interface BriefEditionEdit {
   collect_every: string
   collect_for: string
   sections: { kind: 'news'; topic_id: number }[]
+  stories_per_section: number
+  top_stories: number
+  repeat_after: string
+  max_story_age: string
 }
 
 /** A section of the brief as the owner sees it: the topics that share a section name, or one topic that has none (its own name is its section). */
@@ -389,4 +463,6 @@ export interface BriefStatus {
   tone: 'fresh' | 'old' | 'none'
   title: string
   detail: string
+  /** When the next one is written automatically, as a sentence; also said at the end of the brief. */
+  next: string
 }
