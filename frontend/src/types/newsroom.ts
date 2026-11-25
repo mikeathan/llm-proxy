@@ -39,6 +39,8 @@ export interface NewsroomWatch {
   skip?: string[]
   /** The connector type notices go through; absent means the feed only. */
   channel?: string
+  /** Posts the owner judged, newest first, as their titles; the model sees them beside look_for. */
+  examples?: NewsroomExamples
   last_run?: string
   last_status?: WatchStatus
   last_detail?: string
@@ -58,6 +60,14 @@ export interface NewsroomWatchEdit {
   look_for: string
   keywords: string[]
   skip: string[]
+  /** Sent by the watch form, which shows and edits them; a save replaces the stored lists. */
+  examples?: NewsroomExamples
+}
+
+/** Posts the owner judged for a watch: want ("Should have matched") and skip ("Not for me"). */
+export interface NewsroomExamples {
+  want?: string[]
+  skip?: string[]
 }
 
 export interface NewsroomAlsoSeen {

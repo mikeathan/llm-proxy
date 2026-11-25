@@ -6,15 +6,16 @@ import { formatRelativeTime } from "../../utils/format/time"
 import { safeWebLink } from "../../utils/newsroom/safeLink"
 import { textBeyondTitle } from "../../utils/newsroom/entryText"
 import { entryHeadline } from "../../utils/newsroom/entryHeadline"
-import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, leftOutWords, originalWords, postedWords, whyWords } from "../../constants/newsroom"
+import { ALSO_SEEN_LABEL, CHIP_CHANGED, FIRST_CHECK_LABEL, HIDE_DETAILS_LABEL, NOT_FOR_ME_LABEL, SHOW_DETAILS_LABEL, UNREAD_LABEL, leftOutWords, notForMeAria, originalWords, postedWords, whyWords } from "../../constants/newsroom"
 import type { NewsroomEntry } from "../../types/newsroom"
 
 // One finding as a compact row: a dot while unread, where it came from and when, the headline (two lines at most), and a chevron that opens the reason,
 // the rest of the text and the other reports of the same story. Every piece of text is from the open internet, so it is shown as text and a link is
 // opened only if it is a real http or https address (utils/newsroom/safeLink). Opening the link or the details counts as reading it. An item the model left
 // out says why on the row itself: that reason is what the owner checks.
-const props = defineProps<{ entry: NewsroomEntry; watchName?: string; selectable?: boolean; selected?: boolean }>()
-const emit = defineEmits<{ (e: "toggle-select"): void; (e: "open"): void }>()
+// canSkip shows "Not for me" on the row: the owner's verdict that the alert is not what the watch is for (it teaches the watch's model).
+const props = defineProps<{ entry: NewsroomEntry; watchName?: string; selectable?: boolean; selected?: boolean; canSkip?: boolean }>()
+const emit = defineEmits<{ (e: "toggle-select"): void; (e: "open"): void; (e: "skip"): void }>()
 const link = computed(() => safeWebLink(props.entry.link))
 const changed = computed(() => Boolean(props.entry.was && props.entry.now))
 // The model's headline stands in for the original title in the row; the original is kept and shown when the entry is opened.
@@ -78,6 +79,15 @@ function toggle() {
         </p>
       </div>
     </div>
+    <!-- Said in words on every alert, so the way to teach the watch is seen, not known; its own 44 px box beside the chevron, clear of the headline link. -->
+    <button
+      v-if="canSkip"
+      type="button"
+      class="flex min-h-11 flex-none items-center self-center border-0 bg-transparent px-2 text-[length:var(--text-small)] text-faint hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2"
+      :aria-label="notForMeAria(headline)"
+      data-test="not-for-me"
+      @click="emit('skip')"
+    >{{ NOT_FOR_ME_LABEL }}</button>
     <button
       v-if="hasDetails"
       type="button"

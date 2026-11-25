@@ -65,6 +65,7 @@ export function useNewsroom(active: () => boolean = () => true) {
   const remove = async (id: number): Promise<boolean> => (await change(() => NewsroomService.remove(id))).ok
   const markRead = async (ids: number[], read: boolean): Promise<boolean> => (await change(() => NewsroomService.markRead(ids, read))).ok
   const keep = async (ids: number[]): Promise<boolean> => (await change(() => NewsroomService.keep(ids))).ok
+  const skip = async (ids: number[]): Promise<boolean> => (await change(() => NewsroomService.skip(ids))).ok
   const clear = async (what: { ids: number[] } | { scope: 'read' | 'all' }): Promise<number | null> => {
     const done = await change(() => NewsroomService.clear(what))
     return done.ok ? done.value : null
@@ -84,5 +85,5 @@ export function useNewsroom(active: () => boolean = () => true) {
   onMounted(load)
   usePolling(load, POLL_INTERVAL_MS)
 
-  return { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, keep, clear, run }
+  return { watches, feed, filter, loading, error, actionError, saving, runningId, load, create, save, remove, markRead, keep, skip, clear, run }
 }

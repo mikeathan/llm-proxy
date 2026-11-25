@@ -140,7 +140,7 @@ func (r *Runner) firstFindings(ctx context.Context, t Watch, at time.Time, fresh
 			note = joinDetail(note, "the first state note could not be saved")
 		}
 	}
-	if t.LookFor != "" && !a.Judged {
+	if t.Judges() && !a.Judged {
 		return note
 	}
 	n, _, _ := buildNotice(t.Name, in, a)
@@ -169,7 +169,7 @@ func (r *Runner) input(t Watch, batch []sources.Item) Input {
 	if len(batch) > MaxAnalysed {
 		batch = batch[:MaxAnalysed]
 	}
-	return Input{Watch: t.Name, LookFor: t.LookFor, State: t.State, Recent: r.Store.Recent(t.ID, RecentShown), Items: batch}
+	return Input{Watch: t.Name, LookFor: t.LookFor, Want: t.Examples.Want, Skip: t.Examples.Skip, State: t.State, Recent: r.Store.Recent(t.ID, RecentShown), Items: batch}
 }
 
 func (r *Runner) deliver(ctx context.Context, t Watch, at time.Time, fresh []sources.Item, detail string) Outcome {
@@ -185,7 +185,7 @@ func (r *Runner) deliver(ctx context.Context, t Watch, at time.Time, fresh []sou
 	if err != nil {
 		return r.finish(t, at, StatusAnalysisFailed, err.Error(), len(fresh), false)
 	}
-	if t.LookFor != "" && !a.Judged {
+	if t.Judges() && !a.Judged {
 		return r.finish(t, at, StatusAnalysisFailed, unjudged(note), len(fresh), false)
 	}
 	detail = joinDetail(detail, note)

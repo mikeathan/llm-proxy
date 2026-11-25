@@ -42,9 +42,11 @@ type Input struct {
 	Watch string
 	// LookFor is what the owner says the watch is for; empty means no relevance judgement is asked for.
 	LookFor string
-	State   string
-	Recent  []string
-	Items   []sources.Item
+	// Want and Skip are posts the owner said they want and do not (Watch.Examples), newest first.
+	Want, Skip []string
+	State      string
+	Recent     []string
+	Items      []sources.Item
 }
 
 // Change is one fact the model says moved, in two short pieces.
@@ -91,7 +93,7 @@ Every entry in "changes", "repeats", "verdicts" and "digests" must carry the "it
 Compare the NEW ITEMS with the LAST KNOWN STATE and the RECENTLY REPORTED titles. Answer with one JSON object and nothing else:
 {"changes":[{"item":N,"of":M,"was":"short text","now":"short text"}],"repeats":[{"item":N,"of":M}],"verdicts":[{"item":N,"why":"short reason","relevant":true}],"digests":[{"item":N,"headline":"short headline","summary":"one or two sentences"}],"state":"short note"}
 
-- "verdicts": only when WHAT THE PERSON WANTS is shown: one entry for EVERY new item, in order. Write "why" first (under 100 characters: what the item is (an announcement, a person's post, a question, a rumour, a joke), and whether it is what the person wants), then "relevant": true only when the item really is what the person wants, otherwise false. An item with "relevant": false is not shown to the person. When WHAT THE PERSON WANTS is not shown, leave "verdicts" out.
+- "verdicts": only when WHAT THE PERSON WANTS is shown: one entry for EVERY new item, in order. Write "why" first (under 100 characters: what the item is (an announcement, a person's post, a question, a rumour, a joke), and whether it is what the person wants), then "relevant": true only when the item really is what the person wants, otherwise false. An item with "relevant": false is not shown to the person. When WHAT THE PERSON WANTS is not shown, leave "verdicts" out. POSTS THE PERSON SAID THEY WANT and POSTS THE PERSON SAID ARE NOT FOR THEM, when shown, are earlier posts the person judged themselves: treat a new item like the ones it resembles, and when they disagree with your own reading, follow the person.
 - "digests": one entry for EVERY new item when WHAT THE PERSON WANTS is not shown, and only for the items you marked "relevant": true when it is shown: "headline" is a plain news headline of at most 80 characters in your own words (no emoji, no channel name, no clickbait); "summary" is one or two sentences saying what happened and the key facts, not a copy of the post. Never make an item sound more certain or more official than it is: when it is a person's post, a question, a rumour, a leak or a joke rather than an announcement by the people it is about, the headline says so (for example "A user says ...", "Rumour: ...", "Reddit post asks whether ...").
 - "changes": an item that reports a fact that is different from what the LAST KNOWN STATE or a RECENTLY REPORTED title says ("was" and "now" are each one short phrase). "of" is where the earlier fact is written: 0 for the LAST KNOWN STATE, or the number M of that RECENTLY REPORTED title, and "was" is that earlier fact. Leave it out when nothing changed, or when nothing shown says what the fact was before: never write "unknown" or "none" as "was".
 - "repeats": an item that is the same event as RECENTLY REPORTED title number M, only found again under another source. "of" must be that title's number. Leave it out when unsure: an item you do not mention is treated as new.
@@ -107,7 +109,7 @@ func (a Analyst) Analyze(ctx context.Context, in Input) (Analysis, error) {
 	if err != nil {
 		return Analysis{}, fmt.Errorf("model: %w", err)
 	}
-	return parseAnalysis(raw, shown{Items: len(in.Items), Recent: len(in.Recent), State: in.State != "", Asked: in.LookFor != ""})
+	return parseAnalysis(raw, shown{Items: len(in.Items), Recent: len(in.Recent), State: in.State != "", Asked: in.asks()})
 }
 
 // shown is what one prompt showed the model, so its answer can be checked against it: how many new items and recent titles, whether a last known
@@ -117,14 +119,22 @@ type shown struct {
 	State, Asked  bool
 }
 
+// asks says whether a relevance verdict is asked for: the owner said what the watch is for, or judged posts for it.
+func (in Input) asks() bool { return in.LookFor != "" || len(in.Want) > 0 || len(in.Skip) > 0 }
+
+// lookForWhenOnlyExamples stands in for the owner's words when the owner only judged posts.
+const lookForWhenOnlyExamples = "(not said in words: judge from the posts below)"
+
 // fence keeps untrusted text from closing its own block: the marker is the only thing the model is told to trust the structure of.
 func fence(s string) string { return strings.ReplaceAll(s, "=====", "==") }
 
 func prompt(in Input) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "WATCH: %s\n", sources.Line(in.Watch, MaxNameRunes))
-	if in.LookFor != "" {
-		fmt.Fprintf(&b, "=====BEGIN WHAT THE PERSON WANTS=====\n%s\n=====END WHAT THE PERSON WANTS=====\n", fence(sources.Line(in.LookFor, MaxLookForRunes)))
+	if in.asks() {
+		fmt.Fprintf(&b, "=====BEGIN WHAT THE PERSON WANTS=====\n%s\n=====END WHAT THE PERSON WANTS=====\n", fence(firstNonEmpty(sources.Line(in.LookFor, MaxLookForRunes), lookForWhenOnlyExamples)))
+		examplesBlock(&b, "POSTS THE PERSON SAID THEY WANT", in.Want)
+		examplesBlock(&b, "POSTS THE PERSON SAID ARE NOT FOR THEM", in.Skip)
 	}
 	b.WriteString("\n")
 	b.WriteString("=====BEGIN LAST KNOWN STATE=====\n")
@@ -142,6 +152,18 @@ func prompt(in Input) string {
 	}
 	b.WriteString("=====END NEW ITEMS=====\n")
 	return b.String()
+}
+
+// examplesBlock writes one list of the owner's judged posts, numbered, in its own fenced block; nothing when the list is empty.
+func examplesBlock(b *strings.Builder, name string, titles []string) {
+	if len(titles) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "=====BEGIN %s=====\n", name)
+	for i, t := range titles {
+		fmt.Fprintf(b, "%d. %s\n", i+1, fence(sources.Line(t, promptTitle)))
+	}
+	fmt.Fprintf(b, "=====END %s=====\n", name)
 }
 
 // rawChange is one changed fact as the model wrote it. Of cites where the earlier fact was written: 0 is the last known state, M is recently reported

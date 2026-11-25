@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: "update:filter", filter: NewsroomFeedFilter): void
   (e: "mark-read", ids: number[]): void
   (e: "clear", what: { ids: number[] } | { scope: "read" | "all" }): void
+  (e: "skip", id: number): void
 }>()
 
 const ALL = ""
@@ -130,7 +131,9 @@ function clearSelected() {
             :selectable="selecting"
             :selected="selected.has(entry.id)"
             @toggle-select="flip(entry.id)"
+            :can-skip="!selecting"
             @open="!entry.read && emit('mark-read', [entry.id])"
+            @skip="emit('skip', entry.id)"
           />
         </li>
       </ul>

@@ -215,17 +215,30 @@ func (s *Store) MarkRead(ids []int64, read bool) error {
 	return s.saveLocked()
 }
 
-// Keep puts items the model left out into the feed: the owner says the call was wrong. They are marked read, because the owner just looked at them.
-func (s *Store) Keep(ids []int64) error {
+// NotForMeWhy is the reason an item the owner took out of the feed shows in the left-out list.
+const NotForMeWhy = "You said: not for me"
+
+// Teach records the owner's verdict on entries. want puts items the model left out into the feed ("Should have matched"); !want takes items out of the
+// feed into the left-out list ("Not for me"). Either way the entry is marked read (the owner just looked at it) and its title becomes an example on its
+// watch (Watch.Examples), which the model sees from the next run.
+func (s *Store) Teach(ids []int64, want bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	want := map[int64]bool{}
+	asked := map[int64]bool{}
 	for _, id := range ids {
-		want[id] = true
+		asked[id] = true
 	}
 	for i, e := range s.doc.Entries {
-		if want[e.ID] && e.LeftOut {
-			s.doc.Entries[i].LeftOut, s.doc.Entries[i].Read = false, true
+		if !asked[e.ID] || e.LeftOut != want {
+			continue
+		}
+		en := &s.doc.Entries[i]
+		en.LeftOut, en.Read = !want, true
+		if !want {
+			en.Why = NotForMeWhy
+		}
+		if w := s.index(e.WatchID); w >= 0 {
+			s.doc.Watches[w].Examples = s.doc.Watches[w].Examples.withExample(e.Title, want)
 		}
 	}
 	return s.saveLocked()

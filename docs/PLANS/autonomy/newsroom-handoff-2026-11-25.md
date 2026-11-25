@@ -34,34 +34,36 @@ review (`../ARCHIVE/autonomy/`). SPEC-013 is the contract. This page holds only 
   ("Google Releases Gemini Neon for Empathy Tasks" from a Reddit post titled "Gemini Neon on Empathy") were written before the deploy and
   are the overclaiming the new prompt is meant to stop.
 
-## Built on branch `newsroom-setup-links-and-learning` (not pushed)
+## Built on branch `newsroom-setup-links-and-learning`
 
 - `8a9259ba` v0.136.0: the set-up/read links (SPEC-013 1.31) and the plan archive.
-- Next commit, v0.137.0: stories with text keep a third of a section's candidates (SPEC-013 1.32). Checks: `GOWORK=off go test -race -count=1 . ./brief ./watches ./sources` in `stacks/newsroom` (pass). Not run on vertex.
+- `36335455` v0.137.0: stories with text keep a third of a section's candidates (SPEC-013 1.32).
+- v0.138.0: a watch learns from "Should have matched" and the new "Not for me" (ADR-0088, SPEC-013 1.33); the two old redirects removed.
+- Checks: `GOWORK=off go test -race -count=1 ./...` in `stacks/newsroom`; `go build ./...`, `go test ./...` and `go run ./tools/check-complexity/`
+  in `backend`; frontend `npm test` and `npm run build`; `e2e/newsroom-briefs.visual.spec.ts` with a new Alerts case (touch target, no sideways
+  scroll, desktop and phone); `./scripts/check-agent-harness.sh`. **Not run:** anything on vertex; the full `npm run test:visual`.
 
-## Agreed with the owner 2026-11-25, not built yet (do next, in this order)
+## After the deploy, on vertex
 
-1. **Drop the redirects** `/newsroom/briefs` and `/newsroom/watches` (`frontend/src/router/index.ts:85-86`): no Telegram summary ever carried a link (text only, no https), so nothing breaks. Remove their tests too.
-2. **Teach the alert filter** (owner: A yes, B and C as recommended): "Should have matched" (`POST /admin/api/newsroom/feed/keep`, `watches/journal.go` `Keep`) also saves the item's title as a *want* example on its watch; a new "Not for me" button on an alert row (`NewsroomEntryItem.vue`) hides it and saves a *skip* example. Keep the newest 10 of each per watch (a `Examples` field on `watches.Watch`), send them in the analyst prompt (`watches/analyst.go` `prompt`) in fenced blocks as examples the person said they do / do not want, and list them in the watch's Edit form (`NewsroomWatchEditor.vue`) with a remove button each. It changes the prompt: write an ADR and a SPEC-013 entry; check on vertex against real posts. Mobile: the button needs a 44 px tap area.
-3. A visual case for the Alerts tab and the new buttons, desktop and phone.
+1. Mark two or three alerts "Not for me" and one left-out post "Should have matched"; after the next check, read the watch's prompt result: do
+   similar posts follow the verdicts? (ADR-0088 is proposed until this is seen.)
+2. The brief: the next edition should carry more stories with summaries (the Guardian, BBC, Sky feed stories reach the model now).
 
 ## Left, in order
 
-1. **Owner:** approve a branch and a commit for v0.136.0, then merge and deploy.
-2. **On vertex, after new posts arrive:** no "Changed" without a citation; headlines of user posts say they are posts; the sidebar dot
-   clears when the alerts are read; an old Telegram summary's `/newsroom/briefs` link lands on the brief (a browser redirect, curl cannot
-   see it); "Write a new one" shows its steps; a real Telegram send. None of these was run.
-3. **Owner's calls:** an https address for the Telegram link (text only until then); direct feeds (BBC, the Guardian) so more stories
-   carry text; dropping the two old redirects once no summary from before v0.132.0 is kept; teaching the filter from "Should have
-   matched" (a prompt change, so a SPEC change).
+1. **Owner:** review and merge the PR for this branch, then deploy; then the two vertex checks above.
+2. **Still unchecked on vertex** (they need new posts or a browser): no "Changed" without a citation; headlines of user posts say they are posts;
+   the sidebar dot clears when alerts are read; "Write a new one" shows its steps; a real Telegram send.
+3. **Owner's separate work:** an https address so the Telegram summary can carry a link (text only until then).
 4. **Not built, waiting on a design or on the owner:** Telegram channels as brief sources (the shared slot keyed by channel,
-   `stacks/newsroom/brief/types.go`); keyed sources (Reddit, Bluesky, X) when the owner brings credentials; email as a channel (own
-   plan, `../cross-cutting/email-connector.md`); held notices as a brief section (`attention-policy.md`, D9 of Briefs).
-5. **Tests and measurement:** the visual spec has no Alerts case; review item P3 (`briefs.json` is rewritten whole on each change; the
-   pool has its own file since #308) is unmeasured, so measure the file on vertex before changing it.
+   `stacks/newsroom/brief/types.go`); keyed sources (Reddit, Bluesky, X) when the owner brings credentials; email as a channel (own plan,
+   `../cross-cutting/email-connector.md`); held notices as a brief section (`attention-policy.md`, D9 of Briefs).
+5. **Measurement:** review item P3 (`briefs.json` is rewritten whole on each change; the pool has its own file since #308) is unmeasured, so
+   measure the file on vertex before changing it.
 
 ## Traps
 
+- A control beside a link needs its own 44 px box; padding that overlaps the link loses the tap (learnings, 2026-11-25).
 - The Following tab opens on "In your brief"; the watches are on `?kind=alerts`. Link there with `toFollowing('alerts')`.
 - The 16 `/design` visual cases have failed on every branch since 2026-11-24; they render none of the Newsroom code.
 

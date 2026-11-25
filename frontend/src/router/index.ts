@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type LocationQuery, type RouteLocationRaw, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
 import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, NEWSROOM_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
-import { toAgents, toDashboard, toFollowing, toNewsroom, toWorkspaceFile, toWorkspaceSection } from './routes'
+import { toAgents, toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
 import { homeLocation } from '../utils/navigation'
 import { DASHBOARD_TITLE, NETWORK_CARD_BOARD } from '../constants/dashboard'
 
@@ -80,10 +80,6 @@ export const routes: RouteRecordRaw[] = [
   { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', fullWidth: true, title: 'Radio' } },
   // One device in full. Its own segment ("device"), so the tab pattern above never captures it.
   { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', fullWidth: true, title: 'Radio device' } },
-  // The brief is the Newsroom's first page (ADR-0086). Phone summaries already sent link to /newsroom/briefs, and bookmarks to the old Watches tab: they land on
-  // what took their place.
-  { path: '/newsroom/briefs', redirect: (to) => ({ ...toNewsroom(), query: to.query }) },
-  { path: '/newsroom/watches', redirect: () => toFollowing('alerts') },
   { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', fullWidth: true, title: 'Newsroom' } },
   { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 

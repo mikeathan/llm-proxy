@@ -56,7 +56,17 @@ export const FOLLOWING_READ_LINKS = { brief: 'Read the brief', alerts: 'See aler
 export const BRIEF_SETUP_LINK = 'Set up the brief'
 export const leftOutWords = (why: string): string => `Left out: ${why}`
 export const KEEP_LABEL = 'Should have matched'
-export const KEPT_TOAST = 'Put in Alerts'
+export const KEPT_TOAST = 'Put in Alerts. The watch will learn from it.'
+// "Not for me" on an alert: it leaves Alerts for "Left out by the model" (where "Should have matched" brings it back) and becomes an example the watch's
+// model sees from its next check.
+export const NOT_FOR_ME_LABEL = 'Not for me'
+export const notForMeAria = (headline: string): string => `${NOT_FOR_ME_LABEL}: ${headline}`
+export const NOT_FOR_ME_TOAST = 'Taken out of Alerts. The watch will learn from it.'
+// The watch form's list of posts the owner judged (Watch.examples).
+export const EXAMPLES_LABEL = 'What this watch learned from you'
+export const EXAMPLES_HINT = 'Posts you marked with "Should have matched" or "Not for me". The model sees the newest 10 of each when it checks. Remove one you marked by mistake.'
+export const EXAMPLES_KIND_LABELS = { want: 'Wanted', skip: 'Not for me' } as const
+export const removeExampleLabel = (title: string): string => `Remove ${title}`
 export const LEFT_OUT_EMPTY = 'Nothing was left out in the last 7 days.'
 export const LEFT_OUT_HINT = 'Posts the model judged not to be what your watch looks for, with its reason. Kept for 7 days.'
 export const ALERTS_UNREAD_POLL_MS = 30000

@@ -16,6 +16,21 @@ const openDetails = async (w: ReturnType<typeof show>) => {
 const NEURALINK_TEXT = "😎 A Neuralink patient is already playing GTA VI, using only his brain implant\n\nNeuralink posted the two-minute clip on Friday, a day after the game came out."
 const NEURALINK_TITLE = '😎 A Neuralink patient is already playing GTA VI, using only his brain implant Neuralink posted the two-minute clip on Friday, a day after the game came out.'
 
+describe('NewsroomEntryItem, Not for me', () => {
+  it('offers "Not for me" on an alert the page lets the owner judge, and says so in its name', async () => {
+    const w = show(entry(), { canSkip: true })
+    const button = w.get('[data-test="not-for-me"]')
+    expect(button.text()).toBe('Not for me')
+    expect(button.attributes('aria-label')).toBe('Not for me: Go 1.26 released')
+    await button.trigger('click')
+    expect(w.emitted('skip')).toHaveLength(1)
+  })
+
+  it('has no button where the owner cannot judge (the left-out list)', () => {
+    expect(show(entry()).find('[data-test="not-for-me"]').exists()).toBe(false)
+  })
+})
+
 describe('NewsroomEntryItem headline and summary', () => {
   const digested = entry({ title: 'OpenAI GPT-Live-1.1 listens while it talks, a long original post title', headline: 'GPT-Live-1.1 listens while it talks', summary: 'A full-duplex voice model in the API.', why: 'New model: GPT-Live-1.1' })
 

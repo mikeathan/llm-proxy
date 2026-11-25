@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectNoSidewaysScroll, lookAt, mockAdminApi } from './support/adminApi'
+import { expectNoSidewaysScroll, expectTapArea, lookAt, mockAdminApi } from './support/adminApi'
 
 // The Briefs topic form: the region list and the words to skip sit level, the feeds box suggests well-known sources while the owner types (the list is
 // not cut off by the card), and the browser and "My sources" fit at both widths. The data is invented; the shape is the server's.
@@ -319,4 +319,36 @@ test('a story can be tuned or followed, and the Follow form fits the screen', as
   await expect(page.locator('[data-test="follow-preview-list"]')).toContainText('Futures rise again')
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'follow-form', true)
+})
+
+// Alerts: every alert says "Not for me" in words with a finger-sized target, "Set up alerts" leads to the watches, and the watch form lists what the
+// watch learned from the owner. The data is invented; the shape is the server's.
+const ALERT_WATCH = {
+  id: 1, name: 'AI news', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, look_for: 'New model releases', last_status: 'nothing_new',
+  sources: [{ kind: 'telegram', target: 'aipost' }], examples: { want: ['Qwen4 released with open weights'], skip: ['OpenAI: AGIpilled people be like', 'ClaudeAI: $500 in promo credits each week'] },
+}
+const alert = (id: number, headline: string) => ({ id, watch_id: 1, at: new Date().toISOString(), source: 'telegram aipost', title: headline, headline, link: `https://t.me/aipost/${id}` })
+const ALERT_ANSWERS = {
+  '/newsroom/watches': [ALERT_WATCH],
+  '/newsroom/feed': [{ day: '2026-11-25', label: 'Today', updates: 2, unread: 1, watches: [{ watch_id: 1, watch: 'AI news', updates: 2, unread: 1, current: alert(2, 'A user says Fable 5.2 Medium reached a 2730 chess rating'), earlier: [{ ...alert(1, 'Baidu opens the weights of ERNIE 5.5 Flash Preview'), read: true }] }] }],
+  '/newsroom/feed/unread': { count: 1, left_out: 3 },
+}
+
+test('alerts offer "Not for me" with a finger-sized target, and the watch form lists what the watch learned', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: ALERT_ANSWERS })
+  await page.goto('newsroom/alerts')
+  const notForMe = page.locator('[data-test="not-for-me"]').first()
+  await expect(notForMe).toBeVisible()
+  await expectTapArea(notForMe)
+  await expect(page.locator('[data-test="alerts-setup"]')).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'alerts', true)
+  await page.locator('[data-test="alerts-setup"]').click()
+  await expect(page.locator('[data-test="new-watch"]')).toBeVisible()
+  await expect(page.locator('[data-test="following-read"]')).toHaveText(/See alerts/)
+  await page.getByRole('button', { name: 'Edit' }).click()
+  const learned = page.locator('[data-test="watch-examples"]')
+  await expect(learned).toContainText('OpenAI: AGIpilled people be like')
+  await expectNoSidewaysScroll(page)
+  await lookAt(learned, testInfo, 'watch-examples')
 })

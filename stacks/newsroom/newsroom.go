@@ -43,6 +43,8 @@ const (
 	RouteClear   = "/admin/api/newsroom/feed/clear"
 	RouteUnread  = "/admin/api/newsroom/feed/unread"
 	RouteKeep    = "/admin/api/newsroom/feed/keep"
+	// RouteSkip takes alerts out of the feed: the owner says they are not for them ("Not for me").
+	RouteSkip = "/admin/api/newsroom/feed/skip"
 
 	ToolFollow = "newsroom_follow"
 	ToolList   = "newsroom_watches"
@@ -132,6 +134,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: RouteClear},
 			{Method: http.MethodGet, Path: RouteUnread},
 			{Method: http.MethodPost, Path: RouteKeep},
+			{Method: http.MethodPost, Path: RouteSkip},
 			{Method: http.MethodGet, Path: RouteSourceLookup},
 			{Method: http.MethodGet, Path: RouteSourceSuggest},
 			{Method: http.MethodGet, Path: RouteBriefTopics},
@@ -520,7 +523,9 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 			LeftOut int `json:"left_out"`
 		}{store.UnreadCount(), store.LeftOutCount()})
 	case "POST " + RouteKeep:
-		return keepLeftOut(store, req.Body)
+		return teach(store, req.Body, true)
+	case "POST " + RouteSkip:
+		return teach(store, req.Body, false)
 	case "GET " + RouteSourceLookup, "GET " + RouteSourceSuggest:
 		return s.handleSources(ctx, req)
 	}
@@ -640,15 +645,16 @@ func clearFeed(store *watches.Store, body []byte) (stacksdk.Response, error) {
 	return jsonResponse(http.StatusOK, map[string]int{"cleared": gone})
 }
 
-// keepLeftOut puts items the model left out into the feed (the owner says the call was wrong).
-func keepLeftOut(store *watches.Store, body []byte) (stacksdk.Response, error) {
+// teach records the owner's verdict on entries: want puts items the model left out into the feed ("Should have matched"), !want takes alerts out of it
+// ("Not for me"); each becomes an example the watch's model sees (watches.Store.Teach).
+func teach(store *watches.Store, body []byte, want bool) (stacksdk.Response, error) {
 	var in struct {
 		IDs []int64 `json:"ids"`
 	}
 	if err := json.Unmarshal(body, &in); err != nil || len(in.IDs) == 0 {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeInvalid, "ids is a list of entry ids")
 	}
-	if err := store.Keep(in.IDs); err != nil {
+	if err := store.Teach(in.IDs, want); err != nil {
 		return stacksdk.Response{}, err
 	}
 	return stacksdk.Response{Status: http.StatusNoContent}, nil
