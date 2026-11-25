@@ -24,9 +24,9 @@ without the generated halftone art.
 1. **The Newsroom page is a reader.** It opens on the brief (`/newsroom`). The tabs are **Brief · Alerts · Following · Settings**: Alerts is
    the old Feed, and Following holds what is followed, the brief's topics and editions ("In your brief") and the watches ("Alerts"). The old
    `/newsroom/briefs` (already sent in phone summaries) and `/newsroom/watches` redirect; the core's summary links to `/newsroom`.
-2. **The brief is laid out as a paper**: a nameplate (two rules, the name, one mono dateline), the lead and the other top stories, every section
-   open, an end mark with Print and Copy as text. A sticky index of the sections sits on the left on a wide screen and is a row of links on a
-   phone. Beside the news, in reading order: what needs a look (critical home facts, said once), the chips, your day, alerts, the rest of Home,
+2. **The brief is laid out as a paper**: a nameplate (the name and one mono dateline, no heavy rules), the lead and the other top stories, every section
+   open, an end mark with Print and Copy as text. A sticky index of the sections is one row of links under the nameplate at every width
+   (amended 2026-11-25: a left column of its own left most of a wide page empty, and the Brief tab now uses the whole page width). Beside the news, in reading order: what needs a look (critical home facts, said once), the chips, your day, alerts, the rest of Home,
    Model use. Model use no longer depends on the Home switch (amends ADR-0085's placement). Each story shows a tick per outlet.
 3. **Cards are front pages and only link (ADR-0064 held).** The Brief card shows what needs a look, the lead, two headlines from each of up to
    three sections and the sections as links; no tabs. The Today card keeps its short form. Every headline, section and "read" link opens the

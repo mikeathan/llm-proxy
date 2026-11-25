@@ -84,7 +84,7 @@ export const routes: RouteRecordRaw[] = [
   // what took their place.
   { path: '/newsroom/briefs', redirect: (to) => ({ ...toNewsroom(), query: to.query }) },
   { path: '/newsroom/watches', redirect: () => toFollowing('alerts') },
-  { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', title: 'Newsroom' } },
+  { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', fullWidth: true, title: 'Newsroom' } },
   { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

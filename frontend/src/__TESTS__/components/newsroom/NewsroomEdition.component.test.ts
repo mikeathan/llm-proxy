@@ -65,8 +65,17 @@ describe('NewsroomEdition', () => {
       expect(w.find(`#brief-section-${n}`).exists()).toBe(true)
       expect(w.find(`#brief-story-${n}`).exists()).toBe(true)
     }
-    expect(w.get('[data-test="index-rail"]').findAll('a').map((a) => a.attributes('href'))).toEqual(['#brief-section-1', '#brief-section-2', '#brief-section-3'])
+    expect(w.find('[data-test="index-rail"]').exists()).toBe(false)
+    expect(w.get('[data-test="index-row"]').findAll('a').map((a) => a.attributes('href'))).toEqual(['#brief-section-1', '#brief-section-2', '#brief-section-3'])
     expect(w.find('[data-test="collapse-all"]').exists()).toBe(false)
+  })
+
+  it('shares the row of other top stories by how many there are, so one story does not sit in a third of the width', () => {
+    const top = (n: number) => Array.from({ length: n }, (_, i) => story({ pool_id: 100 + i, headline: `Top ${i}` }))
+    const cls = (n: number) => mountIt(issue({ top: top(n) })).get('[data-test="top-stories"]').classes()
+    expect(cls(2).some((c) => c.includes('grid-cols'))).toBe(false)
+    expect(cls(3)).toContain('md:grid-cols-2')
+    expect(cls(4)).toContain('md:grid-cols-3')
   })
 
   it('keeps a section to a few stories and lets the reader show the rest', async () => {

@@ -25,8 +25,8 @@ import {
 import type { BriefIssue, BriefSection, BriefStatus, BriefStory } from "../../types/newsroom"
 
 // One edition as it was written, laid out as a paper to read (ADR-0086): a nameplate and one dateline, the lead and the other top stories, then every section
-// open, one after another, and an end mark. On a wide screen an index of the sections sits on the left and what is beside the news on the right (needs a look,
-// your day, alerts, home, model use); on a phone the index is a row of links that stays under the header and the side column follows the top stories. Every
+// open, one after another, and an end mark. The index of the sections is a row of links that stays under the header; on a wide screen what is beside the news sits on
+// the right (needs a look, your day, alerts, home, model use), and on a phone the side column follows the top stories. Every
 // section and story is an anchor, so a card links straight to it, and j and k move between the stories.
 // `topics` names the topic behind each section (its first topic's id), so a story there can be tuned; without it the stories carry no actions.
 const props = defineProps<{ issue: BriefIssue; status: BriefStatus; isNew?: boolean; topics?: Record<number, string> }>()
@@ -62,6 +62,14 @@ const otherTop = computed(() => props.issue.top?.slice(1) ?? [])
 const home = computed(() => splitHome(props.issue.home ?? []))
 // The critical facts are said first, above everything beside the news; the Home block keeps the rest.
 const homeRest = computed(() => [...home.value.check, ...home.value.routine])
+// The other top stories share the row evenly: one story takes the whole width, two take half each, three or more sit three to a row (a rule between
+// stories in a row, none at the start of a row). Static class strings, so the stylesheet keeps them.
+const TOP_GRIDS = {
+  1: { list: '', item: '' },
+  2: { list: 'md:grid-cols-2', item: 'md:[&:nth-child(2n)]:border-l md:[&:nth-child(2n)]:pl-6' },
+  3: { list: 'md:grid-cols-3', item: 'md:[&:not(:nth-child(3n+1))]:border-l md:[&:not(:nth-child(3n+1))]:pl-6' },
+} as const
+const topGrid = computed(() => TOP_GRIDS[Math.min(Math.max(otherTop.value.length, 1), 3) as 1 | 2 | 3])
 const sectionAnchor = (sec: BriefSection) => `brief-section-${sec.topic_id}`
 
 // "nothing" is an issue with nothing to say: no send was made, so neither a problem nor a sent line.
@@ -82,8 +90,7 @@ const print = () => window.print()
 
 <template>
   <div ref="root" class="flex flex-col gap-5 print:gap-3" data-test="edition">
-    <header class="flex flex-col border-t-4 border-text-primary pt-0.5" data-test="nameplate">
-      <div class="mb-3 border-t border-text-primary" />
+    <header class="flex flex-col" data-test="nameplate">
       <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
         <h2 class="m-0 flex min-w-0 flex-wrap items-center gap-3 break-words text-[length:var(--text-display,2.5rem)] font-bold leading-none tracking-tight text-primary" data-test="masthead">
           {{ issue.name }}<StatusTag v-if="isNew" state="info" :label="NEW_BRIEF_LABEL" />
@@ -105,21 +112,14 @@ const print = () => window.print()
       </p>
     </header>
 
-    <!-- On a phone and a tablet: the sections as one row of links that stays in view. -->
-    <nav v-if="issue.sections.length > 1" class="sticky top-0 z-10 -mx-1 flex gap-0 overflow-x-auto border-b border-hairline bg-canvas lg:hidden print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-row">
+    <!-- The sections as one row of links that stays in view, at every width: a column of its own left most of the page empty. -->
+    <nav v-if="issue.sections.length > 1" class="sticky top-0 z-10 -mx-1 flex items-center gap-0 overflow-x-auto border-b border-hairline bg-canvas print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-row">
       <a v-if="lead" href="#brief-top" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ TOP_STORIES_LABEL }}</a>
       <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ sec.name }} <span class="font-mono text-faint">{{ sec.stories.length }}</span></a>
+      <span class="ml-auto hidden flex-none whitespace-nowrap px-3 text-[length:var(--text-small)] text-faint lg:inline">{{ BRIEF_KEYS_HINT }}</span>
     </nav>
 
-    <div class="grid items-start gap-6 lg:grid-cols-[11rem_minmax(0,1fr)_19rem] print:block" data-test="edition-body">
-      <nav class="sticky top-4 hidden flex-col gap-0.5 lg:flex print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-rail">
-        <span class="mb-1 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-faint">{{ BRIEF_INDEX_LABEL }}</span>
-        <a v-if="lead" href="#brief-top" class="flex items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-[length:var(--text-small)] text-secondary hover:border-accent-brand hover:text-primary">{{ TOP_STORIES_LABEL }}<span class="ml-auto font-mono text-faint">{{ issue.top?.length }}</span></a>
-        <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex items-center gap-2 border-l-2 border-transparent px-2 py-1.5 text-[length:var(--text-small)] text-secondary hover:border-accent-brand hover:text-primary">
-          <span class="min-w-0 break-words">{{ sec.name }}</span><span class="ml-auto font-mono text-faint">{{ sec.stories.length }}</span>
-        </a>
-        <span class="mt-3 text-[length:var(--text-small)] text-faint">{{ BRIEF_KEYS_HINT }}</span>
-      </nav>
+    <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:gap-8 print:block" data-test="edition-body">
 
       <!-- The news column dissolves below the wide layout, so the side column falls between the top stories and the sections on a phone. -->
       <div class="contents min-w-0 lg:flex lg:flex-col lg:gap-6 print:flex print:flex-col print:gap-5" data-test="edition-main">
@@ -128,14 +128,14 @@ const print = () => window.print()
             <p class="m-0 font-mono text-[length:var(--text-small)] uppercase tracking-wider text-accent-brand">{{ LEAD_STORY_LABEL }}<template v-if="sectionOf.get(lead.pool_id)"> · {{ sectionOf.get(lead.pool_id) }}</template></p>
             <NewsroomBriefStory :story="lead" lead quiet anchor :topic="topicName(lead)" @tune="(more, w) => tune(lead!, more, w)" @follow="emit('follow', $event)" />
           </div>
-          <ul v-if="otherTop.length" class="m-0 grid list-none gap-x-6 border-b-4 border-double border-hairline p-0 md:grid-cols-3" data-test="top-stories">
-            <li v-for="s in otherTop" :key="s.pool_id" class="min-w-0 border-hairline md:[&:not(:first-child)]:border-l md:[&:not(:first-child)]:pl-6"><NewsroomBriefStory :story="s" :section="sectionOf.get(s.pool_id)" quiet anchor :topic="topicName(s)" @tune="(more, w) => tune(s, more, w)" @follow="emit('follow', $event)" /></li>
+          <ul v-if="otherTop.length" :class="['m-0 grid list-none gap-x-6 p-0', topGrid.list]" data-test="top-stories">
+            <li v-for="s in otherTop" :key="s.pool_id" :class="['min-w-0 border-hairline', topGrid.item]"><NewsroomBriefStory :story="s" :section="sectionOf.get(s.pool_id)" quiet anchor :topic="topicName(s)" @tune="(more, w) => tune(s, more, w)" @follow="emit('follow', $event)" /></li>
           </ul>
         </section>
 
         <div class="order-3 flex min-w-0 flex-col gap-6 lg:order-none print:gap-3">
           <section v-for="sec in issue.sections" :id="sectionAnchor(sec)" :key="sec.topic_id" class="flex scroll-mt-24 flex-col" :aria-label="sec.name" data-test="section">
-            <header class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t-2 border-text-primary pt-2">
+            <header class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline pt-3">
               <NewsroomPlate :label="sec.name" :category="sec.category" />
               <h2 class="m-0 min-w-0 break-words font-mono text-[length:var(--text-body)] font-semibold uppercase tracking-wider text-primary">{{ sec.name }}</h2>
               <span class="ml-auto text-[length:var(--text-small)] text-faint">{{ briefSectionCountWords(sec.stories.length, inTopCount(sec)) }}<template v-if="sec.as_of"> · {{ briefAsOfWords(formatRelativeTime(sec.as_of)) }}</template></span>
@@ -148,7 +148,7 @@ const print = () => window.print()
               <RouterLink :to="toNewsroom('following')" class="text-accent-info-text hover:underline print:hidden" data-test="problems-open-setup">{{ BRIEF_PROBLEMS_ACTION }} →</RouterLink>
             </div>
             <p v-if="headlinesOnly(sec)" class="m-0 pt-2 text-[length:var(--text-small)] text-faint" data-test="headlines-only">{{ SECTION_HEADLINES_ONLY }}</p>
-            <ul v-if="storiesOf(sec).length" class="m-0 grid list-none gap-x-6 p-0 md:grid-cols-2">
+            <ul v-if="storiesOf(sec).length" class="m-0 grid list-none gap-x-6 p-0 md:grid-cols-2 2xl:grid-cols-3">
               <li v-for="s in shown(storiesOf(sec), sec.topic_id)" :key="s.pool_id" class="min-w-0 border-b border-hairline"><NewsroomBriefStory :story="s" :quiet="headlinesOnly(sec)" anchor :topic="topicName(s)" @tune="(more, w) => tune(s, more, w)" @follow="emit('follow', $event)" /></li>
             </ul>
             <p v-else class="m-0 py-3 text-muted">{{ sec.stories.length ? SECTION_IN_TOP : sec.as_of ? SECTION_EMPTY : SECTION_NEVER_READ }}</p>
@@ -156,7 +156,7 @@ const print = () => window.print()
               {{ showAll(sec.topic_id) ? SHOW_FEWER_LABEL : showMoreWords(storiesOf(sec).length - BRIEF_SECTION_SHOWN) }}
             </BaseButton>
           </section>
-          <footer class="flex flex-wrap items-center gap-3 border-t-4 border-double border-hairline pt-3 text-[length:var(--text-small)] text-muted" data-test="end-mark">
+          <footer class="flex flex-wrap items-center gap-3 border-t border-hairline pt-3 text-[length:var(--text-small)] text-muted" data-test="end-mark">
             <span class="inline-block h-2.5 w-2.5 flex-none bg-accent-brand" aria-hidden="true" />
             <span>{{ BRIEF_END_WORDS }} {{ status.next }}</span>
             <span class="ml-auto flex gap-2 print:hidden">
