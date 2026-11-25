@@ -16,9 +16,10 @@ import { useStoryKeys } from "../../composables/newsroom/useStoryKeys"
 import { useToast } from "../../composables/useToast"
 import { formatRelativeTime } from "../../utils/format/time"
 import { briefText } from "../../utils/newsroom/briefText"
+import { copyText } from "../../utils/clipboard"
 import { splitHome } from "../../utils/newsroom/homeLines"
 import {
-  BRIEF_BESIDE_LABEL, BRIEF_COPIED, BRIEF_COPY_FAILED, BRIEF_COPY_LABEL, BRIEF_END_WORDS, BRIEF_INDEX_LABEL, BRIEF_KEYS_HINT, BRIEF_PRINT_LABEL, BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL,
+  BRIEF_BESIDE_LABEL, BRIEF_COPIED, BRIEF_COPY_FAILED, BRIEF_COPY_LABEL, BRIEF_END_WORDS, BRIEF_INDEX_LABEL, BRIEF_PRINT_LABEL, BRIEF_PROBLEMS_ACTION, BRIEF_PROBLEMS_FIX, BRIEF_PROBLEMS_LABEL,
   BRIEF_SECTION_SHOWN, BRIEF_SEND_FIX, BRIEF_SEND_PROBLEM, LEAD_STORY_LABEL, NEW_BRIEF_LABEL, SECTION_EMPTY, SECTION_HEADLINES_ONLY, SECTION_IN_TOP, SECTION_NEVER_READ, SHOW_FEWER_LABEL, TOP_STORIES_LABEL,
   briefAsOfWords, briefMadeWords, briefOutletsWords, briefSectionCountWords, briefSentWords, showMoreWords,
 } from "../../constants/newsroom"
@@ -77,13 +78,10 @@ const sendProblem = computed(() => (props.issue.send_state && props.issue.send_s
 const sentClock = computed(() => (props.issue.sent_at ? new Date(props.issue.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""))
 const madeDate = computed(() => new Date(props.issue.made_at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }))
 
+// Through the shared helper: on plain HTTP (vertex.local) the browser has no clipboard API, and the helper falls back to the copy command.
 async function copy() {
-  try {
-    await navigator.clipboard.writeText(briefText(props.issue, madeDate.value))
-    toast.success(BRIEF_COPIED)
-  } catch {
-    toast.error(BRIEF_COPY_FAILED)
-  }
+  if (await copyText(briefText(props.issue, madeDate.value))) toast.success(BRIEF_COPIED)
+  else toast.error(BRIEF_COPY_FAILED)
 }
 const print = () => window.print()
 </script>
@@ -117,7 +115,6 @@ const print = () => window.print()
     <nav v-if="issue.sections.length > 1" class="sticky top-0 z-10 -mx-1 flex items-center gap-0 overflow-x-auto border-b border-hairline bg-canvas print:hidden" :aria-label="BRIEF_INDEX_LABEL" data-test="index-row">
       <a v-if="lead" href="#brief-top" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ TOP_STORIES_LABEL }}</a>
       <a v-for="sec in issue.sections" :key="sec.topic_id" :href="`#${sectionAnchor(sec)}`" class="flex-none whitespace-nowrap px-3 py-3 text-[length:var(--text-small)] text-muted hover:text-primary">{{ sec.name }} <span class="font-mono text-faint">{{ sec.stories.length }}</span></a>
-      <span class="ml-auto hidden flex-none whitespace-nowrap px-3 text-[length:var(--text-small)] text-faint lg:inline">{{ BRIEF_KEYS_HINT }}</span>
     </nav>
 
     <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] xl:gap-8 print:block" data-test="edition-body">

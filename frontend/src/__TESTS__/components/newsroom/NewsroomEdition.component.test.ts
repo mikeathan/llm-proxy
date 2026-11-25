@@ -161,6 +161,20 @@ describe('NewsroomEdition', () => {
     expect(toastSuccess).toHaveBeenCalled()
   })
 
+  // Plain HTTP on a LAN name (vertex.local) has no navigator.clipboard: the copy must still work, through the shared helper's fallback.
+  it('copies the brief as text on a plain-HTTP page, where the browser has no clipboard API', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    const execCommand = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true })
+    toastSuccess.mockClear()
+    const w = mountIt(issue())
+    await w.get('[data-test="copy-text"]').trigger('click')
+    await flushPromises()
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(toastSuccess).toHaveBeenCalled()
+    Reflect.deleteProperty(document, 'execCommand')
+  })
+
   it('moves between stories with j and k', async () => {
     const stories = [1, 2].map((n) => story({ pool_id: n, headline: `S${n}`, link: `https://example.com/${n}` }))
     const w = mount(NewsroomEdition, { props: { issue: issue({ sections: [section({ stories })] }), status: STATUS }, global, attachTo: document.body })

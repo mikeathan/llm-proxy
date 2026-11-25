@@ -569,7 +569,6 @@ export const daysOrHoursWords = (h: number): string => (h % 24 === 0 ? `${h / 24
 // The brief as a page to read.
 export const BRIEF_INDEX_LABEL = 'In this brief'
 export const BRIEF_BESIDE_LABEL = 'Beside the news'
-export const BRIEF_KEYS_HINT = 'j and k move between stories · o opens one'
 export const BRIEF_END_WORDS = 'You are up to date.'
 export const BRIEF_PRINT_LABEL = 'Print'
 export const BRIEF_COPY_LABEL = 'Copy as text'
