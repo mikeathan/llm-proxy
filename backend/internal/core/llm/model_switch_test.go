@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -160,5 +161,80 @@ func TestGetInstance_DoesNotStopAModelThatIsStillLoading(t *testing.T) {
 	}
 	if a := m.ActiveModel(); a == nil || a.Cfg.Name != "a" {
 		t.Fatal("the loading model a must be left to finish")
+	}
+}
+
+// The System settings handler sets the model host and then pushes every model through UpdateModel; the host is part of
+// the launch, so the running server must restart onto it (review of the B2 fix).
+func TestUpdateModel_ANewModelHostRestartsTheServer(t *testing.T) {
+	defer utils.SetExecCommandContext(fakeCmd())()
+	defer utils.SetPortReady(func(int) bool { return false })()
+	setupModelFile(t, "/tmp/model-b2h.gguf")
+
+	cfg := models.ModelConfig{Name: "a", Path: "/tmp/model-b2h.gguf", Port: 9105}
+	m := llm.New([]models.ModelConfig{cfg}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
+	if _, err := m.EnsureModel(context.Background(), "a"); !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("EnsureModel(a) = %v, want ErrModelStarting", err)
+	}
+
+	m.SetModelHost("0.0.0.0")
+	for _, listed := range m.ListModels() {
+		if err := m.UpdateModel(listed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m.ActiveModel() != nil {
+		t.Fatal("a server bound to the old host was kept after the model host changed")
+	}
+}
+
+// The owner's own Start (the Models page) is not held back by a model that is still loading: without this the click
+// was answered "starting" and nothing ever started the second model.
+func TestGetInstance_AnExplicitStartMayStopAModelThatIsStillLoading(t *testing.T) {
+	defer utils.SetExecCommandContext(fakeCmd())()
+	defer utils.SetPortReady(func(int) bool { return false })()
+	setupModelFile(t, "/tmp/model-b3c.gguf")
+	setupModelFile(t, "/tmp/model-b3d.gguf")
+
+	m := llm.New([]models.ModelConfig{
+		{Name: "a", Path: "/tmp/model-b3c.gguf", Port: 9106},
+		{Name: "b", Path: "/tmp/model-b3d.gguf", Port: 9107},
+	}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
+
+	if _, err := m.EnsureModel(context.Background(), "a"); !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("EnsureModel(a) = %v, want ErrModelStarting", err)
+	}
+	if _, err := m.EnsureModel(llm.WithExplicitStart(context.Background()), "b"); !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("explicit EnsureModel(b) = %v, want ErrModelStarting", err)
+	}
+	if a := m.ActiveModel(); a == nil || a.Cfg.Name != "b" {
+		t.Fatal("an explicit Start of b must replace a loading model")
+	}
+}
+
+// llama-server opens its port before the model is loaded: an open port alone does not end the protection.
+func TestGetInstance_AnOpenPortIsNotALoadedModel(t *testing.T) {
+	defer utils.SetExecCommandContext(fakeCmd())()
+	var open atomic.Bool
+	defer utils.SetPortReady(func(int) bool { return open.Load() })()
+	setupModelFile(t, "/tmp/model-b3e.gguf")
+	setupModelFile(t, "/tmp/model-b3f.gguf")
+
+	m := llm.New([]models.ModelConfig{
+		{Name: "a", Path: "/tmp/model-b3e.gguf", Port: 9108},
+		{Name: "b", Path: "/tmp/model-b3f.gguf", Port: 9109},
+	}, "127.0.0.1", time.Minute)
+	defer m.Shutdown()
+
+	_, _ = m.EnsureModel(context.Background(), "a")
+	if a := m.ActiveModel(); a == nil || a.Cfg.Name != "a" {
+		t.Fatal("expected a to be the active model")
+	}
+	open.Store(true) // a's port answers now; its window has not been reported
+	_, _ = m.EnsureModel(context.Background(), "b")
+	if a := m.ActiveModel(); a == nil || a.Cfg.Name != "a" {
+		t.Fatal("a model whose port is open but whose window was never reported is still loading; it must not be stopped")
 	}
 }

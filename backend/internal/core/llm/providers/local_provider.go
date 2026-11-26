@@ -245,6 +245,7 @@ func (p *LocalProvider) StartModel(ctx context.Context) error {
 
 	p.activeModel = &RunningModel{
 		Cfg:        p.cfg,
+		LaunchArgs: args,
 		Cmd:        cmd,
 		Cancel:     cancel,
 		Started:    time.Now(),
