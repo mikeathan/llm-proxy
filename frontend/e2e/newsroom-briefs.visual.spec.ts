@@ -126,8 +126,14 @@ const MODEL_STATS = {
     { model: 'nemotron-3.5-super-vl:free', local: false, calls: 16, failed: 0, prompt_tokens: 52_000, completion_tokens: 9_000 },
   ],
 }
+// The brief and the feed are read on the dashboard's Newsroom tab (ADR-0089): the dashboard needs the stack on and the shipped boards.
+const STACKS_WITH_NEWSROOM = { stacks: ['network', 'agents', 'radio', 'reminders', 'newsroom'].map((id) => ({ id, title: id, purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 })) }
+const ON_DASHBOARD = { '/stacks': STACKS_WITH_NEWSROOM, '/dashboard': { boards: [] } }
+const READER = 'dashboard?board=newsroom'
+const FEED = 'dashboard?board=newsroom-feed'
 const EDITION_ANSWERS = {
   ...ANSWERS,
+  ...ON_DASHBOARD,
   '/model-stats': MODEL_STATS,
   '/briefs/editions': [{ id: 2, name: 'Morning', ready_by: '07:00', days: [0, 1, 2, 3, 4, 5, 6], collect_every: '2h0m0s', collect_for: '12h0m0s', enabled: true, watches: true, home: true, sections: [{ kind: 'news', topic_id: 1 }, { kind: 'news', topic_id: 2 }, { kind: 'news', topic_id: 3 }] }],
   '/briefs/issues': [{
@@ -155,7 +161,7 @@ Object.assign(EDITION_ANSWERS, { '/briefs/issues/5': EDITION_ANSWERS['/briefs/is
 
 test('the edition page: news beside Home and Your watches on a wide screen, between the top stories and the sections on a phone, and cards that stay short', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: EDITION_ANSWERS })
-  await page.goto('newsroom')
+  await page.goto(READER)
   const main = page.locator('[data-test="edition-main"]')
   const side = page.locator('[data-test="edition-side"]')
   await expect(main).toBeVisible()
@@ -172,13 +178,12 @@ test('the edition page: news beside Home and Your watches on a wide screen, betw
     expect(s!.y, 'the side column follows the top stories').toBeGreaterThan(top!.y + top!.height - 1)
     expect(s!.y + s!.height, 'and comes before the first section').toBeLessThanOrEqual(first!.y + 1)
     expect(Math.abs(s!.width - m!.width)).toBeLessThanOrEqual(1)
-    // The head is short: Follow is a small outline that still answers a finger, and the first headline starts soon under the title.
+    // The head is short: the dashboard's title, its tabs and the Brief and Feed sub-tabs, then the masthead (ADR-0089; the Newsroom page's head was 270 px).
     await page.evaluate(() => window.scrollTo(0, 0))
     await expect(page.locator('.route-enter-active')).toHaveCount(0) // measured after the page has slid in
-    await expectTapArea(page.locator('[data-test="follow-open"]'))
     await expectTapArea(page.locator('[data-test="brief-more"]'))
-    const [title, headline] = [await page.getByRole('heading', { name: 'Newsroom', level: 1 }).boundingBox(), await page.locator('[data-test="lead-story"]').boundingBox()]
-    expect(headline!.y - title!.y).toBeLessThan(270)
+    const [title, headline] = [await page.getByRole('heading', { name: 'Dashboard', level: 1 }).boundingBox(), await page.locator('[data-test="lead-story"]').boundingBox()]
+    expect(headline!.y - title!.y).toBeLessThan(360)
   } else {
     expect(s!.x, 'the side column sits to the right').toBeGreaterThan(m!.x + m!.width - 1)
     expect(Math.abs(s!.y - m!.y)).toBeLessThanOrEqual(2)
@@ -200,7 +205,7 @@ test('the edition page: news beside Home and Your watches on a wide screen, betw
 // wide screen, nothing scrolls sideways, and long model names wrap instead of pushing the call count off the card.
 test('the model use block opens into the week and today by model, and stays inside its column', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: EDITION_ANSWERS })
-  await page.goto('newsroom')
+  await page.goto(READER)
   const block = page.locator('[data-test="model-use-block"]')
   await expect(block).toBeVisible()
   await expect(block.locator('[data-test="model-use-total"]')).toHaveText('252 calls today')
@@ -232,7 +237,7 @@ const EARLIER = { ...PROBLEM_ISSUE, id: 4, made_at: new Date(Date.now() - 26 * 3
 
 test('the edition page in every theme and in print', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { ...EDITION_ANSWERS, '/briefs/issues': [PROBLEM_ISSUE, EARLIER], '/briefs/issues/5': PROBLEM_ISSUE, '/briefs/issues/4': EARLIER } })
-  await page.goto('newsroom')
+  await page.goto(READER)
   await expect(page.locator('[data-test="edition"]')).toBeVisible()
   await expect(page.locator('[data-test="masthead"]')).toBeVisible()
   await expect(page.locator('[data-test="dateline"]', { hasText: 'read from 38 outlets' })).toBeVisible()
@@ -247,6 +252,8 @@ test('the edition page in every theme and in print', async ({ page }, testInfo) 
   await expect(page.locator('[data-test="problems-open-setup"]').first()).toBeHidden()
   await expect(page.locator('[data-test="earlier-briefs"]')).toBeHidden()
   await expect(page.locator('#app-sidebar')).toBeHidden()
+  await expect(page.locator('[data-test="board-tab"]').first()).toBeHidden() // the dashboard's tabs and head do not print with the brief
+  await expect(page.locator('[data-test="sub-tab"]').first()).toBeHidden()
   await expect(page.locator('[data-test="brief-more"]')).toBeHidden()
   await expect(page.locator('[data-test="dateline"]')).toContainText(String(new Date().getFullYear())) // the date prints in place of the picker
   await expect(page.locator('[data-test="index-row"]')).toBeHidden()
@@ -254,67 +261,47 @@ test('the edition page in every theme and in print', async ({ page }, testInfo) 
   await lookAt(page, testInfo, 'edition-print', true)
 })
 
-// The dashboard's Newsroom board: a big Brief card while one is written, a dot on the tab while it is unread, and tabs that switch the card's body in place. Home carries a short Today card.
+// The dashboard: Home carries a short Today card, the Newsroom tab a dot while the brief is unread, and the tab itself is the reader (ADR-0089).
 const issueOf = EDITION_ANSWERS['/briefs/issues'][0]!
 const LATEST = (read: boolean) => [{ edition_id: 2, name: 'Morning', issue_id: 5, made_at: issueOf.made_at, read }]
-const STACKS_WITH_NEWSROOM = { stacks: ['network', 'agents', 'radio', 'reminders', 'newsroom'].map((id) => ({ id, title: id, purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 })) }
 const dashboardAnswers = (read: boolean) => ({ ...EDITION_ANSWERS, '/stacks': STACKS_WITH_NEWSROOM, '/dashboard': { boards: [] }, '/briefs/latest': LATEST(read), '/briefs/issues/5': issueOf })
 
-test('the dashboard: a front-page Brief card with a dot on the tab while it is unread, whose headlines open the brief at that story', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: dashboardAnswers(false) })
-  await page.goto('dashboard?board=newsroom')
-  const card = page.locator('[data-test="brief-card"]')
-  await expect(card.locator('[data-test="brief-card-front"]')).toBeVisible()
-  await expect(card).toHaveAttribute('data-unread', 'true')
-  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(1)
-  await expect(card.locator('[data-test="brief-attention"]')).toBeVisible()
-  await expectNoSidewaysScroll(page)
-  await lookAt(page, testInfo, 'dashboard-brief-unread', true)
-  // A headline opens the brief at its story: the page scrolls it into view.
-  const headline = card.locator('[data-test="brief-card-columns"] [data-test="brief-headline"]').first()
-  const text = (await headline.textContent())?.trim() ?? ''
-  await headline.click()
-  await expect(page).toHaveURL(/newsroom\?edition=2&story=\d+/)
-  await expect(page.locator('[data-test="edition"] article', { hasText: text }).first()).toBeInViewport()
-})
-
-test('the dashboard: Home carries a short Today card with what needs a look first', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: dashboardAnswers(false) })
-  await page.goto('dashboard')
-  const card = page.locator('[data-test="today-card"]')
-  await expect(card).toBeVisible()
-  await expect(card.locator('[data-test="brief-attention"]')).toBeVisible()
-  await expectNoSidewaysScroll(page)
-  await lookAt(page, testInfo, 'dashboard-today', true)
-})
-
-test('the dashboard: no dot and no New tag once the brief is read', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: dashboardAnswers(true) })
-  await page.goto('dashboard?board=newsroom')
-  await expect(page.locator('[data-test="brief-card-front"]')).toBeVisible()
-  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(0)
-  await expect(page.locator('[data-test="brief-card"]')).not.toHaveAttribute('data-unread', 'true')
-  await expectNoSidewaysScroll(page)
-  await lookAt(page, testInfo, 'dashboard-brief-read', true)
-})
-
-test('opening the Briefs page reads the brief: the Newsroom tab loses its dot', async ({ page }) => {
+test('the dashboard: Home carries a short Today card and the Newsroom tab a dot while the brief is unread; Read opens the brief on the Newsroom tab and reads it', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: dashboardAnswers(false) })
   const asked: string[] = []
   // The server keeps what was read: once it is told, it answers "read".
   await page.route('**/briefs/latest', (route) => route.fulfill({ json: LATEST(asked.length > 0) }))
   page.on('request', (r) => { if (r.method() === 'POST' && r.url().includes('/briefs/issues/')) asked.push(new URL(r.url()).pathname) })
-  await page.goto('newsroom')
+  await page.goto('dashboard')
+  const card = page.locator('[data-test="today-card"]')
+  await expect(card).toBeVisible()
+  await expect(card.locator('[data-test="brief-attention"]')).toBeVisible()
+  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(1)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'dashboard-today', true)
+  await card.locator('[data-test="today-open"]').click()
+  await expect(page).toHaveURL(/dashboard\?board=newsroom&edition=2/)
   await expect(page.locator('[data-test="edition"]')).toBeVisible()
+  await expect(page.locator('[data-test="sub-tab"]')).toHaveText(['Brief', 'Feed'])
   await expect.poll(() => asked.length).toBeGreaterThan(0)
   expect(asked[0]).toMatch(/\/briefs\/issues\/5\/read$/)
-  await expect(page.locator('[data-test="tab-dot"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="brief-setup"]')).toHaveAttribute('href', /\/newsroom\/following\?kind=brief$/)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'dashboard-reader', true)
+})
+
+test('the dashboard: no dot once the brief is read', async ({ page }) => {
+  await mockAdminApi(page, { answers: dashboardAnswers(true) })
+  await page.goto('dashboard')
+  await expect(page.locator('[data-test="today-card"]')).toBeVisible()
+  await expect(page.locator('[data-test="board-tab-dot"]')).toHaveCount(0)
 })
 
 // The Follow form, opened from a story with its words, and a story's own actions: both fit the screen at either width.
 test('a story can be tuned or followed, and the Follow form fits the screen', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { ...EDITION_ANSWERS, '/briefs/topics': TOPICS.map((t) => ({ ...t, id: t.id })), '/newsroom/sources/lookup': { found: true, sample: [{ title: 'Futures rise again' }], choices: [] } } })
-  await page.goto('newsroom')
+  await page.goto(READER)
   const lead = page.locator('[data-test="lead-story"]')
   await expect(lead.locator('[data-test="story-actions"]')).toBeVisible()
   await lead.locator('[data-test="story-less"]').click()
@@ -329,7 +316,7 @@ test('a story can be tuned or followed, and the Follow form fits the screen', as
   await lookAt(page, testInfo, 'follow-form', true)
 })
 
-// Alerts: every alert says "Not for me" in words with a finger-sized target, "Set up alerts" leads to the watches, and the watch form lists what the
+// The feed: every alert says "Not for me" in words with a finger-sized target, "Set up the feed" leads to the watches, and the watch form lists what the
 // watch learned from the owner. The data is invented; the shape is the server's.
 const ALERT_WATCH = {
   id: 1, name: 'AI news', interval: '1h0m0s', max_age: '72h0m0s', enabled: true, look_for: 'New model releases', last_status: 'nothing_new',
@@ -342,9 +329,9 @@ const ALERT_ANSWERS = {
   '/newsroom/feed/unread': { count: 1, left_out: 3 },
 }
 
-test('alerts offer "Not for me" with a finger-sized target, and the watch form lists what the watch learned', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: ALERT_ANSWERS })
-  await page.goto('newsroom/alerts')
+test('the feed offers "Not for me" with a finger-sized target, and the watch form lists what the watch learned', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { ...ALERT_ANSWERS, ...ON_DASHBOARD } })
+  await page.goto(FEED)
   const notForMe = page.locator('[data-test="not-for-me"]').first()
   await expect(notForMe).toBeVisible()
   await expectTapArea(notForMe)
@@ -353,7 +340,7 @@ test('alerts offer "Not for me" with a finger-sized target, and the watch form l
   await lookAt(page, testInfo, 'alerts', true)
   await page.locator('[data-test="alerts-setup"]').click()
   await expect(page.locator('[data-test="new-watch"]')).toBeVisible()
-  await expect(page.locator('[data-test="following-read"]')).toHaveText(/See alerts/)
+  await expect(page.locator('[data-test="following-read"]')).toHaveText(/Open the feed/)
   await page.getByRole('button', { name: 'Edit' }).click()
   const learned = page.locator('[data-test="watch-examples"]')
   await expect(learned).toContainText('OpenAI: AGIpilled people be like')

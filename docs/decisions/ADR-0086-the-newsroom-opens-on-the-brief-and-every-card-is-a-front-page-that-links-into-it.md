@@ -57,3 +57,7 @@ without the generated halftone art.
 
 - Plan: `docs/PLANS/ARCHIVE/autonomy/newsroom-review-2026-11-25.md`
 - SPEC-013 1.27
+
+## Amendment (2026-11-25): the exception for reading ends
+
+ADR-0089: the reader and the feed (renamed from Alerts) moved to the dashboard's Newsroom tab as page boards; the Newsroom page keeps Following and Settings and opens on Following. Decisions 2 to 5 stand on the dashboard; decision 1's tabs are Following · Settings, and `toBrief` opens `/dashboard?board=newsroom`.

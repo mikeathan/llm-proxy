@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth, visibleLayout, newShippedCards, boardTabs } from '../../domain/dashboard'
+import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth, visibleLayout, newShippedCards, boardTabs, viewOf } from '../../domain/dashboard'
 import { BOARD_TEMPLATES, HOME_BOARD_ID, MAX_BOARDS, MAX_CARDS_PER_BOARD } from '../../constants/dashboard'
 import type { DashboardBoard, DashboardCardDef, DashboardLayout } from '../../types/dashboard'
 
@@ -218,7 +218,7 @@ describe('the Today card reaches a Home saved before it existed', () => {
 
 describe("boardTabs: a stack's boards are one tab with sub-tabs", () => {
   const shipped = shippedLayout()
-  const on = new Set(['network', 'radio'])
+  const on = new Set(['network', 'radio', 'newsroom'])
 
   it('shows Network once, with every Network board as a sub-tab, in the shipped order', () => {
     const tabs = boardTabs(shipped.boards, on)
@@ -243,6 +243,20 @@ describe("boardTabs: a stack's boards are one tab with sub-tabs", () => {
   it('has no Network tab when no Network board is on the layout or the stack is off', () => {
     expect(boardTabs(shipped.boards.filter((b) => !b.id.startsWith('network')), on).some((t) => t.group === 'network')).toBe(false)
     expect(boardTabs(shipped.boards, new Set(['radio'])).some((t) => t.group === 'network')).toBe(false)
+  })
+
+  it('shows the Newsroom as one tab with Brief and Feed, each a page in place of cards (ADR-0089)', () => {
+    const newsroom = boardTabs(shipped.boards, on).find((t) => t.group === 'newsroom')!
+    expect(newsroom).toMatchObject({ id: 'newsroom', label: 'Newsroom' })
+    expect(newsroom.subTabs.map((s) => [s.id, s.label])).toEqual([['newsroom', 'Brief'], ['newsroom-feed', 'Feed']])
+    expect([viewOf('newsroom'), viewOf('newsroom-feed'), viewOf('network')]).toEqual(['newsroom-brief', 'newsroom-feed', undefined])
+    expect(boardTabs(shipped.boards, new Set(['network'])).some((t) => t.group === 'newsroom'), 'no tab while the stack is off').toBe(false)
+  })
+
+  it('keeps a saved Newsroom board of cards as the Brief: the saved cards are not drawn, and the Feed is offered as a sub-tab to add', () => {
+    const saved = { boards: [...shipped.boards.filter((b) => !b.id.startsWith('newsroom')), { id: 'newsroom', name: 'Newsroom', cards: [{ id: 'newsroom-brief', cols: 12 as const, rows: 1 as const }] }] }
+    const newsroom = boardTabs(saved.boards, on).find((t) => t.group === 'newsroom')!
+    expect(newsroom.subTabs).toEqual([{ id: 'newsroom', label: 'Brief', present: true }, { id: 'newsroom-feed', label: 'Feed', present: false }])
   })
 
   it("leaves a board of the owner's own as one tab with its own name", () => {

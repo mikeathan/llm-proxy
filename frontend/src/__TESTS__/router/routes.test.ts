@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../router'
 import {
+  toBrief,
+  toFeed,
+  toNewsroom,
   toActivity,
   toAutomation,
   toAutomationEdit,
@@ -85,5 +88,16 @@ describe('workspaceLocation', () => {
     ['/dashboard', EMPTY],
   ])('%s', (path, expected) => {
     expect(at(path)).toEqual(expected)
+  })
+})
+
+describe('Newsroom addresses (ADR-0089)', () => {
+  const router = createAppRouter(createMemoryHistory())
+  it('reads the brief and the feed on the dashboard, and sets the Newsroom up on its stack page', () => {
+    expect(router.resolve(toBrief()).fullPath).toBe('/dashboard?board=newsroom')
+    expect(router.resolve(toBrief({ edition: 2, story: 9 })).fullPath).toBe('/dashboard?board=newsroom&edition=2&story=9')
+    expect(router.resolve(toFeed()).fullPath).toBe('/dashboard?board=newsroom-feed')
+    expect(router.resolve(toNewsroom()).fullPath).toBe('/newsroom')
+    expect(router.resolve(toNewsroom('settings')).fullPath).toBe('/newsroom/settings')
   })
 })

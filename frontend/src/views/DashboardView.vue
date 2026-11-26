@@ -13,7 +13,8 @@ import DashboardStackToolbar from "../components/dashboard/DashboardStackToolbar
 import { CARD_DEFS, CARD_DEFS_BY_ID, KNOWN_CARD_IDS } from "../components/dashboard/cardRegistry"
 import { useEnabledStacks } from "../composables/stacks/useEnabledStacks"
 import { useDashboard } from "../composables/dashboard/useDashboard"
-import { cardsToOffer, groupOf, newShippedCards, templateOf } from "../domain/dashboard"
+import { cardsToOffer, groupOf, newShippedCards, templateOf, viewOf } from "../domain/dashboard"
+import { BOARD_VIEWS } from "../components/dashboard/boardViews"
 import { ARRANGE_DONE_LABEL, ARRANGE_LABEL, CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS, RESET_ALL_CONFIRM, NEW_CARDS_ADD, NEW_CARDS_DISMISS, NEW_CARDS_TITLE } from "../constants/dashboard"
 import { useConfirm } from "../composables/ui/useConfirm"
 import { usePersistedState } from "../composables/ui/usePersistedState"
@@ -30,6 +31,12 @@ const d = useDashboard(KNOWN_CARD_IDS, stacks.on, CARD_DEFS_BY_ID)
 const offeredCards = computed(() => cardsToOffer(CARD_DEFS, stacks.on.value))
 const onBoard = computed(() => new Set(d.board.value?.cards.map((c) => c.id)))
 const canReset = computed(() => !!d.board.value && !!templateOf(d.board.value.id) && d.preset.value !== "default")
+// A board that is one page (the Newsroom's brief and feed, ADR-0089) shows its view in place of the grid: it has no cards to add, move or reset, and
+// each view carries its own link to where it is set up ("Set up the brief", "Set up the feed").
+const view = computed(() => {
+  const id = d.board.value ? viewOf(d.board.value.id) : undefined
+  return id ? BOARD_VIEWS[id] : null
+})
 
 // A stack page can link to one card (`?card=`). The layout is the owner's, so the card may not be on their saved board (it was added after the board was
 // saved): say so, with the way to add it, instead of leaving a link that shows nothing.
@@ -83,7 +90,7 @@ function openFromAddress() {
 <template>
   <div class="flex flex-col gap-4">
     <!-- Reading shows only Edit; it turns into Done while the edit bar under the tabs holds everything that changes the board. -->
-    <PageHeader :eyebrow="DASHBOARD_EYEBROW" :title="DASHBOARD_TITLE" :subtitle="DASHBOARD_SUBTITLE">
+    <PageHeader class="print:hidden" :eyebrow="DASHBOARD_EYEBROW" :title="DASHBOARD_TITLE" :subtitle="DASHBOARD_SUBTITLE">
       <template v-if="d.board.value" #actions>
         <BaseButton
           :variant="d.arrange.value ? 'primary' : 'ghost'"
@@ -96,19 +103,20 @@ function openFromAddress() {
       </template>
     </PageHeader>
 
-    <Callout v-if="missingCard" tone="info" :title="CARD_MISSING(missingCard.title)">
+    <Callout v-if="missingCard" class="print:hidden" tone="info" :title="CARD_MISSING(missingCard.title)">
       <template #actions><BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="add-wanted-card" @click="addCard(missingCard)">{{ CARD_MISSING_ADD }}</BaseButton></template>
     </Callout>
-    <Callout v-if="newCards.length" tone="info" :title="NEW_CARDS_TITLE(newCards.map((id) => CARD_DEFS_BY_ID.get(id)!.title))">
+    <Callout v-if="newCards.length" class="print:hidden" tone="info" :title="NEW_CARDS_TITLE(newCards.map((id) => CARD_DEFS_BY_ID.get(id)!.title))">
       <template #actions>
         <BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="add-new-cards" @click="settleNewCards(true)">{{ NEW_CARDS_ADD }}</BaseButton>
         <BaseButton variant="ghost" class-name="max-sm:!h-11" data-test="dismiss-new-cards" @click="settleNewCards(false)">{{ NEW_CARDS_DISMISS }}</BaseButton>
       </template>
     </Callout>
-    <Callout v-if="d.error.value" tone="warning" title="Showing the standard boards"><span data-test="dashboard-error">{{ d.error.value }}</span></Callout>
+    <Callout v-if="d.error.value" class="print:hidden" tone="warning" title="Showing the standard boards"><span data-test="dashboard-error">{{ d.error.value }}</span></Callout>
     <LoadingState v-if="d.loading.value && !d.layout.value" label="Loading the dashboard" :rows="3" />
     <template v-else-if="d.board.value">
       <DashboardBoardTabs
+        class="print:hidden"
         :boards="d.boards.value"
         :active-id="d.board.value.id"
         :arrange="d.arrange.value"
@@ -121,6 +129,8 @@ function openFromAddress() {
       </DashboardBoardTabs>
       <DashboardToolbar
         v-if="d.arrange.value"
+        class="print:hidden"
+        :cards="!view"
         :preset="d.preset.value"
         :can-reset="canReset"
         :board-name="d.board.value.name"
@@ -135,8 +145,12 @@ function openFromAddress() {
           <CardCatalogue :defs="offeredCards" :on-board="onBoard" @add="(def) => { addCard(def); close() }" @close="close" />
         </template>
       </DashboardToolbar>
-      <DashboardStackChrome :board="d.board.value" :defs="CARD_DEFS_BY_ID" :toolbar="!groupOf(d.board.value.id)" />
+      <div v-if="view" :class="['flex min-w-0 flex-col', view.wide ? '' : 'max-w-[1072px]']" :data-test="`board-view-${d.board.value.id}`">
+        <component :is="view.component" />
+      </div>
+      <DashboardStackChrome v-if="!view" :board="d.board.value" :defs="CARD_DEFS_BY_ID" :toolbar="!groupOf(d.board.value.id)" />
       <DashboardGrid
+        v-if="!view"
         :board="d.board.value"
         :defs="CARD_DEFS_BY_ID"
         :arrange="d.arrange.value"

@@ -40,7 +40,16 @@ export interface DashboardCardDef {
 }
 
 /** A stack whose shipped boards are shown as one tab with a row of sub-tabs under it, not one tab each. */
-export type DashboardGroup = 'network'
+export type DashboardGroup = 'network' | 'newsroom'
+
+/** A shipped board that is one page to read rather than a grid of cards (ADR-0089): the Newsroom's brief and its feed. */
+export type DashboardBoardView = 'newsroom-brief' | 'newsroom-feed'
+
+/** How a board view is drawn: its component, and whether it takes the whole width (a page to read) or the usual page width (lists). */
+export interface DashboardBoardViewDef {
+  component: Component
+  wide: boolean
+}
 
 /** A board that ships ready-made: a name and the cards it starts with. */
 export interface DashboardBoardTemplate {
@@ -50,6 +59,8 @@ export interface DashboardBoardTemplate {
   group?: DashboardGroup
   /** Boards a stack ships carry the stack's source, so the catalogue can say where they come from. */
   source: DashboardSource | null
+  /** A board that shows one view in place of cards: it has no cards to add, move or reset, and its view fills the board. */
+  view?: DashboardBoardView
   cards: readonly DashboardPlacement[]
 }
 
@@ -72,7 +83,7 @@ export interface DashboardTab {
 export type DashboardCardSize = 'xs' | 'sm' | 'lg'
 
 /** The lines on stack pages that point to the dashboard: a stack's board, or one card of it. */
-export type BoardHintKey = 'network' | 'radio' | 'agents'
+export type BoardHintKey = 'network' | 'radio' | 'agents' | 'newsroom'
 
 /** The layout choices that re-flow the cards of one board. */
 export type DashboardPreset = 'default' | 'compact' | 'two-columns' | 'one-column'

@@ -5,9 +5,11 @@ import type { ChoiceOption, StatusState } from '../types/ui'
 
 export const NEWSROOM_TITLE = 'Newsroom'
 export const NEWSROOM_SUBTITLE = 'The news you choose, written up once or twice a day, and alerts the moment something you watch changes.'
-export const NEWSROOM_TAB_LABELS = { brief: 'Brief', alerts: 'Alerts', following: 'Following', settings: 'Settings' } as const
+export const NEWSROOM_TAB_LABELS = { following: 'Following', settings: 'Settings' } as const
+/** The feed: what the watches found, on the dashboard's Newsroom tab (ADR-0089). Named Feed by the owner (2026-11-25), not Alerts. */
+export const FEED_LABEL = 'Feed'
 /** The two kinds of thing you follow, on the Following tab: topics that go in the brief, and watches that alert you. */
-export const FOLLOWING_KIND_LABELS = { brief: 'In your brief', alerts: 'Alerts' } as const
+export const FOLLOWING_KIND_LABELS = { brief: 'In your brief', alerts: 'Feed watches' } as const
 export const FOLLOWING_VIEW_LABEL = 'What you follow'
 export const NEWSROOM_LOAD_FAILED = 'The Newsroom could not be read.'
 export const NEWSROOM_ACTION_FAILED = 'The change could not be made.'
@@ -49,19 +51,19 @@ export const leftOutViewWords = (count: number): string => (count > 0 ? `${LEFT_
 export const ALERT_PROBLEM_WORDS = { failing: 'source failing', send_failed: 'send failed', no_channel: 'no channel', analysis_failed: 'could not compare' } as const
 export const sourcesDownWords = (n: number): string => (n === 1 ? '1 source not answering' : `${n} sources not answering`)
 export const ALERT_PROBLEMS_LINK = 'Open in Following'
-// Always on the Alerts tab: the watches and their sources live on Following, behind its "Alerts" switch, so the way there is said, not known.
-export const ALERTS_SETUP_LINK = 'Set up alerts'
+// Always on the Feed: the watches and their sources live on Following, behind its "Feed watches" switch, so the way there is said, not known.
+export const ALERTS_SETUP_LINK = 'Set up the feed'
 // Every setup view links back to where its result is read, and the brief to where it is set up: one click each way.
-export const FOLLOWING_READ_LINKS = { brief: 'Read the brief', alerts: 'See alerts' } as const
+export const FOLLOWING_READ_LINKS = { brief: 'Read the brief', alerts: 'Open the feed' } as const
 export const BRIEF_SETUP_LINK = 'Set up the brief'
 export const leftOutWords = (why: string): string => `Left out: ${why}`
 export const KEEP_LABEL = 'Should have matched'
-export const KEPT_TOAST = 'Put in Alerts. The watch will learn from it.'
-// "Not for me" on an alert: it leaves Alerts for "Left out by the model" (where "Should have matched" brings it back) and becomes an example the watch's
+export const KEPT_TOAST = 'Put in the feed. The watch will learn from it.'
+// "Not for me" on an alert: it leaves the feed for "Left out by the model" (where "Should have matched" brings it back) and becomes an example the watch's
 // model sees from its next check.
 export const NOT_FOR_ME_LABEL = 'Not for me'
 export const notForMeAria = (headline: string): string => `${NOT_FOR_ME_LABEL}: ${headline}`
-export const NOT_FOR_ME_TOAST = 'Taken out of Alerts. The watch will learn from it.'
+export const NOT_FOR_ME_TOAST = 'Taken out of the feed. The watch will learn from it.'
 // The watch form's list of posts the owner judged (Watch.examples).
 export const EXAMPLES_LABEL = 'What this watch learned from you'
 export const EXAMPLES_HINT = 'Posts you marked with "Should have matched" or "Not for me". The model sees the newest 10 of each when it checks. Remove one you marked by mistake.'
@@ -443,7 +445,7 @@ export const HOME_FOLD_LABEL = 'Fold the Home facts'
 /** The header of the Home block: how many facts are serious and how many are worth a look. */
 export const homeStateWords = (critical: number, check: number): string =>
   [critical > 0 ? `${critical} critical` : '', check > 0 ? `${check} to check` : ''].filter(Boolean).join(' · ') || HOME_QUIET_LABEL
-export const WATCHES_BLOCK_LABEL = 'Alerts'
+export const WATCHES_BLOCK_LABEL = 'Feed'
 export const WATCHES_SINCE_LAST = 'since the last edition'
 export const watchNewWords = (n: number): string => `${n} new`
 export const WATCH_SOURCE_PROBLEM = 'Source not read'
@@ -593,7 +595,7 @@ export const FOLLOW_WHAT_PLACEHOLDER = 'For example: open-weights model releases
 export const FOLLOW_HOW_LABEL = 'How do you want to hear about it?'
 export const FOLLOW_MODES: Readonly<Record<FollowMode, { label: string; hint: string }>> = {
   brief: { label: 'In my brief', hint: 'Gathered through the day and written up in your brief, in the section you pick.' },
-  alerts: { label: 'Alert me at once', hint: 'Checked every hour. Anything new goes to Alerts, and to a connector if you choose one.' },
+  alerts: { label: 'Alert me at once', hint: 'Checked every hour. Anything new goes to the feed, and to a connector if you choose one.' },
   both: { label: 'Both', hint: 'Written up in your brief, and an alert as soon as something new appears.' },
 }
 export const FOLLOW_SECTION_LABEL = 'Section of the brief'
@@ -607,7 +609,7 @@ export const FOLLOW_PREVIEW_HEADING = 'What a news search finds now'
 export const FOLLOW_PREVIEW_NONE = 'A news search finds nothing for these words right now. It may still find something later.'
 export const FOLLOW_SAVE_LABEL = 'Follow'
 export const followDoneWords = (mode: FollowMode, joined: number): string =>
-  mode === 'alerts' ? 'Following: alerts are on' : joined > 0 ? `Following: in ${joined === 1 ? 'your brief' : `${joined} briefs`}${mode === 'both' ? ' and in Alerts' : ''}` : `Following: the topic is added${mode === 'both' ? ' and alerts are on' : ''}. Add its section to a brief to read it there.`
+  mode === 'alerts' ? 'Following: alerts are on' : joined > 0 ? `Following: in ${joined === 1 ? 'your brief' : `${joined} briefs`}${mode === 'both' ? ' and in the feed' : ''}` : `Following: the topic is added${mode === 'both' ? ' and alerts are on' : ''}. Add its section to a brief to read it there.`
 export const STORY_MORE_LABEL = 'More like this'
 export const STORY_LESS_LABEL = 'Less like this'
 export const STORY_FOLLOW_LABEL = 'Follow this story'

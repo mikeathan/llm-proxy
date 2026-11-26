@@ -53,13 +53,13 @@ describe('AppSidebar', () => {
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
   })
 
-  it('shows a plain dot on Newsroom while a brief waits unread, apart from the run-notification count', async () => {
+  it('shows a plain dot on Dashboard, where the brief is read, while one waits unread, and none on the Newsroom setup page (ADR-0089)', async () => {
     briefs.latest = [{ edition_id: 1, name: 'Morning', issue_id: 4, made_at: '2026-11-24T06:00:00Z', read: false }]
-    const { wrapper } = await mountAt('/dashboard')
-    const link = wrapper.get('[data-destination="newsroom"]')
+    const { wrapper } = await mountAt('/models')
+    const link = wrapper.get('[data-destination="dashboard"]')
     expect(link.find('[data-test="nav-dot"]').exists()).toBe(true)
-    expect(link.attributes('aria-label')).toMatch(/^Newsroom, .*brief/i)
-    expect(wrapper.get('[data-destination="dashboard"]').find('[data-test="nav-dot"]').exists()).toBe(false)
+    expect(link.attributes('aria-label')).toMatch(/^Dashboard, .*brief/i)
+    expect(wrapper.get('[data-destination="newsroom"]').find('[data-test="nav-dot"]').exists()).toBe(false)
   })
 
   it('shows no dot once every brief is read', async () => {

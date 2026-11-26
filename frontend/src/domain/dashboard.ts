@@ -1,6 +1,6 @@
 import { BOARD_TEMPLATES, GROUP_LABELS, HOME_BOARD_ID, LARGE_CARD_FROM_PX, SMALL_CARD_BELOW_PX, MAX_BOARDS, MAX_BOARD_NAME, MAX_CARDS_PER_BOARD, NEW_BOARD_NAME, PINNED_COLS, PRESET_COLS } from '../constants/dashboard'
 import { STACK_IDS } from '../types/stacks'
-import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCardSize, DashboardCols, DashboardGroup, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows, DashboardSource, DashboardTab } from '../types/dashboard'
+import type { DashboardBoard, DashboardBoardTemplate, DashboardBoardView, DashboardCardDef, DashboardCardSize, DashboardCols, DashboardGroup, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows, DashboardSource, DashboardTab } from '../types/dashboard'
 
 // The dashboard's layout rules, as pure functions: each takes a layout (or a board's cards) and returns a new one, so the
 // composable that owns the state stays thin and every rule is testable without a screen.
@@ -17,6 +17,9 @@ const clone = (cards: readonly DashboardPlacement[]): DashboardPlacement[] => ca
 const boardFromTemplate = (t: DashboardBoardTemplate): DashboardBoard => ({ id: t.id, name: t.name, cards: clone(t.cards) })
 
 export const templateOf = (boardId: string): DashboardBoardTemplate | undefined => BOARD_TEMPLATES.find((t) => t.id === boardId)
+
+/** The view a shipped board shows in place of cards, if it is one (ADR-0089). */
+export const viewOf = (boardId: string): DashboardBoardView | undefined => templateOf(boardId)?.view
 
 /** The group a shipped board belongs to (its tab in the strip), if any. */
 export const groupOf = (boardId: string): DashboardGroup | undefined => templateOf(boardId)?.group

@@ -106,7 +106,7 @@ describe('NewsroomEdition', () => {
     const side = w.get('[data-test="edition-side"]')
     expect(side.get('[data-test="brief-attention"]').text()).toContain('An open access point of yours.')
     expect(side.get('[data-test="home-block"]').text()).not.toContain('An open access point')
-    expect(side.get('[data-test="watches-block"]').text()).toContain('Alerts')
+    expect(side.get('[data-test="watches-block"]').text()).toContain('Feed')
     expect(side.find('[data-test="model-use-block"]').exists()).toBe(true)
     expect(mountIt(issue()).find('[data-test="model-use-block"]').exists()).toBe(true)
   })

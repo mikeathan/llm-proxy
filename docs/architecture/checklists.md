@@ -61,6 +61,22 @@ When adding a prompt:
 8. Run `npm run build` — TS errors will catch any missing icon/label entries
 9. The tab is a route section (`/settings/<tab>`) automatically — an unknown section renders the in-shell not-found page. Link to it with `toSettings('<tab>')` from `frontend/src/router/routes.ts`, never a hand-built path
 
+## Adding a Stack Checklist
+
+A stack's screens follow ADR-0089 (the owner's rule, 2026-11-25): the stack page is for configuration, setup, tweaking and modules; everything to
+read, see or decide about one item is on its dashboard tab.
+
+1. **Stack page** (`frontend/src/views/<Stack>View.vue`): tabs for setting it up only, ending in Modules (`StackModules`). An action that needs the
+   passphrase, and the forms that write what the stack acts on, belong here too. Add a `StackBoardLink` and its `BOARD_HINT` entry
+   (`constants/dashboard.ts`, `BoardHintKey` in `types/dashboard.ts`).
+2. **Menu entry** (`utils/navigation.ts`, group `stacks`, `stack: '<id>'`): it opens the stack page, never the dashboard.
+3. **Dashboard tab** (`BOARD_TEMPLATES` in `constants/dashboard.ts`, `source: '<id>'`): cards from `cardRegistry.ts`, each with a `control` that
+   opens the stack page; several boards share a `group` (`GROUP_LABELS`) and show as sub-tabs (ADR-0070); a page to read is a board with a `view`
+   (`boardViews.ts`, ADR-0089) and links to its own setup.
+4. **Dots** for unread things go on the board tab or sub-tab (`DashboardBoardTabs`) and on Dashboard in the menu (`useShellNavigation`).
+5. **Tests**: `__TESTS__/domain/dashboard.test.ts` (tabs and sub-tabs), `__TESTS__/views/Dashboard.component.test.ts`, the stack view's own test,
+   and a visual spec that opens the board by `?board=`.
+
 ## New Backend Endpoint Checklist
 
 1. Handler in `internal/transport/http/{thing}_handlers.go`
