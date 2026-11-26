@@ -54,6 +54,13 @@ const STUBS = {
 }
 
 const mounted: VueWrapper[] = []
+// Every automation's page is in tabs (Results · Live run · History · Setup); a test opens the one it reads.
+const tab = (w: VueWrapper, label: string) => w.findAll('[role="radio"]').find((b) => b.text().startsWith(label))!
+async function onTab(w: VueWrapper, label: string) {
+  await tab(w, label).trigger('click')
+  await flushPromises()
+  return w
+}
 async function mountDetails(props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
   await router.push('/automations/ws%2Fnightly')
@@ -101,7 +108,7 @@ describe('AutomationDetails', () => {
 
   it('lists the automation\'s saved reports, loaded for that automation', async () => {
     getReports.mockResolvedValueOnce({ reports: [{ path: 'reports/nightly/20261021T070000Z-run_2.md', run_id: 'run_2', started_at: '2026-10-21T07:00:00Z', size_bytes: 512 }], truncated: false })
-    const w = await mountDetails()
+    const w = await onTab(await mountDetails(), 'History')
     expect(getReports).toHaveBeenCalledWith('ws', 'nightly')
     expect(w.text()).toContain('Saved reports')
     expect(w.text()).toContain('run_2')
@@ -120,7 +127,7 @@ describe('AutomationDetails', () => {
 
   it('says what memory the runs get: an override as itself, an inherited value as the default', async () => {
     const memoryLine = async (memory_mode: Automation['memory_mode']) => {
-      const w = await mountDetails({ automation: { ...AUTO, memory_mode } })
+      const w = await onTab(await mountDetails({ automation: { ...AUTO, memory_mode } }), 'Setup')
       return w.text()
     }
     expect(await memoryLine('on')).toMatch(/Memory\s*On/)
@@ -129,81 +136,84 @@ describe('AutomationDetails', () => {
   })
 
   it('names the model a run uses in the console, the automation\'s own or else the primary', async () => {
-    const own = await mountDetails()
+    const own = await onTab(await mountDetails(), 'Live run')
     expect(own.get('[data-test="console-model"]').text()).toBe('qwen')
 
     const { useModels } = await import('../../../../composables/models/useModels')
     useModels().state.value = { models: [], available: [], next_port: 9000, config: { primary_model: 'ornith' } } as never
-    const inherited = await mountDetails({ automation: { ...AUTO, model: '' } })
+    const inherited = await onTab(await mountDetails({ automation: { ...AUTO, model: '' } }), 'Live run')
     expect(inherited.get('[data-test="console-model"]').text()).toBe('ornith')
+    await onTab(inherited, 'Setup')
     expect(inherited.text()).toContain('Default (ornith)')
     useModels().state.value = null
   })
 
   it("names the profile its runs use, or the default's name when none was chosen", async () => {
-    const chosen = await mountDetails({ automation: { ...AUTO, profile: 'research' } })
-    await flushPromises()
+    const chosen = await onTab(await mountDetails({ automation: { ...AUTO, profile: 'research' } }), 'Setup')
     expect(chosen.text()).toMatch(/Agent\s*Research/)
-    const unchosen = await mountDetails()
-    await flushPromises()
+    const unchosen = await onTab(await mountDetails(), 'Setup')
     expect(unchosen.text()).toMatch(/Agent\s*Default \(Task runner\)/)
   })
 
-  it('shows the configuration, the last error and the last output, and connects the live console', async () => {
+  it('opens on the last error and output, keeps the configuration for Setup, and connects the live console', async () => {
     const w = await mountDetails()
-    for (const text of ['Every day at 07:00', 'persistent', 'qwen', 'jobs/nightly.md', 'model timed out', 'All good']) {
-      expect(w.text()).toContain(text)
-    }
+    expect(tab(w, 'Results').attributes('aria-checked')).toBe('true')
+    for (const text of ['model timed out', 'All good']) expect(w.text()).toContain(text)
+    expect(w.text()).not.toContain('jobs/nightly.md')
+    await onTab(w, 'Setup')
+    for (const text of ['Every day at 07:00', 'persistent', 'qwen', 'jobs/nightly.md']) expect(w.text()).toContain(text)
     expect(w.get('a[href="/workspaces/ws/files/jobs/nightly.md"]').text()).toBe('jobs/nightly.md')
     expect(connect).toHaveBeenCalled()
   })
 
   it('shows the next run with its clock, and nothing for a manual automation', async () => {
-    const scheduled = await mountDetails({ automation: { ...AUTO, next_run_at: '2026-10-12T07:00:00+01:00' } })
+    const scheduled = await onTab(await mountDetails({ automation: { ...AUTO, next_run_at: '2026-10-12T07:00:00+01:00' } }), 'Setup')
     expect(scheduled.text()).toMatch(/Next run\s*Mon 12 Oct, 07:00 \(server time\)/)
-    const manual = await mountDetails({ automation: { ...AUTO, trigger: 'manual', trigger_value: '', next_run_at: undefined } })
+    const manual = await onTab(await mountDetails({ automation: { ...AUTO, trigger: 'manual', trigger_value: '', next_run_at: undefined } }), 'Setup')
     expect(manual.text()).not.toContain('Next run')
   })
 
   it('shows where results are delivered and what a busy model does', async () => {
-    const quiet = await mountDetails()
+    const quiet = await onTab(await mountDetails(), 'Setup')
     expect(quiet.text()).toContain('Not sent')
     expect(quiet.text()).toContain('Waits its turn')
 
-    const w = await mountDetails({ automation: { ...AUTO, notify: { connector: 'my-telegram', dedup: true }, skip_if_busy: true } })
+    const w = await onTab(await mountDetails({ automation: { ...AUTO, notify: { connector: 'my-telegram', dedup: true }, skip_if_busy: true } }), 'Setup')
     expect(w.text()).toContain('my-telegram · skips repeats')
     expect(w.text()).toContain('Skips the run')
   })
 
-  it('copies the last error and the last output', async () => {
+  it('copies the last error and the report', async () => {
     const copies = (await mountDetails()).findAllComponents({ name: 'CopyButton' })
     expect(copies.map((c) => [c.props('title'), c.props('text')])).toEqual([
       ['Copy last error', 'model timed out'],
-      ['Copy last output', 'All good'],
+      ['Copy the report', 'All good'],
     ])
   })
 
-  it('says the console is idle instead of showing an empty stream', async () => {
-    const w = await mountDetails()
+  it("opens the result on the report, without the runner's log lines ahead of it", async () => {
+    const output = '[2026-11-18 06:58:21] ▶ Executing automation `nightly` in workspace `ws`...\nReading task file: `jobs/nightly.md`\n\n⏱ **Duration:** 1m 9s\n\n### Final Report\n\nListening: 486 cycles.'
+    const w = await mountDetails({ automation: { ...AUTO, last_error: '', last_output: output } })
+    expect(w.get('.md').text()).toBe('Listening: 486 cycles.')
+  })
+
+  it('says there is no result yet when it has never run', async () => {
+    const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
+    expect(w.text()).toContain('No result yet')
+  })
+
+  it('says the console is idle, in one line, instead of showing an empty stream', async () => {
+    const w = await onTab(await mountDetails(), 'Live run')
     expect(w.find('[data-test="console"]').exists()).toBe(false)
     expect(w.text()).toContain('Idle')
     expect(w.text()).not.toContain('Live stream')
-    expect(w.text()).not.toContain('Not running')
-  })
-
-  it('says why a finished run has no steps here, instead of "not running"', async () => {
-    const w = await mountDetails()
-    expect(w.text()).toContain('No steps to show')
-    expect(w.text()).toContain('memory only')
-  })
-
-  it('says a run\'s steps stream here once the automation has never run', async () => {
-    const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
-    expect(w.text()).toContain('Not running')
+    expect(w.text()).toContain('Not running now')
+    // It no longer explains how the console stores steps (review 2026-11-26, M5).
+    expect(w.text()).not.toContain('memory only')
   })
 
   it('lists past runs newest first, opens one, and deletes one or all only after confirming', async () => {
-    const w = await mountDetails()
+    const w = await onTab(await mountDetails(), 'History')
     const rows = w.findAll('tbody tr')
     expect(rows.map((r) => r.text())).toEqual([expect.stringContaining('Failed'), expect.stringContaining('Completed')])
     await rows[0]!.trigger('click')
@@ -216,7 +226,7 @@ describe('AutomationDetails', () => {
     await flushPromises()
     expect(w.emitted('delete-run')).toEqual([[AUTO.history![1]]])
 
-    await w.findAll('button').find((b) => b.text().includes('Clear all runs'))!.trigger('click')
+    await w.findAll('button').find((b) => b.text().includes('Clear runs'))!.trigger('click')
     await flushPromises()
     useConfirm().handleConfirm()
     await flushPromises()
@@ -224,7 +234,7 @@ describe('AutomationDetails', () => {
   })
 
   it('shows the live state while running', async () => {
-    const w = await mountDetails({ isExecuting: true, lastTriggerResult: 'Running nightly...' })
+    const w = await onTab(await mountDetails({ isExecuting: true, lastTriggerResult: 'Running nightly...' }), 'Live run')
     expect(w.text()).toContain('Running nightly...')
     expect(w.find('[data-test="console"]').exists()).toBe(true)
     expect(w.text()).toContain('Live stream')
@@ -238,11 +248,12 @@ describe('AutomationDetails', () => {
     })
     expect(w.text()).toContain('Completed with warnings')
     expect(w.text()).toContain(warning)
+    await onTab(w, 'History')
     expect(w.findAll('table tbody tr').some((r) => r.text().includes('Completed with warnings'))).toBe(true)
   })
 
   it('says when it has never run', async () => {
-    const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
+    const w = await onTab(await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } }), 'History')
     expect(w.text()).toContain('No runs yet')
   })
 
@@ -252,23 +263,25 @@ describe('AutomationDetails', () => {
 
     it('shows no Journal panel and never fetches while the automation keeps none', async () => {
       getJournal.mockClear()
-      const w = await mountDetails()
+      const w = await onTab(await mountDetails(), 'History')
       expect(headings(w)).not.toContain('Journal')
+      await onTab(w, 'Setup')
       expect(w.text()).toContain('Off')
       expect(getJournal).not.toHaveBeenCalled()
     })
 
     it('shows the notes the automation left for itself', async () => {
       getJournal.mockResolvedValue({ journal: '- query: llm release notes' })
-      const w = await mountDetails({ automation: KEEPS })
+      const w = await onTab(await mountDetails({ automation: KEEPS }), 'History')
       expect(headings(w)).toContain('Journal')
-      expect(w.text()).toContain('Keeps notes between runs')
       expect(w.findAll('.md').map((m) => m.text())).toContain('- query: llm release notes')
+      await onTab(w, 'Setup')
+      expect(w.text()).toContain('Keeps notes between runs')
     })
 
     it('says so when nothing has been written yet', async () => {
       getJournal.mockResolvedValue({ journal: '' })
-      const w = await mountDetails({ automation: KEEPS })
+      const w = await onTab(await mountDetails({ automation: KEEPS }), 'History')
       expect(w.text()).toContain('No notes yet')
       expect(w.findAll('button').some((b) => b.text().includes('Clear journal'))).toBe(false)
     })
@@ -276,7 +289,7 @@ describe('AutomationDetails', () => {
     it('clears the journal only after confirming', async () => {
       getJournal.mockResolvedValue({ journal: '- query A' })
       clearJournal.mockResolvedValue(undefined)
-      const w = await mountDetails({ automation: KEEPS })
+      const w = await onTab(await mountDetails({ automation: KEEPS }), 'History')
       await w.findAll('button').find((b) => b.text().includes('Clear journal'))!.trigger('click')
       await flushPromises()
       expect(clearJournal).not.toHaveBeenCalled()
@@ -288,14 +301,14 @@ describe('AutomationDetails', () => {
 
     it('explains a journal that could not be loaded', async () => {
       getJournal.mockRejectedValue(new Error('boom'))
-      const w = await mountDetails({ automation: KEEPS })
+      const w = await onTab(await mountDetails({ automation: KEEPS }), 'History')
       expect(w.get('[role="alert"]').text()).toContain('Could not load the journal')
     })
   })
 })
 
 // An audit's page is split into tabs so that one screen holds one job: reading results, watching the run, the history,
-// and the setup. Every other automation keeps the single page.
+// and the setup. Every other automation now has the same tabs (above).
 describe('AutomationDetails of a network audit', () => {
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
@@ -304,8 +317,6 @@ describe('AutomationDetails of a network audit', () => {
   const OBSERVED = '## Observed (generated from the scan data, not written by the model)\n\nScanned 254 addresses.'
   const ASSESSMENT = '## Assessment (written by the model)\n\nSamba is old.'
   const AUDIT: Automation = { ...AUTO, profile: 'security-auditor', last_error: '', last_output: `${OBSERVED}\n\n---\n\n${ASSESSMENT}`, scan: { depth: 'quick', checks: false, targets: ['192.168.1.0/24'] } }
-  const tab = (w: VueWrapper, label: string) => w.findAll('[role="radio"]').find((b) => b.text().startsWith(label))!
-
   it('opens on the results, with the configuration, runs and console on other tabs', async () => {
     const w = await mountDetails({ automation: AUDIT })
     expect(tab(w, 'Results').attributes('aria-checked')).toBe('true')
@@ -382,10 +393,10 @@ describe('AutomationDetails of a network audit', () => {
   it('turns off clearing runs and the journal while it runs', async () => {
     const w = await mountDetails({ automation: { ...AUDIT, journal: true }, isExecuting: true })
     await tab(w, 'History').trigger('click')
-    for (const name of ['Clear all runs', 'Clear journal']) {
+    for (const name of ['Clear runs', 'Clear journal']) {
       const b = w.findAll('button').find((x) => x.text().includes(name))
       if (b) expect(b.attributes('disabled')).toBeDefined()
     }
-    expect(w.findAll('button').find((x) => x.text().includes('Clear all runs'))!.attributes('disabled')).toBeDefined()
+    expect(w.findAll('button').find((x) => x.text().includes('Clear runs'))!.attributes('disabled')).toBeDefined()
   })
 })

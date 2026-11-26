@@ -2,7 +2,8 @@
 import { computed, ref } from "vue"
 import { useConfirm } from "../../../composables/ui/useConfirm"
 import { toAutomation, toAutomationEdit, toAutomationNew, toWorkspaceSection } from "../../../router/routes"
-import { automationStatus, nextRunLabel, triggerLabel } from "../../../utils/automation/automationDisplay"
+import { automationStatus, lastRunSummary, nextRunLabel, triggerLabel } from "../../../utils/automation/automationDisplay"
+import { formatDuration, formatRelativeTime } from "../../../utils/format/time"
 import { HEARTBEAT_NAME } from "../../../utils/automation/heartbeat"
 import type { Automation } from "../../../types/dispatcher"
 import type { ChoiceOption, DataTableColumn } from "../../../types/ui"
@@ -126,12 +127,24 @@ async function cancelQueued(auto: Automation) {
   if (ok) emit("cancel-queued", auto)
 }
 
+// How each automation last went, in words, for the phone row and the Last run column.
+const lastRun = (auto: Automation) => lastRunSummary(auto, formatRelativeTime, formatDuration)
+const DOT_CLASS: Record<string, string> = {
+  success: "bg-state-success",
+  error: "bg-state-error",
+  warning: "bg-state-running",
+  running: "bg-state-running",
+  queued: "bg-state-queued",
+  neutral: "border border-control",
+}
+
 const SELECT_COLUMN: DataTableColumn<Automation> = { key: "select", label: "Select" }
 const ACTIONS_COLUMN: DataTableColumn<Automation> = { key: "actions", label: "Actions" }
 const FIELD_COLUMNS: DataTableColumn<Automation>[] = [
   { key: "name", label: "Automation" },
   { key: "trigger", label: "Schedule", value: triggerLabel },
   { key: "next_run_at", label: "Next run (server time)", value: (a) => nextRunLabel(a) || "—" },
+  { key: "last_run", label: "Last run", value: (a) => lastRun(a).text },
   { key: "model", label: "Model", value: (a) => a.model || "default" },
   { key: "status", label: "Status" },
 ]
@@ -172,6 +185,24 @@ const rowKey = (a: Automation) => a.id
         <EmptyState v-else title="No automations match" body="Clear the search or pick another workspace." />
       </template>
 
+      <!-- A phone: one line per automation, its schedule and how it last went, and Run. -->
+      <template #mobile-row="{ row }">
+        <div data-test="automation-row" class="flex min-w-0 items-center gap-3 py-1">
+          <span :class="['h-2.5 w-2.5 flex-none rounded-full', DOT_CLASS[lastRun(row).state]]" aria-hidden="true" />
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+            <RouterLink :to="toAutomation(row.id)" class="truncate font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2">{{ row.name }}</RouterLink>
+            <span class="text-[length:var(--text-small)] text-muted">
+              {{ triggerLabel(row) }} · <span :class="lastRun(row).state === 'error' ? 'text-state-error' : lastRun(row).state === 'success' ? 'text-state-success' : ''">{{ lastRun(row).text }}</span>
+            </span>
+          </div>
+          <BaseButton v-if="selecting" variant="ghost" size="sm" class-name="min-h-11" :disabled="!isDeletable(row)" :aria-pressed="selected.has(row.id)" @click="toggle(row, !selected.has(row.id))">{{ selected.has(row.id) ? "Selected" : "Select" }}</BaseButton>
+          <BaseButton v-else-if="row.is_running" variant="secondary" size="sm" icon="stop" class-name="min-h-11" :aria-label="`Stop ${row.name}`" @click="emit('stop', row)">Stop</BaseButton>
+          <BaseButton v-else variant="secondary" size="sm" icon="play" class-name="min-h-11" :aria-label="`Run ${row.name}`" :disabled="lockedBy(row)" @click="emit('run', row)">Run</BaseButton>
+        </div>
+      </template>
+      <template #cell-last_run="{ row }">
+        <span class="whitespace-nowrap text-[length:var(--text-small)]" :class="lastRun(row).state === 'error' ? 'text-state-error' : 'text-muted'">{{ lastRun(row).text }}</span>
+      </template>
       <template #cell-select="{ row }">
         <input
           type="checkbox"
