@@ -20,9 +20,12 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
   const testStatus = ref<Partial<Record<ProviderType, ProviderTestStatus>>>({})
   const timers = new Set<ReturnType<typeof setTimeout>>()
 
+  // The answer is awaited before the record is copied: several providers load at once (the Models page), and copying first let the
+  // last answer overwrite the others with the empty record it started from.
   async function load(provider: ProviderType) {
     try {
-      keys.value = { ...keys.value, [provider]: await AdminApiService.fetchProviderKeys(provider) }
+      const loaded = await AdminApiService.fetchProviderKeys(provider)
+      keys.value = { ...keys.value, [provider]: loaded }
     } catch (e) {
       toast.error(`Could not load the ${provider} API keys: ${errorMessage(e)}`)
     }
@@ -30,7 +33,8 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
 
   async function replace(provider: ProviderType, save: () => Promise<APIKeyItem[]>, failure: string) {
     try {
-      keys.value = { ...keys.value, [provider]: await save() }
+      const saved = await save()
+      keys.value = { ...keys.value, [provider]: saved }
       await onKeysChanged()
     } catch (e) {
       toast.error(`${failure}: ${errorMessage(e)}`)

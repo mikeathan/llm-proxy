@@ -3,7 +3,7 @@ import { NETWORK_CARD_BOARD, NEWSROOM_BRIEF_BOARD, NEWSROOM_FEED_BOARD } from '.
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
 import type { BriefPlace } from '../types/newsroom'
-import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, NewsroomTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AgentsTab, AutomationStart, ModelsTab, NetworkSettingsGroup, NetworkTab, RadioTab, NewsroomTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -120,7 +120,8 @@ export const toFeed = (): RouteLocationNamedRaw => toDashboard(NEWSROOM_FEED_BOA
 /** The Reminders page; without a tab it is the list of reminders. */
 export const toReminders = (tab?: RemindersTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders, params: tab ? { tab } : {} })
 
-export const toModels = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.models })
+/** The Models page: the models (the page without a tab), Providers, Engine or Routing. */
+export const toModels = (tab?: ModelsTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.models, params: tab ? { tab } : {} })
 
 /** Activity with its filters in the query; unset or empty filters are omitted. */
 export const toActivity = (filters: ActivityFilters = {}): RouteLocationNamedRaw => {

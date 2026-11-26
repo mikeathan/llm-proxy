@@ -73,7 +73,7 @@ Decision required (see §4): either (a) wire it into agent construction so it is
 | B4 | `backend/internal/transport/http/handlers/admin_handlers.go:307-322` vs `:374-395` | near-identical `adminTuningDefaults` literals (10/14 fields same `assistant.Default*` consts) | factor constant tail into one builder; `admin_handlers_test.go:521-565` asserts JSON output, not internals |
 | B5 | `backend/internal/transport/http/handlers/model_handlers.go:212-240` | second context-resolution impl — prefers `Meta.Nctx`, else `Meta.ContextLength` capped at `128_000`, else tier defaults. Duplicates `orchestrator.resolveLocalContext` (`:45`) / `publishedServingMetadataContext` (`:83`) but with a **different cap** (`128_000` vs `defaultLocalContextMax = 1_048_576`) | **highest-value fix.** Export a resolver from `orchestrator` (handlers already import it — no cycle). TDD-first: behaviour differs at boundary, so a test must pin the intended cap before merging |
 | B6 | `backend/internal/core/assistant/agent.go:93-100` `ProviderTuningDefaults` vs `backend/models/tuning.go:14-24` `ProviderTuning` | two structs, 5 identical fields; assistant one only adds `Reasoning` | embed `models.ProviderTuning` (models is leaf, no cycle) — low priority |
-| B7 | `frontend/src/components/settings/ProviderModelsCard.vue:275` | divider `<div class="form-section-divider">Agent Tuning…</div>` rendered twice (own + inside `ModelTuningFields.vue:20`) in cloud-edit branch only | delete the redundant `:275` divider; local/add branches don't have it |
+| B7 | `frontend/src/components/settings/ProviderModelsCard.vue:275` | divider `<div class="form-section-divider">Agent Tuning…</div>` rendered twice (own + inside `ModelTuningFields.vue:20`) in cloud-edit branch only | **gone (v0.142.0):** `ProviderModelsCard.vue` was replaced by the Models page's editor (`ModelEditorForm.vue`), which has one Limits / The agent layout |
 
 ### Bucket C — Drift / stale (needs a decision)
 
@@ -154,7 +154,7 @@ change requiring explicit sign-off, not a silent edit.
 | `internal/core/llm/manager.go:560-562` | `m.registrar.Classify(cfg) == models.WorkloadLocal` (B3) |
 | `internal/transport/http/handlers/admin_handlers.go:307-322,374-395` | single `adminTuningDefaults` builder (B4) |
 | `frontend/src/composables/settings/useProviderModels.ts:34-49` | import `agent_defaults` from `useConfig.ts` (export it) (B2) |
-| `frontend/src/components/settings/ProviderModelsCard.vue:275` | delete redundant divider (B7) |
+| ~~`frontend/src/components/settings/ProviderModelsCard.vue:275`~~ | B7 gone with the file (v0.142.0) |
 | `internal/core/assistant/agent.go:93-100` | embed `models.ProviderTuning` in `ProviderTuningDefaults` (B6) |
 
 ### Phase C — Drift decisions

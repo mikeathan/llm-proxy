@@ -23,7 +23,7 @@ describe('AppBanner', () => {
 
   it('dismisses a transient banner from its named button, never a persistent one', async () => {
     const w = mountBanner()
-    useAppBanner().show({ severity: 'critical', message: 'No model set', persistent: true, action: { label: 'Configure models', to: '/settings/local' } })
+    useAppBanner().show({ severity: 'critical', message: 'No model set', persistent: true, action: { label: 'Configure models', to: '/models' } })
     await nextTick()
     expect(w.find('button[aria-label="Dismiss"]').exists()).toBe(false)
     expect(w.get('a').text()).toBe('Configure models')

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { mount, RouterLinkStub, type VueWrapper } from '@vue/test-utils'
 import RunSettings from '../../../../components/AgentIde/assistant/RunSettings.vue'
-import { toSettings } from '../../../../router/routes'
+import { toModels } from '../../../../router/routes'
 
 const PROFILE_OPTIONS = [{ value: 'general', label: 'General (default)' }, { value: 'research', label: 'Research' }]
 const MODEL_OPTIONS = [{ value: '', label: 'Default (a)' }, { value: 'b', label: 'b' }]
@@ -107,14 +107,14 @@ describe('RunSettings', () => {
       expect(w.text()).toContain('Pick a Helper model')
     })
 
-    // The Helper model is chosen on Settings → Runs, so both states link straight to it.
+    // The Helper model is chosen on Models › Routing, so both states link straight to it.
     it.each([
       ['when helpers are set up', {}, 'Change the Helper model'],
       ['when no helper model is set up', { helpersAvailable: false, helpersModel: '' }, 'Pick a Helper model'],
-    ])('links to the Helper model in Settings %s', async (_name, over, text) => {
+    ])('links to the Helper model on Models › Routing %s', async (_name, over, text) => {
       const w = await openIt({ ...HELPERS, ...over })
       const link = w.getComponent(RouterLinkStub)
-      expect(link.props('to')).toEqual(toSettings('runs'))
+      expect(link.props('to')).toEqual(toModels('routing'))
       expect(link.text()).toContain(text)
     })
 

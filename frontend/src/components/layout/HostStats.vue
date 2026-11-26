@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { useMetrics } from "../../composables/system/useMetrics"
+import { useModels } from "../../composables/models/useModels"
 import { useDismissable } from "../../composables/ui/useDismissable"
 import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from "../../domain/hostStats"
 import { formatPercent, formatTokenRate } from "../../utils/format/units"
+import { formatElapsedSeconds, formatRelativeTime, isRecorded } from "../../utils/format/time"
 import { toDashboard } from "../../router/routes"
 import type { LoadLevel } from "../../types/metrics"
 import PopoverPanel from "../common/layout/PopoverPanel.vue"
@@ -32,6 +34,25 @@ const tpsHistory = computed(() => history.value.map((s) => Number(formatTokenRat
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 useDismissable(root, open)
+
+// The local model that is loaded, read from the model catalogue (/state) each time the panel opens: the strip is on every page, so it
+// does not poll the catalogue itself.
+const NO_MODEL = "No local model running"
+const MS_PER_SECOND = 1000
+const { activeModel, refresh: refreshModels } = useModels()
+watch(open, (isOpen) => {
+  if (isOpen) void refreshModels()
+})
+const running = computed(() => {
+  const m = activeModel.value
+  if (!m) return null
+  return {
+    name: m.name,
+    where: `:${m.port} · ${m.ready ? "ready" : "loading"}`,
+    up: isRecorded(m.started_at) ? `up ${formatElapsedSeconds((Date.now() - Date.parse(m.started_at)) / MS_PER_SECOND)}` : "",
+    lastCall: isRecorded(m.last_used_at) ? formatRelativeTime(m.last_used_at) : "",
+  }
+})
 </script>
 
 <template>
@@ -63,6 +84,21 @@ useDismissable(root, open)
     </button>
 
     <PopoverPanel v-if="open" id="host-stats-panel" title="System stats" width="sm:w-[340px]" @close="open = false">
+      <section class="flex flex-col gap-2 border-b border-hairline p-3" data-test="running-model">
+        <MicroLabel>Running model</MicroLabel>
+        <template v-if="running">
+          <p class="m-0 flex items-center gap-2 text-primary">
+            <span class="size-2 flex-none rounded-full" :class="activeModel?.ready ? 'bg-state-success' : 'bg-state-running'" aria-hidden="true" />
+            <span class="min-w-0 truncate font-medium" :title="running.name">{{ running.name }}</span>
+          </p>
+          <dl class="m-0 flex flex-col gap-1 font-mono text-[length:var(--text-small)] text-secondary">
+            <div class="flex justify-between gap-2"><dt class="sr-only">Port and state</dt><dd class="m-0">{{ running.where }}</dd><dd v-if="running.up" class="m-0 tabular-nums">{{ running.up }}</dd></div>
+            <div v-if="running.lastCall" class="flex justify-between gap-2"><dt class="text-muted">Last call</dt><dd class="m-0">{{ running.lastCall }}</dd></div>
+          </dl>
+        </template>
+        <p v-else class="m-0 text-[length:var(--text-small)] text-muted">{{ NO_MODEL }}</p>
+      </section>
+
       <section class="flex flex-col gap-3 border-b border-hairline p-3">
         <MicroLabel>Host resources</MicroLabel>
         <Meter label="CPU load" :value="host.cpuPercent" :text="formatPercent(host.cpuPercent)" :state="loadMeterState(host.cpuPercent)" />

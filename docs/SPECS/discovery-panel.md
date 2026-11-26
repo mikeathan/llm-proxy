@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.76"
+version: "2.77"
 status: stable
-last_updated: 2026-11-25
+last_updated: 2026-11-26
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **2.77 (2026-11-26)** — **Models is one page for everything about models; Settings holds none of it (v0.142.0; ADR-0090, Constitution III.8 amended).** (1) *The Models page* (`/models/:tab?`, `toModels(tab?)`): **Models** (the page without a tab) shows every model, local and cloud, as cards or a list (`ModelsCatalog`; the choice is kept with `usePersistedState` key `models-view`; a phone always shows cards), the running model first, then local, then cloud (`domain/models.ts` `orderModels`), with a filter and All / Local / Cloud; a card names its state, routing role (Primary / Fallback), what it is and, for the running model, how long it has run and its last call; Start / Stop (one local model at a time) and Edit. **Providers** is one folding section per cloud provider (`ModelProviders`: keys through `ApiKeySettings`, Add a model, Gemini's Vertex AI fields, Remove all of its models). **Engine** is the local engine (`ModelEngineSettings`: model directory, llama-server, host IP, default arguments, environment, idle timeout, GPU reading), the files in the model directory that are not added yet (`ModelDiscoveredFiles`) and the model processes (`InfrastructurePanel`). **Routing** is primary, fallback and helper model, run lanes, chat priority, tool result size and external requests (`ModelRoutingSettings`). Engine, Routing and the Vertex AI fields edit the shared configuration draft with one Save row and one leave guard. (2) *The editor* is a side panel (`ModelEditorPanel` over `ContextDrawer`, teleported to the body; a full-screen sheet on a phone) opened on a model, a new model of a provider (it asks where the model runs first) or a file found on disk (`ModelEditorOpen`); `ModelEditorForm` is the former add / edit form with Basics, then `ModelTuningFields` in three groups: Limits (a local model's output cap, thinking budget and history as one sentence "set by the server", never inputs; editable for a cloud model, with no step or max), The agent, and tool format, time limits and safety timeouts folded with a count of what is set ("all default"). An unset select shows its default option. Closing with unsaved edits asks first. (3) *Reading* stays on Dashboard › LLM and host: the Host health card adds how long the running model has run and its last call, and at the large size today's calls by model (calls, failures, a local speed or a cloud model's tokens, from the model stats of ADR-0085). The header's System stats panel opens with a **Running model** section (name, port, ready or loading, uptime, last call; "No local model running"), read from `/state` when it opens. (4) *Settings* has four tabs: General (Agents, Memory & reminders, Storage & logging), Safety, Connectors and Appearance; `/settings/local-models`, `/settings/local`, `/settings/processes`, `/settings/runs` and every provider section redirect to the Models tab that holds them.
 - **2.76 (2026-11-25)** — **Page boards, and a stack's page is for setting it up (v0.141.0; ADR-0089).** (1) A shipped board template may carry a `view` (`newsroom-brief`, `newsroom-feed`; `viewOf` in `domain/dashboard.ts`, components in `components/dashboard/boardViews.ts`): the board draws that one component in place of the grid, full width or at the usual page width (`wide`), and editing it shows no Layout, Add card or Reset board (`DashboardToolbar` `cards`). (2) The Newsroom is one dashboard tab (group `newsroom`) with sub-tabs **Brief** (`newsroom`) and **Feed** (`newsroom-feed`); the saved `newsroom` board's old cards are not drawn. (3) Dots: Brief while a brief waits unread, Feed while alerts do, the Newsroom tab while either does; in the menu the dot is on **Dashboard**, no longer on Newsroom. (4) The dashboard's head, tabs, edit bar and notices do not print. (5) Every stack's menu entry opens its stack page; `docs/architecture/checklists.md` → Adding a stack.
 - **2.75 (2026-11-25)** — **One page head on a phone, and the dashboard edits behind one button (v0.140.0; plan `ARCHIVE/cross-cutting/compact-page-head.md`).** (1) *Page head.* `PageHeader` leaves the eyebrow and the subtitle out below `sm` on every page (the `subtitleHiddenOnPhone` prop is gone) and the title is `--text-title` (24 px; `--text-display` from `sm`); the title and the page's actions share a row and the actions wrap under it when they do not fit. `phoneContext` keeps both for a page whose eyebrow and subtitle carry its own facts (one automation: its workspace and trigger). (2) *Tabs.* Stack tabs and dashboard board tabs stay 44 px tall with tighter side padding on a phone, and the board tabs get the whole width. (3) *Dashboard.* Reading shows only **Edit** (a quiet text button with a pencil) in the page head; it reads **Done** while editing. Editing opens a marked bar under the tabs, "Editing <board>", with Layout (from `sm` only: a phone shows every card full width), Add card, **Add board** (moved from the tab strip, with Put every board back as shipped) and Reset board; renaming and removing a board stay under the tabs. Measured on a 390 × 844 phone: the first card starts under 130 px below the title (`e2e/dashboard.visual.spec.ts`).
 - **2.74 (2026-11-19)** — **Network is one dashboard tab with five sub-tabs; Settings → Watching is two groups; the page scrollbar keeps its room (v0.113.0; ADR-0070).** (1) *Sub-tabs.* A stack that ships several boards is one tab in the strip with a row of sub-tabs under it (`DashboardBoardTemplate.group`, `boardTabs` in `domain/dashboard.ts`; the stored layout is unchanged). Every shipped board of the group is a sub-tab, present on the saved layout or not; opening a missing one adds it, if its stack is on. A shipped sub-board is not renamed or removed alone. Simple/Advanced and Help sit at the end of the sub-tab row. (2) *Network boards:* Overview (`network`), Devices, Traffic, Findings, Activity. (3) *Cards.* New `network-overview` replaces `network-posture`, `-changes`, `-figures`, `-standing` and `-coverage`; the **Devices** card switches to *Nearby, not on your list* (retires `network-nearby`); **Traffic** carries the route trace (retires `network-trace`); **Findings** switches to *Ways in* when an audit has run with the module on (retires `network-attack-paths`). `toNetworkCard` opens the sub-tab that holds a card (`NETWORK_CARD_BOARD`). (4) *Settings groups* are `scanning`, `devices` (Devices & Wi-Fi), `router`, `outside`, `data`, `helper`; `?group=watching` is gone. (5) *Limits:* `MAX_BOARDS` is 20 (frontend and `core/dashboard`). (6) `html { scrollbar-gutter: stable }` and the same on a card's scrolling list: on a tall screen the dashboard's height sat near the window's, the page scrollbar appearing narrowed the cards, their text re-wrapped, the page shortened and the scrollbar left, again and again (a constant flicker).
@@ -446,25 +447,27 @@ and makes no network request outside the proxy's own origin.
   **Assistant** (sessions with search, pins and time groups), **Memory**,
   **Playbooks**, **Heartbeat** (on/off, interval, model, alert connector, last check; warns when
   a check would wake the local model), **Settings** (the workspace guardrail layer, §II.6).
-  The Memory section opens with the workspace's assistant-memory override, and Settings → Local
-  Engine holds the two global hot-memory defaults. **New file** from a playbook asks before
+  The Memory section opens with the workspace's assistant-memory override, and Settings → General → Memory &
+  reminders holds the two global hot-memory defaults. **New file** from a playbook asks before
   replacing a file that has different content (a missing or empty file is simply written).
 - **Automations** — list without a workspace requirement, detail with run
   history, create/edit form, recordings.
 - **Network** (under **Modules**) — the home network as a security view: Overview, Devices, Findings, Audits and Settings (see
   2.21, 2.24 and 2.25). It reads data the audit and the new-device check already keep; the one thing it adds that sends anything is the opt-in Nearby look (Constitution I.9).
-- **Models** — local runtimes and remote provider catalogues.
+- **Models** — everything about models, set up in one place (ADR-0090): the models as cards or a list with a side-panel editor, Providers
+  (keys and provider settings), Engine (local llama.cpp, files on disk, model processes) and Routing. What is read about them is on
+  Dashboard › LLM and host (see 2.77).
 - **Activity** — the global run ledger; filters live in the query string so
   a filtered view is shareable, and so does the open run (`?run=<id>`), so
   any finished-run row elsewhere (Overview's recent runs) links straight to
   its details. A linked run no longer in the kept history says so. In the
   ledger and the run details, the automation and workspace names link to
   their pages.
-- **Settings** — global configuration by section (`/settings/<section>`), under six tabs: **General** (four short sections —
-  Routing & engine, Runs, Memory & reminders, Storage & logging — each its own `/settings/<section>` page over one form; `/settings/local` is the first), **Models** (local models and each cloud provider's keys and models, as a second
-  row), **Safety** (Sandboxing, Limits & reset — the two halves of the security form, which stays one draft and one Save — and Agent Guardrails), **Connectors** (Communication, Search, MCP servers — SPEC-008),
-  **Appearance** and **System** (processes). A tab opens its first section; a tab with several shows them as a row that
-  scrolls sideways on a phone. Providers discovered at runtime appear under Models.
+- **Settings** — global configuration by section (`/settings/<section>`), under four tabs: **General** (Agents, Memory & reminders,
+  Storage & logging — each its own `/settings/<section>` page over one form; `/settings/agents` is the first), **Safety** (Sandboxing, Sign-in &
+  access, Limits & reset — the two halves of the security form, which stays one draft and one Save — and Agent Guardrails), **Connectors**
+  (Communication, Search — SPEC-008) and **Appearance**. A tab opens its first section; a tab with several shows them as a row that scrolls
+  sideways on a phone. Nothing about models is in Settings (2.77).
 
 ### 3. Workspace file tree
 - Fed by `GET /admin/api/dispatcher/workspaces/{workspace}/tree`

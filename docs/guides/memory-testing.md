@@ -21,7 +21,7 @@ the system put in the prompt.
 
 - Memory panel: delete any earlier test fact so the store run is not "already saved".
 - **Automation only:** set the automation's **Memory** to **On** (Model & access), or turn on **Automations
-  remember** in Settings → Local Engine → Memory. The shipped default is off, which injects nothing into an
+  remember** in Settings → General → Memory & reminders. The shipped default is off, which injects nothing into an
   automation; a chat gets memory unless the workspace or Settings turns it off.
 
 ### Run 1 — store
@@ -281,7 +281,7 @@ If a model over-saves or loses its answer, remove the guidance (one constant, `m
 
 ## Part C — Saving from chats (explicit capture and review)
 
-Needs a chat in the operator UI (not a connector chat) with assistant memory on (Settings → Local Engine → Memory, and the
+Needs a chat in the operator UI (not a connector chat) with assistant memory on (Settings → General → Memory & reminders, and the
 workspace's Memory section not set to Off). Works the same on any model; capture involves no model call.
 
 ### C1. Explicit capture (a few seconds)

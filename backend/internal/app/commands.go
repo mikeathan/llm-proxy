@@ -70,6 +70,6 @@ func helperProblemText(problem assistant.HelperProblem, model string) string {
 	case assistant.HelperNotCloud:
 		return fmt.Sprintf("the Helper model %s is not a cloud model", model)
 	default:
-		return "no Helper model is chosen in Settings → Runs"
+		return "no Helper model is chosen in Models › Routing"
 	}
 }

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, type LocationQuery, type RouteLocationRaw, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
-import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, NEWSROOM_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
-import { toAgents, toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
+import { AGENTS_TABS, MODELS_TABS, NETWORK_TABS, RADIO_TABS, NEWSROOM_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import type { ModelsTab } from '../types/routes'
+import { toAgents, toDashboard, toModels, toWorkspaceFile, toWorkspaceSection } from './routes'
+import { PROVIDER_IDS } from '../constants/providers'
 import { homeLocation } from '../utils/navigation'
 import { DASHBOARD_TITLE, NETWORK_CARD_BOARD } from '../constants/dashboard'
 
@@ -36,6 +38,16 @@ const AGENTS_TAB_PATTERN = AGENTS_TABS.join('|')
 const RADIO_TAB_PATTERN = RADIO_TABS.join('|')
 const REMINDERS_TAB_PATTERN = REMINDERS_TABS.join('|')
 const NEWSROOM_TAB_PATTERN = NEWSROOM_TABS.join('|')
+const MODELS_TAB_PATTERN = MODELS_TABS.join('|')
+// The Settings sections that moved to the Models page (Constitution III.8 as amended 2026-11-26): an old link or bookmark lands on the
+// tab that holds them now. Every cloud provider's section went to Providers.
+const SETTINGS_MOVED_TO_MODELS: Readonly<Record<string, ModelsTab | undefined>> = {
+  'local-models': undefined,
+  local: 'engine',
+  processes: 'engine',
+  runs: 'routing',
+  ...Object.fromEntries(PROVIDER_IDS.filter((id) => id !== 'local').map((id) => [id, 'providers'])),
+}
 const SECTION_PATTERN = WORKSPACE_SECTIONS.join('|')
 
 // Dev-only living design reference (D23): `import.meta.env.DEV` is a build-time
@@ -83,10 +95,11 @@ export const routes: RouteRecordRaw[] = [
   { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', fullWidth: true, title: 'Newsroom' } },
   { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
-  { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
+  { path: `/models/:tab(${MODELS_TAB_PATTERN})?`, name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
   { path: '/activity', name: ROUTE_NAMES.activity, component: ActivityView, meta: { destination: 'activity', keepAlive: true, title: 'Activity' } },
   // MCP servers moved from Settings to the Agents stack's Tools tab (ADR-0069); an old link or bookmark lands there.
   { path: '/settings/mcp', redirect: () => toAgents('tools') },
+  { path: `/settings/:section(${Object.keys(SETTINGS_MOVED_TO_MODELS).join('|')})`, redirect: (to) => toModels(SETTINGS_MOVED_TO_MODELS[String(to.params.section)]) },
   { path: '/settings/:section?', name: ROUTE_NAMES.settings, component: SettingsView, meta: { destination: 'settings', workspaceScope: 'all', title: 'Settings' } },
 
   // Sign-in (plan admin-api-authentication): bare pages, open to someone who is not signed in. The guard in

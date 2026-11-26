@@ -7,6 +7,8 @@ const fetchMetrics = vi.fn()
 vi.mock('../../../services/monitoring/metricsService', () => ({
   MetricsApiService: { fetchMetrics: () => fetchMetrics(), fetchLogLevel: vi.fn().mockResolvedValue('INFO'), updateLogLevel: vi.fn() },
 }))
+const fetchState = vi.fn()
+vi.mock('../../../services/admin/adminService', () => ({ AdminApiService: { fetchState: () => fetchState() } }))
 
 const GPU = {
   name: 'Apple GPU',
@@ -20,9 +22,11 @@ const GPU = {
 const SAMPLE = { load_percent: 0.2, mem_used_mb: 7475.2, mem_total_mb: 47923.2, llm_tokens_per_sec: 33.2, gpu: GPU }
 
 // The composable keeps module-level state, so each test gets a fresh module.
-async function mountStrip(sample: unknown = SAMPLE) {
+async function mountStrip(sample: unknown = SAMPLE, state: unknown = { models: [], config: {}, next_port: 9000 }) {
   vi.resetModules()
   fetchMetrics.mockReset()
+  fetchState.mockReset()
+  fetchState.mockResolvedValue(state)
   if (sample instanceof Error) fetchMetrics.mockRejectedValue(sample)
   else fetchMetrics.mockResolvedValue(sample)
   const { default: HostStats } = await import('../../../components/layout/HostStats.vue')
@@ -130,6 +134,56 @@ describe('HostStats (header strip)', () => {
     expect(panelOf(w2).text()).toContain('No GPU detected')
     expect(panelOf(w2).text()).toContain('rocm-smi not found')
     w2.unmount()
+  })
+
+  describe('running model', () => {
+    const MIN = 60_000
+    const active = (over: Record<string, unknown> = {}) => ({
+      models: [],
+      config: {},
+      next_port: 9000,
+      active: { name: 'Qwen3.6 35B A3B', provider: 'local', endpoint: 'http://127.0.0.1:8081', port: 8081, ready: true, started_at: new Date(Date.now() - 43 * MIN).toISOString(), last_used_at: new Date(Date.now() - 2 * MIN).toISOString(), ...over },
+    })
+    const section = (w: VueWrapper) => panelOf(w).get('[data-test="running-model"]')
+
+    it('reads which model is loaded only when the panel opens', async () => {
+      const w = await mountStrip(SAMPLE, active())
+      expect(fetchState).not.toHaveBeenCalled()
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      expect(fetchState).toHaveBeenCalledTimes(1)
+      w.unmount()
+    })
+
+    it('names the running model, its port, how long it has run and its last call', async () => {
+      const w = await mountStrip(SAMPLE, active())
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      const text = section(w).text()
+      expect(text).toContain('Running model')
+      expect(text).toContain('Qwen3.6 35B A3B')
+      expect(text).toContain(':8081')
+      expect(text).toContain('ready')
+      expect(text).toContain('43m')
+      expect(text).toContain('2 minutes ago')
+      w.unmount()
+    })
+
+    it('says a model is still loading', async () => {
+      const w = await mountStrip(SAMPLE, active({ ready: false }))
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      expect(section(w).text()).toContain('loading')
+      w.unmount()
+    })
+
+    it('says when no local model is running', async () => {
+      const w = await mountStrip()
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      expect(section(w).text()).toContain('No local model running')
+      w.unmount()
+    })
   })
 
   it('links from the panel to the Overview for the full picture', async () => {

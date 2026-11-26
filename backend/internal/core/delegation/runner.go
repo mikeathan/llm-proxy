@@ -93,11 +93,11 @@ func (r *Runner) model() (string, error) {
 	case assistant.HelperNone:
 		return name, nil
 	case assistant.HelperUnset:
-		return "", errors.New("no helper model is set (Settings → Runs)")
+		return "", errors.New("no helper model is set (Models › Routing)")
 	case assistant.HelperMissing:
-		return "", fmt.Errorf("the helper model %q is no longer in your models (change it in Settings → Runs)", name)
+		return "", fmt.Errorf("the helper model %q is no longer in your models (change it in Models › Routing)", name)
 	default:
-		return "", fmt.Errorf("the helper model %q is not a cloud model (change it in Settings → Runs)", name)
+		return "", fmt.Errorf("the helper model %q is not a cloud model (change it in Models › Routing)", name)
 	}
 }
 

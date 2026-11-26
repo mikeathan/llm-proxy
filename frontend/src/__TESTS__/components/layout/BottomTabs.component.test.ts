@@ -98,7 +98,7 @@ describe('BottomTabs', () => {
   })
 
   it('shows More as current while a destination under it is open', async () => {
-    const { wrapper } = await mountAt('/settings/local')
+    const { wrapper } = await mountAt('/settings/memory')
     expect(more(wrapper).attributes('data-current')).toBe('true')
     await more(wrapper).trigger('click')
     expect(wrapper.get('[role="dialog"] a[aria-current="page"]').attributes('aria-label')).toBe('Settings')

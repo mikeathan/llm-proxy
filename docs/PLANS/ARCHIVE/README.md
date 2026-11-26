@@ -96,6 +96,7 @@ Archiving: `git mv` the plan here under the same folder name, add a row below, a
 | [`orchestrator/resource-aware-orchestration.md`](orchestrator/resource-aware-orchestration.md) | Resource-Aware Orchestration Layer: Detailed Implementation Plan | complete | — | — |
 | [`cross-cutting/network-modules-redesign.md`](cross-cutting/network-modules-redesign.md) | Modules group and a calmer Network page (Modules navigation group, Network tabs, searchable device list, neutral finding cards; ADR-0022) | complete | 2026-11-02 | SPEC-003 |
 | [`cross-cutting/isolation-importers-switch.md`](cross-cutting/isolation-importers-switch.md) | Switch the last `sandbox`/`progexec` importers to `isolation`, with a fitness test that bans new direct importers | complete | 2026-11-12 | SPEC-006 |
+| [`cross-cutting/models-redesign.md`](cross-cutting/models-redesign.md) | Models: one page for everything about models (cards or a list, a side-panel editor, Providers, Engine, Routing), read on Dashboard › LLM and host, Running model in System stats (mocks in `models-redesign-mocks/`) | complete | 2026-11-26 | SPEC-003 |
 
 ## Consolidation notes (history)
 

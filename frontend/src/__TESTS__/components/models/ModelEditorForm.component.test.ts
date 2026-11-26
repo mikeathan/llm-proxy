@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { defineComponent, h, ref, type PropType } from 'vue'
 import { fieldByLabel } from '../../helpers/fieldByLabel'
-import type { APIKeyItem } from '../../../types/admin'
-import type { AvailableModel, Model } from '../../../types/model'
+import type { APIKeyItem, ProviderType } from '../../../types/admin'
+import type { AvailableModel, Model, ModelEditorOpen } from '../../../types/model'
 
 const models = {
   state: ref({ config: {} }),
@@ -18,7 +18,7 @@ const confirm = vi.fn()
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
 import { DEFAULT_CONFIG } from '../../../composables/models/useConfig'
-import ProviderModelsCard from '../../../components/settings/ProviderModelsCard.vue'
+import ModelEditorForm from '../../../components/models/ModelEditorForm.vue'
 
 const KEYS: APIKeyItem[] = [{ id: 'k1', name: 'Personal', key: 'sk-...1111' }]
 const CLOUD: Model[] = [
@@ -30,17 +30,51 @@ const DISCOVERED: AvailableModel[] = [
   { name: 'qwen', filename: 'qwen.gguf', size_bytes: 3_000_000_000 } as AvailableModel,
 ]
 
+// The page opens the editor on a model (Edit), on a new model of a provider (Add model) or on a file found on disk; this host does the
+// same with plain buttons, and drops the form when it closes (after a save, a removal or Cancel).
+const Host = defineComponent({
+  props: {
+    provider: { type: String as PropType<ProviderType>, required: true },
+    apiKeys: { type: Array as PropType<APIKeyItem[]>, required: true },
+    models: { type: Array as PropType<Model[]>, required: true },
+    availableModels: { type: Array as PropType<AvailableModel[]>, default: () => [] },
+  },
+  emits: ['refresh'],
+  setup(props, { emit }) {
+    const open = ref<ModelEditorOpen | null>(null)
+    const added = () => new Set(props.models.map((m) => m.filename))
+    return () =>
+      h('div', [
+        h('button', { type: 'button', onClick: () => (open.value = { kind: 'add', provider: props.provider }) }, 'New model'),
+        ...props.models.map((m) => h('button', { type: 'button', onClick: () => (open.value = { kind: 'edit', model: m }) }, `Edit ${m.name}`)),
+        ...props.availableModels.filter((f) => !added().has(f.filename)).map((f) => h('button', { type: 'button', onClick: () => (open.value = { kind: 'file', file: f }) }, `Add ${f.metadata?.name || f.name}`)),
+        open.value
+          ? h(ModelEditorForm, {
+              key: JSON.stringify(open.value),
+              provider: props.provider,
+              apiKeys: props.apiKeys,
+              models: props.models,
+              availableModels: props.availableModels,
+              open: open.value,
+              onRefresh: () => emit('refresh'),
+              onClose: () => (open.value = null),
+            })
+          : null,
+      ])
+  },
+})
+
 function mountCard(props: Record<string, unknown>) {
   const onRefresh = vi.fn()
-  const w = mount(ProviderModelsCard, { props: props as never, attrs: { onRefresh }, global: { stubs: { Icon: true } } })
+  const w = mount(Host, { props: props as never, attrs: { onRefresh }, global: { stubs: { Icon: true } } })
   const button = (name: RegExp) =>
     w.findAll('button').find((b) => name.test(b.text()) || name.test(b.attributes('aria-label') ?? '') || name.test(b.attributes('title') ?? ''))
   return { w, onRefresh, button }
 }
 
-// Characterised before the Settings redesign (plan D22), then moved to the
-// redesigned card: the model list, the add / edit form and the removal flow.
-describe('ProviderModelsCard', () => {
+// Characterised before the Settings redesign (plan D22), moved to the redesigned card, then to the Models page's side-panel editor
+// (ADR-0090): the add / edit form and the removal flow.
+describe('ModelEditorForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     models.state.value = { config: {} }
@@ -48,16 +82,9 @@ describe('ProviderModelsCard', () => {
     models.fetchProviderModels.mockResolvedValue([])
   })
 
-  it('lists cloud models under the key they use', () => {
-    const { w } = mountCard({ provider: 'openai', apiKeys: KEYS, models: CLOUD })
-    expect(w.text()).toContain('Personal')
-    expect(w.text()).toContain('gpt')
-    expect(w.text()).toContain('gpt-5')
-  })
-
   it('adds a cloud model once a key and a model ID are chosen', async () => {
     const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: CLOUD })
-    await button(/^add model$/i)!.trigger('click')
+    await button(/^new model$/i)!.trigger('click')
     const submit = () => w.findAll('button').find((b) => /^add model$/i.test(b.text()))!
     expect(submit().attributes('disabled')).toBeDefined()
     await fieldByLabel(w, /api key/i).setValue('Personal')
@@ -77,19 +104,15 @@ describe('ProviderModelsCard', () => {
 
   it('removes a model after confirmation', async () => {
     const { button, onRefresh } = mountCard({ provider: 'openai', apiKeys: KEYS, models: CLOUD })
-    await button(/^remove gpt$/i)!.trigger('click')
+    await button(/^edit gpt$/i)!.trigger('click')
+    await button(/^remove$/i)!.trigger('click')
     await flushPromises()
     expect(models.removeModel).toHaveBeenCalledWith('gpt')
     expect(onRefresh).toHaveBeenCalled()
   })
 
-  it('offers GGUF files found on disk for a local model', async () => {
+  it('fills the file name from a GGUF file found on disk', async () => {
     const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: LOCAL, availableModels: DISCOVERED })
-    expect(w.text()).toContain('Llama 3')
-    expect(w.text()).toContain('Q4_K_M')
-    // A file that is already configured cannot be added twice.
-    expect(button(/^add qwen$/i)).toBeUndefined()
-    expect(w.text()).toContain('Added')
     await button(/^add llama 3$/i)!.trigger('click')
     expect((fieldByLabel(w, /filename/i).element as HTMLInputElement).value).toBe('llama.gguf')
   })
@@ -123,7 +146,7 @@ describe('ProviderModelsCard', () => {
       const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
       await button(/^add qwen 3$/i)!.trigger('click')
       await button(/^cancel$/i)!.trigger('click')
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       expect((fieldByLabel(w, /filename|gguf/i).element as HTMLInputElement).value).toBe('')
       await fieldByLabel(w, /filename|gguf/i).setValue('qwen3.gguf')
       await w.get('form').trigger('submit')
@@ -152,7 +175,7 @@ describe('ProviderModelsCard', () => {
       await fieldByLabel(w, /model filename/i).setValue('other.gguf')
       expect(fullPath(w).value).toBe('')
       await button(/^cancel$/i)!.trigger('click')
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       expect(fullPath(w).value).toBe('')
       expect(fullPath(w).readOnly).toBe(true)
     })
@@ -176,11 +199,6 @@ describe('ProviderModelsCard', () => {
     })
   })
 
-  it('says when the local engine has no model yet', () => {
-    const { w } = mountCard({ provider: 'local', apiKeys: [], models: [] })
-    expect(w.text()).toContain('No local models')
-  })
-
   describe('adding a cloud model: API key default and model loading', () => {
     const TWO_KEYS: APIKeyItem[] = [
       { id: 'k1', name: 'Personal', key: 'sk-...1111' },
@@ -193,7 +211,7 @@ describe('ProviderModelsCard', () => {
 
     it('preselects the first key and fetches once with it', async () => {
       const { w, button } = mountCard({ provider: 'openai', apiKeys: TWO_KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       expect((fieldByLabel(w, /api key/i).element as HTMLSelectElement).value).toBe('Personal')
       expect(models.fetchProviderModels).toHaveBeenCalledTimes(1)
@@ -202,7 +220,7 @@ describe('ProviderModelsCard', () => {
 
     it('does not fetch and keeps the placeholder when there are no keys', async () => {
       const { w, button } = mountCard({ provider: 'openai', apiKeys: [], models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       expect((fieldByLabel(w, /api key/i).element as HTMLSelectElement).value).toBe('')
       expect(models.fetchProviderModels).not.toHaveBeenCalled()
@@ -211,7 +229,7 @@ describe('ProviderModelsCard', () => {
 
     it('fetches again with the newly chosen key', async () => {
       const { w, button } = mountCard({ provider: 'openai', apiKeys: TWO_KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       await fieldByLabel(w, /api key/i).setValue('Work')
       await flushPromises()
@@ -222,7 +240,7 @@ describe('ProviderModelsCard', () => {
     it('does not fetch while the key is cleared, and disables Reload and Scan', async () => {
       models.fetchProviderModels.mockResolvedValue([{ id: 'gpt-5' }])
       const { w, button } = mountCard({ provider: 'openai', apiKeys: TWO_KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       expect(reload(w)!.attributes('disabled')).toBeUndefined()
       models.fetchProviderModels.mockClear()
@@ -235,7 +253,7 @@ describe('ProviderModelsCard', () => {
 
     it('falls back to the first remaining key when the selected key is removed', async () => {
       const { w, button } = mountCard({ provider: 'openai', apiKeys: TWO_KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await fieldByLabel(w, /api key/i).setValue('Work')
       await flushPromises()
       models.fetchProviderModels.mockClear()
@@ -247,7 +265,7 @@ describe('ProviderModelsCard', () => {
 
     it('falls back to an empty key when the last key is removed', async () => {
       const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       models.fetchProviderModels.mockClear()
       await w.setProps({ apiKeys: [] })
@@ -259,7 +277,7 @@ describe('ProviderModelsCard', () => {
     it('shows the model list as a multi-row listbox', async () => {
       models.fetchProviderModels.mockResolvedValue([{ id: 'gpt-5' }, { id: 'gpt-5-mini' }])
       const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       expect(fieldByLabel(w, /model id/i).attributes('size')).toBe('8')
     })
@@ -283,7 +301,7 @@ describe('ProviderModelsCard', () => {
     it('saves a cleared temperature as 0 when adding', async () => {
       models.fetchProviderModels.mockResolvedValue([{ id: 'gpt-5-mini' }])
       const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       await fieldByLabel(w, /model id/i).setValue('gpt-5-mini')
       await fieldByLabel(w, /temperature/i).setValue('')
@@ -319,7 +337,7 @@ describe('ProviderModelsCard', () => {
       } as never
       models.fetchProviderModels.mockResolvedValue([{ id: 'gpt-5-mini' }])
       const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       await fieldByLabel(w, /model id/i).setValue('gpt-5-mini')
       await w.get('form').trigger('submit')
@@ -402,7 +420,7 @@ describe('ProviderModelsCard', () => {
 
     it('saves every cleared numeric field as 0 for a local model when editing', async () => {
       setProviderTier()
-      const local = FIELDS.filter(([, key]) => key !== 'context_budget' && key !== 'max_tokens')
+      const local = FIELDS.filter(([, key]) => key !== 'context_budget' && key !== 'max_tokens' && key !== 'reasoning_budget')
       const filled = Object.fromEntries(local.map(([, key]) => [key, 7]))
       const { w, button } = mountCard({
         provider: 'local',
@@ -418,9 +436,9 @@ describe('ProviderModelsCard', () => {
     })
 
     it('saves every cleared numeric field as 0 when adding a local model', async () => {
-      const local = FIELDS.filter(([, key]) => key !== 'context_budget' && key !== 'max_tokens')
+      const local = FIELDS.filter(([, key]) => key !== 'context_budget' && key !== 'max_tokens' && key !== 'reasoning_budget')
       const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: DISCOVERED })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       await fieldByLabel(w, /filename|gguf/i).setValue('llama.gguf')
       for (const [label] of local) await fieldByLabel(w, label).setValue('')
@@ -434,7 +452,7 @@ describe('ProviderModelsCard', () => {
       setProviderTier()
       models.fetchProviderModels.mockResolvedValue([{ id: 'gpt-5-mini' }])
       const { w, button } = mountCard({ provider: 'openai', apiKeys: KEYS, models: [] })
-      await button(/^add model$/i)!.trigger('click')
+      await button(/^new model$/i)!.trigger('click')
       await flushPromises()
       await fieldByLabel(w, /model id/i).setValue('gpt-5-mini')
       for (const [label] of FIELDS) await fieldByLabel(w, label).setValue('')

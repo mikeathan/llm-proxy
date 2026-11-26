@@ -206,16 +206,25 @@ export interface ProviderManifest {
   icon?: string
 }
 
-// TuningFieldState classifies a tuning field as editable or derived (read-only,
-// server-computed). See composables/settings/useTuningFieldPolicy.ts.
-export type TuningFieldState = 'editable' | 'derived'
 
 // TuningFieldPolicy is the field-policy result for the model tuning form,
 // driven by the server-computed workload_class (single authority).
+/** What the model editor opens on: a configured model, a new model of a provider (optionally with its key chosen), or a file found on disk. */
+export type ModelEditorOpen =
+  | { kind: 'edit'; model: Model }
+  | { kind: 'add'; provider: ProviderType; key?: string }
+  | { kind: 'file'; file: AvailableModel }
+
+/** How the Models tab lists the models; a phone always shows cards. */
+export const MODEL_VIEWS = ['cards', 'list'] as const
+export type ModelView = (typeof MODEL_VIEWS)[number]
+
+/** Which models the Models tab shows. */
+export const MODEL_SCOPES = ['all', 'local', 'cloud'] as const
+export type ModelScope = (typeof MODEL_SCOPES)[number]
+
 export interface TuningFieldPolicy {
   workload: WorkloadClass
-  maxTokens: TuningFieldState
-  contextBudget: TuningFieldState
   isLocal: boolean
   isCloud: boolean
   isUnresolved: boolean

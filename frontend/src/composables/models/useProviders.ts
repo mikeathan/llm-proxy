@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { AdminApiService } from '../../services/admin/adminService'
 import { PROVIDER_LABELS, PROVIDER_IDS } from '../../constants/providers'
-import type { ProviderType, SettingsTab } from '../../types/admin'
+import type { ProviderType } from '../../types/admin'
 import type { ProviderManifest } from '../../types/model'
 
 const manifests = ref<ProviderManifest[]>([])
@@ -34,13 +34,6 @@ export function useProviders() {
 
   const allProviders = computed(() => ['local' as ProviderType, ...cloudProviders.value])
 
-  const settingsTabs = computed<SettingsTab[]>(() => {
-    // The sections in their order, with the cloud providers the manifests list among them. A new fixed section must be
-    // added here too, or it is missing from the Settings navigation.
-    const base = ['appearance', 'local', 'runs', 'agents', 'memory', 'storage', 'local-models', 'limits', 'guardrails', 'sign-in', ...cloudProviders.value, 'communication', 'search', 'processes']
-    return Array.from(new Set(base)) as SettingsTab[]
-  })
-
   const getLabel = (type: string) => {
     const manifest = manifests.value.find(m => m.id === type)
     if (manifest?.name) return manifest.name
@@ -53,7 +46,6 @@ export function useProviders() {
     fetchManifests,
     cloudProviders,
     allProviders,
-    settingsTabs,
     getLabel,
   }
 }

@@ -86,6 +86,11 @@ export type NetworkTab = (typeof NETWORK_TABS)[number]
 export const NETWORK_SETTINGS_GROUPS = ['scanning', 'devices', 'router', 'outside', 'data', 'helper'] as const
 export type NetworkSettingsGroup = (typeof NETWORK_SETTINGS_GROUPS)[number]
 
+// The tabs of the Models page, addressable at /models/:tab. The models themselves are the page without a tab. Everything about models is
+// set up here (Constitution III.8 as amended 2026-11-26); what is read about them (the running model, calls, speed) is on the dashboard.
+export const MODELS_TABS = ['providers', 'engine', 'routing'] as const
+export type ModelsTab = (typeof MODELS_TABS)[number]
+
 // The tabs of the Agents page, addressable at /agents/:tab. Activity is the page without a tab.
 export const AGENTS_TABS = ['tools', 'modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]

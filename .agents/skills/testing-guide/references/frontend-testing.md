@@ -17,6 +17,12 @@ Gotchas (each cost a debugging round):
   helpers: `fieldByLabel.ts` (find a control by label; survives markup changes), `fakeMatchMedia.ts`.
 - ES2020 target (`tsconfig.app.json`) + `noUncheckedIndexedAccess` (inherited from `@vue/tsconfig`): no `.at()` / `Object.hasOwn`; indexed access is `T | undefined`.
 - happy-dom does not submit a form when its submit button is clicked — `form.trigger('submit')`.
+- **No component test reaches the network.** `__TESTS__/setup/noNetwork.ts` (the component project's `setupFiles`) makes an un-mocked
+  `fetch` reject at once with "fetch is not mocked in this test: <url>"; before it, every poller a test forgot to mock dialed happy-dom's
+  origin (localhost:3000) and printed an `ECONNREFUSED` AggregateError (about 2,800 in a full run). Mock the service (or `fetch`) when a
+  test needs an answer; do not stub the setup away.
+- happy-dom checks an `<input type="number">`'s `step`, `min` and `max` (`input.validity`), so a test can catch a value the browser
+  would refuse on submit (`ModelTuningFields.component.test.ts`, pitfall 78).
 - `onBeforeRouteLeave` registers only inside a `RouterView` — mount a wrapper rendering one, then `vi.waitFor`
   the lazy page. A route navigation settles after its chunk loads (`vi.waitFor`, not `flushPromises`);
   `router.resolve()` does not follow redirects (`router.push` + `currentRoute`).

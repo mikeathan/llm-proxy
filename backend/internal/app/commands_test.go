@@ -12,7 +12,7 @@ import (
 func TestHelperProblemText(t *testing.T) {
 	cases := map[assistant.HelperProblem]string{
 		assistant.HelperNone:     "",
-		assistant.HelperUnset:    "no Helper model is chosen in Settings → Runs",
+		assistant.HelperUnset:    "no Helper model is chosen in Models › Routing",
 		assistant.HelperMissing:  "the Helper model gone is no longer in your models",
 		assistant.HelperNotCloud: "the Helper model gone is not a cloud model",
 	}

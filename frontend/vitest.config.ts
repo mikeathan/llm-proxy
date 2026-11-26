@@ -42,6 +42,8 @@ export default defineConfig({
         test: {
           name: 'component',
           environment: 'happy-dom',
+          // An un-mocked fetch fails at once instead of dialing happy-dom's origin (see the file).
+          setupFiles: ['src/__TESTS__/setup/noNetwork.ts'],
           css: { include: [TOKENS_CSS] },
           include: ['src/__TESTS__/**/*.component.test.ts'],
         },
