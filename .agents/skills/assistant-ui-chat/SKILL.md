@@ -29,12 +29,14 @@ Open only the one your task needs:
 
 ## Layout (document + step timeline, 2026-10-01)
 
-Each turn renders inside one reading column (`.turn-group`, max 52rem, centred by `ChatMessages.vue`):
+Each turn renders in a `.turn-group` that uses the width of the page (`ChatMessages.vue`; the 52rem reading column went in v0.145.0 at the owner's request):
 
 1. **User message** — right-aligned pill (`UserMessage.vue`) with hover actions (send again, copy).
 2. **Assistant turn** (`ChatBubble.vue`) — no box; reads like a document:
    - an **activity line** button (`aria-expanded`): `Thinking` / `Working · N steps` / `Writing the answer`
-     while live, `Worked 42s · 3 steps` when finished. Wording: `activityLabel()` in
+     while live; finished, it names the work (`Searched the web, read a web page · 42s`, `summarizeSteps`) or says
+     `Failed after 1s`, and a failed turn shows a failure card (`describeRunFailure`: sentence, hint, Try again, Open
+     Models, Details). Wording: `activityLabel()` in
      `constants/labels.ts`. The duration shows **only when measured**: live by the turn's timer, after a
      reload from its stored run record (`turn.run.duration_ms`); sessions from before 2026-10-01
      have none and show no duration — never an estimate. A turn that answered without any
@@ -47,8 +49,8 @@ Each turn renders inside one reading column (`.turn-group`, max 52rem, centred b
      lines, `[{title,url}]` → search-hit links limited to http(s), other JSON pretty-printed,
      >4000 chars → "Show all"). Results are untrusted: text only, never `v-html`.
    - the **answer** — `MarkdownViewer variant="document"` (14px, 1.65 line height).
-   - a **footer** — copy answer (finished turns only) and the turn's stored run record: model and
-     tokens generated (prompt tokens processed in the tooltip, `tokenUsageLabel()`). The record is
+   - a **footer** (on hover or focus with a pointer; under the latest answer only on a touch screen) — copy answer
+     (finished turns only) and the turn's stored run record: model and tokens generated (prompt tokens processed in the tooltip, `tokenUsageLabel()`). The record is
      `Message.run` on the turn's user message (`groupTurns` copies it to `turn.run`); the activity
      line uses its `duration_ms` after a reload. Old sessions have none — show only what was
      recorded.

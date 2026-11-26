@@ -23,6 +23,13 @@ and vertex's real provider failure. Screenshots were taken at device scale 2; ev
 Labels: **verified** = reproduced or read in code and logs; **likely** = code and evidence agree, not reproduced end to end;
 **owner** = a decision or a config fact only the owner can settle.
 
+## Status after v0.145.0 (branch `assistant-calm-mobile`)
+
+Fixed: B1, B2, B3 (`model_switch_test.go`), B4 (a new **OpenCode Go** provider that sends `x-opencode-session`; the
+owner moves the key from NVIDIA NIM to it), U1–U4, N1–N7 and M1–M5 (plan `assistant-calm-mobile.md`). B6 was already
+fixed by v0.144.0. Not done: B5 (owner: remove the six orphaned overrides once), N8 (the desktop's three doors to the
+assistant).
+
 ## Part B — service bugs
 
 | # | Finding | Evidence | Label |

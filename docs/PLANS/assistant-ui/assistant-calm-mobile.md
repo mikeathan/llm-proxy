@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-26
 last_reviewed: 2026-11-26
 related_specs: [SPEC-003, SPEC-007]
@@ -9,7 +9,8 @@ evidence: docs/audits/2026-11-26-assistant-automations-service-review.md
 
 # A calmer assistant and automations, phone first
 
-**Status:** proposed — owner approved the mocks on 2026-11-26 ("go ahead"), with one change: desktop chat full width. Mocks: [`assistant-calm-mobile-mocks/`](assistant-calm-mobile-mocks/README.md). Frames that need new behaviour are listed below.
+**Status:** partial — owner approved the mocks on 2026-11-26 ("go ahead"), with one change: desktop chat full width.
+Phases 1–4 built on branch `assistant-calm-mobile` (v0.145.0, with the service fixes B1–B4); what is left is below. Mocks: [`assistant-calm-mobile-mocks/`](assistant-calm-mobile-mocks/README.md). Frames that need new behaviour are listed below.
 
 ## Problem
 
@@ -53,7 +54,17 @@ Checked in the code before listing; the owner should know these are new work, no
 - **Starter prompts** on a new chat and **Select…** for chats: new UI only (no backend), but new.
 - **Last outcome on each automation row**: the list endpoint already returns `history`; no backend change.
 
+## As built (v0.145.0)
+
+Frames A–H and J as mocked, with the desktop chat at full width; the tab bar hides while typing. Checked with
+`e2e/assistant.visual.spec.ts` and `e2e/automations.visual.spec.ts` (geometry read in the browser), `npm test`,
+`npm run build` and the whole visual suite. SPEC-003 2.78.
+
 ## Remaining Work
 
-- Owner: choose frames (or changes) and say whether the tab bar should hide while typing (frame B).
-- Service bugs B1–B5 in the evidence file are separate work (orchestrator subsystem), not part of this plan.
+1. New behaviour from the list above, each needing a backend field: Retry with another model on a failed turn, Undo
+   on a memory save, "failed" in the chats list.
+2. The desktop's three doors to the assistant (review N8) and a one-bar header on the desktop Assistant page (frame I's
+   header): not built, the desktop keeps today's header and Monitor.
+3. Owner: on vertex, add the OpenCode key under **OpenCode Go** (Models › Providers) and re-add `glm-5.3-flash` and
+   `deepseek-v4.1-flash` from it; remove the NVIDIA "opencode" key. Remove the six orphaned model overrides (review B5).
