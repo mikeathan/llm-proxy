@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
-// ModelTuningFields.vue — the agent-tuning + safety-timeout form block,
-// extracted from the 4× duplicated blocks in ProviderModelsCard.vue (D2).
+import { computed, ref } from "vue";
+// ModelTuningFields.vue — the agent-tuning + safety-timeout part of the model editor, in three groups: the limits (numbers the server
+// sets for a local model, shown as one sentence; editable for a cloud model), the agent, and the rest folded away with a count of what is set.
 // Field policy is driven by the server-computed workload_class (§2.7): local
 // workloads show max_tokens/context_budget as derived (read-only, n_ctx math);
 // cloud workloads are editable and prefilled from published capabilities.
@@ -9,6 +9,8 @@ import { computed } from "vue";
 import FormField from "../common/forms/FormField.vue";
 import BaseToggle from "../common/buttons/BaseToggle.vue";
 import MicroLabel from "../common/display/MicroLabel.vue";
+import Disclosure from "../common/layout/Disclosure.vue";
+import { formatTokenCount } from "../../utils/format/units";
 import { useTuningFieldPolicy } from "../../composables/settings/useTuningFieldPolicy";
 import { loopStrategyDescription } from "../../utils/model/modelUtils";
 import type { LoopStrategyOption, TuningFields, WorkloadClass } from "../../types/model";
@@ -23,7 +25,8 @@ const props = defineProps<{
 }>();
 
 const policy = useTuningFieldPolicy(props.workloadClass);
-const DERIVED_HINT = "Derived from the model's serving context (n_ctx). Read-only.";
+// A cloud model's max tokens, context budget and reasoning budget carry no step and no max: the server prefills them from published
+// capabilities, and a browser step or range check that rejects such a value blocks Save with "Please select a valid value" (pitfall 78).
 
 // Mode-aware hint: effort-mode providers express "off" as the provider
 // default (omitted reasoning_effort) rather than a hard disable, until
@@ -45,147 +48,174 @@ const temperatureHint = computed(() =>
 // A blank cloud field is saved as the provider's tier value; local keeps 0 = default.
 const blankHint = computed(() => (policy.isCloud ? "Blank uses the provider's default." : "Blank or 0 uses the default."));
 const globalBlankHint = computed(() => (policy.isCloud ? "Blank uses the provider's default." : "Blank or 0 uses the global default."));
-const maxTokensHint = computed(() =>
-  policy.isLocal ? DERIVED_HINT : `Most tokens in one response. Values above a published cap are clamped. ${blankHint.value}`,
-);
-const reasoningBudgetHint = computed(() =>
-  policy.isCloud ? "Local models only: thinking tokens before the answer. Blank uses the provider's default." : "Local models: thinking tokens before the answer. Blank or 0 = one third of max tokens.",
-);
+const maxTokensHint = computed(() => `Most tokens in one response. Values above a published cap are clamped. ${blankHint.value}`);
+const reasoningBudgetHint = "Local models only: thinking tokens before the answer. Blank uses the provider's default.";
 const safetyLabel = computed(() => (policy.isCloud ? "Safety timeouts · blank uses the provider's default" : "Safety timeouts · blank or 0 = default"));
+
+// The limits the server sets for a local model, as one sentence: never inputs, so no browser check can block Save (pitfall 78).
+const derivedLimits = computed(() => {
+  const { max_tokens: out, reasoning_budget: think, context_budget: history } = props.model;
+  if (!out) return "Set from the model's context when it is saved.";
+  const parts = [`Output up to ${formatTokenCount(out)} tokens`];
+  if (think) parts.push(`thinking ${formatTokenCount(think)}`);
+  if (history) parts.push(`history ${formatTokenCount(history)} characters`);
+  return parts.join(" · ");
+});
+
+// The folded group: tool format, time limits and safety timeouts. Its summary counts what is set, so "all default" is visible shut.
+const FOLDED_FIELDS = [
+  "tool_call_format",
+  "timeout_minutes",
+  "tool_timeout_seconds",
+  "filesystem_tool_timeout_seconds",
+  "max_plan_duration_minutes",
+  "max_plan_steps",
+  "guardrail_timeout_seconds",
+  "guardrail_timeout_behavior",
+  "guardrail_approval_timeout_seconds",
+] as const;
+const foldedSet = computed(() => FOLDED_FIELDS.filter((f) => !!props.model[f]).length);
+const foldedSummary = computed(() => (foldedSet.value ? `${foldedSet.value} set` : "all default"));
+const moreOpen = ref(false);
+
+// A select whose field is unset (absent) shows its "" option (the default) instead of a blank box.
+type SelectField = "loop_strategy" | "tool_call_format" | "guardrail_timeout_behavior";
+const selectField = (key: SelectField) =>
+  computed<string>({
+    get: () => props.model[key] ?? "",
+    set: (value) => Object.assign(props.model, { [key]: value }),
+  });
+const loopStrategy = selectField("loop_strategy");
+const toolCallFormat = selectField("tool_call_format");
+const guardrailBehavior = selectField("guardrail_timeout_behavior");
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
-    <MicroLabel>Agent tuning · per-model overrides</MicroLabel>
-    <div class="tuning-grid">
-      <FormField label="Max steps" :hint="`Most agent-loop iterations (tool-call rounds) in one run. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.max_steps" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="25" min="1" max="100" />
-        </template>
-      </FormField>
-      <FormField label="Context budget (chars)" :hint="policy.isLocal ? DERIVED_HINT : `Conversation history kept before older turns are truncated. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input
-            :id="id"
-            v-model.number="model.context_budget"
-            :aria-describedby="describedBy"
-            :readonly="policy.contextBudget === 'derived'"
-            type="number"
-            class="form-control font-mono tabular-nums read-only:text-muted"
-            placeholder="8000"
-            min="1000"
-            max="100000"
-            step="1000"
-          />
-        </template>
-      </FormField>
-      <FormField label="Max tokens" :hint="maxTokensHint">
-        <template #default="{ id, describedBy }">
-          <input
-            :id="id"
-            v-model.number="model.max_tokens"
-            :aria-describedby="describedBy"
-            :readonly="policy.maxTokens === 'derived'"
-            type="number"
-            class="form-control font-mono tabular-nums read-only:text-muted"
-            placeholder="3072"
-            min="64"
-            max="131072"
-            step="64"
-          />
-        </template>
-      </FormField>
-      <FormField label="Reasoning budget" :hint="reasoningBudgetHint">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.reasoning_budget" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="0" min="0" max="65536" step="128" />
-        </template>
-      </FormField>
-      <FormField v-if="policy.isCloud && reasoning?.toggleable" label="Enable thinking" :hint="reasoningHint">
-        <template #default="{ id, describedBy }">
-          <!-- Unset stays unset until toggled (nullable reasoning_enabled contract). -->
-          <BaseToggle :id="id" :model-value="!!model.reasoning_enabled" :described-by="describedBy" label="Provider reasoning" @update:model-value="model.reasoning_enabled = $event" />
-        </template>
-      </FormField>
-      <FormField label="Temperature" :hint="temperatureHint">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.temperature" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" :placeholder="policy.isCloud ? 'Provider default' : 'Server default'" min="0" max="2" step="0.05" />
-        </template>
-      </FormField>
-      <FormField label="Timeout (min)" :hint="`Longest one run may take. ${globalBlankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.timeout_minutes" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="0" min="0" max="120" step="5" />
-        </template>
-      </FormField>
-      <FormField label="Tool call format" hint="How tool calls are written in the request. Auto: native for cloud, XML text for local GGUF models.">
-        <template #default="{ id, describedBy }">
-          <select :id="id" v-model="model.tool_call_format" :aria-describedby="describedBy" class="form-control">
-            <option value="">Auto (cloud: native · local: XML)</option>
-            <option value="native">Native tools</option>
-            <option value="xml">XML text</option>
-          </select>
-        </template>
-      </FormField>
-      <FormField label="Loop strategy" :hint="selectedLoopStrategyDescription">
-        <template #default="{ id, describedBy }">
-          <select :id="id" v-model="model.loop_strategy" :aria-describedby="describedBy" class="form-control">
-            <option value="">Provider default (ReAct)</option>
-            <option v-for="opt in loopStrategyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </template>
-      </FormField>
-      <FormField label="Prefill" hint="Starts each reply with a tool-call stub to steer the output format.">
-        <template #default="{ id, describedBy }">
-          <BaseToggle :id="id" :model-value="!!model.prefill" :described-by="describedBy" label="Prefill tool calls" @update:model-value="model.prefill = $event" />
-        </template>
-      </FormField>
-    </div>
+    <section class="flex flex-col gap-3" aria-label="Limits">
+      <MicroLabel>Limits</MicroLabel>
+      <p v-if="policy.isLocal" class="m-0 font-mono text-[length:var(--text-small)] text-secondary" data-test="derived-limits">
+        {{ derivedLimits }} <span class="font-sans text-muted">· set by the server</span>
+      </p>
+      <div v-else class="tuning-grid">
+        <FormField label="Max tokens" :hint="maxTokensHint">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.max_tokens" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="3072" min="64" />
+          </template>
+        </FormField>
+        <FormField label="Context budget (chars)" :hint="`Conversation history kept before older turns are truncated. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.context_budget" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="8000" min="1000" />
+          </template>
+        </FormField>
+        <FormField label="Reasoning budget" :hint="reasoningBudgetHint">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.reasoning_budget" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="0" min="0" />
+          </template>
+        </FormField>
+        <FormField v-if="policy.isCloud && reasoning?.toggleable" label="Enable thinking" :hint="reasoningHint">
+          <template #default="{ id, describedBy }">
+            <!-- Unset stays unset until toggled (nullable reasoning_enabled contract). -->
+            <BaseToggle :id="id" :model-value="!!model.reasoning_enabled" :described-by="describedBy" label="Provider reasoning" @update:model-value="model.reasoning_enabled = $event" />
+          </template>
+        </FormField>
+      </div>
+    </section>
 
-    <MicroLabel>{{ safetyLabel }}</MicroLabel>
-    <div class="tuning-grid">
-      <FormField label="Per-tool timeout (sec)" :hint="`Longest one tool call may take, except filesystem calls. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.tool_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="120" min="0" max="600" step="5" />
-        </template>
-      </FormField>
-      <FormField label="Filesystem timeout (sec)" :hint="`Longest one file read or write may take. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.filesystem_tool_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="30" min="0" max="300" step="5" />
-        </template>
-      </FormField>
-      <FormField label="Max plan duration (min)" :hint="`Wall-clock limit for a whole plan. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.max_plan_duration_minutes" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="15" min="0" max="120" step="5" />
-        </template>
-      </FormField>
-      <FormField label="Max plan steps" :hint="`Most steps one plan may contain. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.max_plan_steps" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="50" min="0" max="500" step="5" />
-        </template>
-      </FormField>
-      <FormField label="Guardrail timeout (sec)" :hint="`Longest a guardrail check may take. ${blankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.guardrail_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="5" min="0" max="60" step="1" />
-        </template>
-      </FormField>
-      <FormField label="Guardrail timeout behaviour" hint="What a timed-out guardrail check does with the tool call: allow it or reject it.">
-        <template #default="{ id, describedBy }">
-          <select :id="id" v-model="model.guardrail_timeout_behavior" :aria-describedby="describedBy" class="form-control">
-            <option value="fail-open">Fail open (allow)</option>
-            <option value="fail-closed">Fail closed (reject)</option>
-          </select>
-        </template>
-      </FormField>
-      <FormField label="Guardrail approval timeout (sec)" :hint="`How long a blocked call waits for your allow / deny. ${globalBlankHint}`">
-        <template #default="{ id, describedBy }">
-          <input :id="id" v-model.number="model.guardrail_approval_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="300" min="0" max="3600" step="5" />
-        </template>
-      </FormField>
-    </div>
+    <section class="flex flex-col gap-3" aria-label="The agent">
+      <MicroLabel>The agent</MicroLabel>
+      <div class="tuning-grid">
+        <FormField label="Max steps" :hint="`Most agent-loop iterations (tool-call rounds) in one run. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.max_steps" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="25" min="1" max="100" />
+          </template>
+        </FormField>
+        <FormField label="Temperature" :hint="temperatureHint">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.temperature" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" :placeholder="policy.isCloud ? 'Provider default' : 'Server default'" min="0" max="2" step="0.05" />
+          </template>
+        </FormField>
+        <FormField label="Loop strategy" :hint="selectedLoopStrategyDescription">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="loopStrategy" :aria-describedby="describedBy" class="form-control">
+              <option value="">Provider default (ReAct)</option>
+              <option v-for="opt in loopStrategyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField label="Prefill" hint="Starts each reply with a tool-call stub to steer the output format.">
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" :model-value="!!model.prefill" :described-by="describedBy" label="Prefill tool calls" @update:model-value="model.prefill = $event" />
+          </template>
+        </FormField>
+      </div>
+    </section>
+
+    <Disclosure v-model:open="moreOpen" title="Tool format, time limits and safety timeouts" :summary="foldedSummary">
+      <div class="tuning-grid">
+        <FormField label="Tool call format" hint="How tool calls are written in the request. Auto: native for cloud, XML text for local GGUF models.">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="toolCallFormat" :aria-describedby="describedBy" class="form-control">
+              <option value="">Auto (cloud: native · local: XML)</option>
+              <option value="native">Native tools</option>
+              <option value="xml">XML text</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField label="Timeout (min)" :hint="`Longest one run may take. ${globalBlankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.timeout_minutes" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="0" min="0" max="120" />
+          </template>
+        </FormField>
+      </div>
+      <MicroLabel>{{ safetyLabel }}</MicroLabel>
+      <div class="tuning-grid">
+        <FormField label="Per-tool timeout (sec)" :hint="`Longest one tool call may take, except filesystem calls. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.tool_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="120" min="0" max="600" />
+          </template>
+        </FormField>
+        <FormField label="Filesystem timeout (sec)" :hint="`Longest one file read or write may take. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.filesystem_tool_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="30" min="0" max="300" />
+          </template>
+        </FormField>
+        <FormField label="Max plan duration (min)" :hint="`Wall-clock limit for a whole plan. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.max_plan_duration_minutes" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="15" min="0" max="120" />
+          </template>
+        </FormField>
+        <FormField label="Max plan steps" :hint="`Most steps one plan may contain. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.max_plan_steps" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="50" min="0" max="500" />
+          </template>
+        </FormField>
+        <FormField label="Guardrail timeout (sec)" :hint="`Longest a guardrail check may take. ${blankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.guardrail_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="5" min="0" max="60" step="1" />
+          </template>
+        </FormField>
+        <FormField label="Guardrail timeout behaviour" hint="What a timed-out guardrail check does with the tool call: allow it or reject it.">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="guardrailBehavior" :aria-describedby="describedBy" class="form-control">
+              <option value="">Default (fail open)</option>
+              <option value="fail-open">Fail open (allow)</option>
+              <option value="fail-closed">Fail closed (reject)</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField label="Guardrail approval timeout (sec)" :hint="`How long a blocked call waits for your allow / deny. ${globalBlankHint}`">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="model.guardrail_approval_timeout_seconds" :aria-describedby="describedBy" type="number" class="form-control font-mono tabular-nums" placeholder="300" min="0" max="3600" />
+          </template>
+        </FormField>
+      </div>
+    </Disclosure>
   </div>
 </template>
 
 <style scoped lang="postcss">
 .tuning-grid {
-  @apply grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4;
+  @apply grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-4;
 }
 </style>

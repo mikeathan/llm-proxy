@@ -6,7 +6,7 @@ Reference for the [`automation`](../SKILL.md) skill, loaded on demand. You are c
 
 Every agent run — chat and automation — is admitted through `internal/core/runlane`
 before executing (SPEC-007 §V). Two workload-class lanes: `local` (default concurrency 1)
-and `cloud` (default 3), configured in Settings → Local (`settings.yml → scheduler:`) and
+and `cloud` (default 3), configured in Models › Routing (`settings.yml → scheduler:`) and
 applied live via the settings `OnChange` hook.
 
 - **Queue, never drop** — an automation that cannot start queues FIFO

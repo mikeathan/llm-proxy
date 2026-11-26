@@ -2,7 +2,9 @@
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'appearance' | 'runs' | 'memory' | 'storage' | 'limits' | 'local-models' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search' | 'agents' | 'sign-in'
+// The sections of Settings. Everything about models (the models, providers and keys, the local engine, routing and the model
+// processes) is on the Models page (Constitution III.8 as amended 2026-11-26).
+export type SettingsTab = 'appearance' | 'memory' | 'storage' | 'limits' | 'guardrails' | 'security' | 'communication' | 'search' | 'agents' | 'sign-in'
 
 export interface APIKeyItem {
   id: string
@@ -23,11 +25,11 @@ export interface ConnectorForm {
 }
 
 // The Settings tabs, in order. Each holds one or more Settings sections (routes).
-export const SETTINGS_GROUP_IDS = ['general', 'models', 'safety', 'connectors', 'appearance', 'system'] as const
+export const SETTINGS_GROUP_IDS = ['general', 'safety', 'connectors', 'appearance'] as const
 export type SettingsGroupId = (typeof SETTINGS_GROUP_IDS)[number]
 
 // The panels of Settings · General (each belongs to one of its sections, constants/settings.ts).
-export const GENERAL_PANELS = ['routing', 'engine', 'lifecycle', 'gpu', 'scheduler', 'external', 'memory', 'reminders', 'storage', 'logging'] as const
+export const GENERAL_PANELS = ['memory', 'reminders', 'storage', 'logging'] as const
 export type GeneralPanel = (typeof GENERAL_PANELS)[number]
 
 // One Settings tab: its sections are the `/settings/<section>` routes it covers.

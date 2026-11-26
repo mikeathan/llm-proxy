@@ -51,15 +51,17 @@ When adding a prompt:
 
 ## Adding a Frontend Settings Tab Checklist
 
-1. Add tab name to `SettingsTab` type in `frontend/src/types/admin.ts`
-2. Add the label in `frontend/src/constants/providers.ts` (the tabs and section row show labels only)
-3. If the tab is NOT a cloud provider, add exclusion to `isProviderTab()` in `frontend/src/domain/settings.ts`
-4. Put the section under one of the six Settings tabs in `SETTINGS_GROUP_SECTIONS` (`frontend/src/constants/settings.ts`), and add it to the fixed list in `settingsTabs` (`frontend/src/composables/models/useProviders.ts`) — a section missing there renders "not found" (the test "lists every fixed Settings section" catches it); cloud providers are the exception — they are discovered at runtime and `getSettingsTabGroups()` lists them under Models
-5. Create the settings component in `frontend/src/components/settings/`, built from `Panel` sections and `FormField` controls
-6. Import the component in `frontend/src/views/SettingsView.vue` and add a `v-show="activeTab === 'your-tab'"` block (sections stay mounted, so edits survive switching category)
-7. If it edits the shared configuration, end the section with `SettingsActions` bound to `useConfig().isDirty` (Discard / Save). A draft of its own (secrets, host settings) emits `dirty-change` so the page's single unsaved-change guard covers it
-8. Run `npm run build` — TS errors will catch any missing icon/label entries
-9. The tab is a route section (`/settings/<tab>`) automatically — an unknown section renders the in-shell not-found page. Link to it with `toSettings('<tab>')` from `frontend/src/router/routes.ts`, never a hand-built path
+Anything about models (a model, a provider and its keys, the local engine, routing) is not a Settings section: it goes on the Models page
+(`frontend/src/views/ModelsView.vue`, its tabs in `MODELS_TABS`; Constitution III.8, ADR-0090).
+
+1. Add the section name to the `SettingsTab` type in `frontend/src/types/admin.ts`
+2. Add its label to `SETTINGS_SECTION_LABELS` in `frontend/src/constants/settings.ts` (typed by `SettingsTab`, so a missing label fails the build)
+3. Put the section under one of the four Settings tabs in `SETTINGS_GROUP_SECTIONS` (same file); `isSettingsSection` (`frontend/src/domain/settings.ts`) reads that list, so a section missing there renders "not found"
+4. Create the settings component in `frontend/src/components/settings/`, built from `Panel` sections and `FormField` controls
+5. Import the component in `frontend/src/views/SettingsView.vue` and add a `v-show="activeTab === 'your-tab'"` block (sections stay mounted, so edits survive switching category)
+6. If it edits the shared configuration, end the section with `SettingsActions` bound to `useConfig().isDirty` (Discard / Save). A draft of its own (secrets, host settings) emits `dirty-change` so the page's single unsaved-change guard covers it
+7. Run `npm run build` — TS errors will catch any missing icon/label entries
+8. The tab is a route section (`/settings/<tab>`) automatically — an unknown section renders the in-shell not-found page. Link to it with `toSettings('<tab>')` from `frontend/src/router/routes.ts`, never a hand-built path
 
 ## Adding a Stack Checklist
 

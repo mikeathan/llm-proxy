@@ -191,7 +191,7 @@ Decisions from the research report §9:
   validated, 400). They sit in the existing `agent:` block, not under `scheduler`, so no new section plumbing was
   needed. Bootstrap sets `subRunner` after copying the services, so the runner's own copy has none (depth 1).
 - **B6.**
-  - Settings → Runs: Helper model (cloud models only, Off by default) and Helpers at once.
+  - Models › Routing (Settings → Runs before v0.142.0): Helper model (cloud models only, Off by default) and Helpers at once.
   - Chat: helper lines under the delegate step, a "N helpers" footer with per-helper tokens in the tooltip, and the
     "Asked helpers" step wording.
 - **B8.** SPEC-001 1.12 §15, SPEC-012 1.2, SPEC-007 1.19 §V, architecture map + pitfall 60.

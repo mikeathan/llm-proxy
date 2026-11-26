@@ -18,14 +18,14 @@ export const HELPERS_ON_SUFFIX = 'helpers'
 export function helpersHint(model: string): string {
   return `Splits the question into parts and hands each to a helper on ${model}, which searches the web in parallel. Only what your assistant writes into the tasks leaves this machine.`
 }
-// The row's help text and its link to Settings → Runs, by what is wrong with the helper model (or nothing: it can run).
+// The row's help text and its link to Models › Routing, by what is wrong with the helper model (or nothing: it can run).
 // A model removed from the models is told apart from one that is not a cloud model, so the fix named is the right one.
 export function helpersHelp(problem: HelpersProblem, model: string): { hint: string; link: string } {
   switch (problem) {
-    case 'missing': return { hint: `The Helper model ${model} is no longer in your models.`, link: 'Pick another in Settings → Runs' }
-    case 'not_cloud': return { hint: `The Helper model ${model} is not a cloud model, so it cannot run helpers.`, link: 'Pick a cloud model in Settings → Runs' }
-    case 'unset': return { hint: 'Helpers run on a cloud model, and none is chosen yet.', link: 'Pick a Helper model in Settings → Runs' }
-    default: return { hint: helpersHint(model), link: 'Change the Helper model in Settings → Runs' }
+    case 'missing': return { hint: `The Helper model ${model} is no longer in your models.`, link: 'Pick another in Models › Routing' }
+    case 'not_cloud': return { hint: `The Helper model ${model} is not a cloud model, so it cannot run helpers.`, link: 'Pick a cloud model in Models › Routing' }
+    case 'unset': return { hint: 'Helpers run on a cloud model, and none is chosen yet.', link: 'Pick a Helper model in Models › Routing' }
+    default: return { hint: helpersHint(model), link: 'Change the Helper model in Models › Routing' }
   }
 }
 export const HELPER_MODEL_UNAVAILABLE_SUFFIX = ' (not available)'

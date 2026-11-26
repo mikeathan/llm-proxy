@@ -4,20 +4,17 @@ import GlobalSettings from '../../../components/settings/GlobalSettings.vue'
 import { DEFAULT_CONFIG } from '../../../composables/models/useConfig'
 import { fieldByLabel } from '../../helpers/fieldByLabel'
 import type { GlobalConfig, SettingsTab } from '../../../types/admin'
-import type { Model } from '../../../types/model'
 
 vi.mock('../../../services/admin/adminService', () => ({ AdminApiService: { storage: vi.fn(() => new Promise(() => {})) } }))
 
-const MODELS = [{ name: 'qwen', provider: 'local' }, { name: 'gpt', provider: 'openai' }] as Model[]
-
 // VTU's emitted() does not record script-setup emits in this harness, so the
 // listener callbacks are the component's observable contract.
-function mountGlobal(overrides: Partial<GlobalConfig> = {}, section: SettingsTab = 'local') {
+function mountGlobal(overrides: Partial<GlobalConfig> = {}, section: SettingsTab = 'memory') {
   const onUpdate = vi.fn()
   const onSave = vi.fn()
   const onLogLevel = vi.fn()
   const w = mount(GlobalSettings, {
-    props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', models: MODELS, section },
+    props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', section },
     attrs: { 'onUpdate:editConfig': onUpdate, onUpdateConfig: onSave, onUpdateLogLevel: onLogLevel },
     global: { stubs: { Icon: true } },
   })
@@ -25,24 +22,12 @@ function mountGlobal(overrides: Partial<GlobalConfig> = {}, section: SettingsTab
   return { w, onUpdate, onSave, onLogLevel, last }
 }
 
-const SCHEDULER_DEFAULTS = {
-  local_concurrency: 1,
-  cloud_concurrency: 3,
-  preempt_automations: true,
-  inbound_wait_seconds: 60,
-  inbound_wait_by_default: false,
-  inbound_max_queued: 32,
-  inbound_preempt: false,
-}
-
-// General is four short sections (plan frontend-redesign-v2): each shows only its own panels, all stay mounted.
+// General's sections each show only their own panels, all stay mounted. The model panels are on the Models page.
 describe('GlobalSettings sections', () => {
   const visiblePanels = (w: ReturnType<typeof mountGlobal>['w']) =>
     w.findAll('section').filter((p) => !p.attributes('style')?.includes('display: none')).map((p) => p.get('h2').text().replace(/^\d+\s*—?\s*/, '').toLowerCase())
 
   it.each([
-    ['local', ['routing', 'local engine', 'model lifecycle', 'gpu metrics']],
-    ['runs', ['run scheduler', 'external requests']],
     ['memory', ['memory', 'reminders']],
     ['storage', ['workspace storage', 'what is stored', 'logging']],
   ] as const)('%s shows only its panels', (section, titles) => {
@@ -50,8 +35,8 @@ describe('GlobalSettings sections', () => {
   })
 
   it('keeps every panel in the page, so an edit survives moving between sections', () => {
-    const { w } = mountGlobal({}, 'runs')
-    expect(w.findAll('section')).toHaveLength(10)
+    const { w } = mountGlobal({}, 'memory')
+    expect(w.findAll('section')).toHaveLength(4)
   })
 })
 
@@ -70,50 +55,7 @@ describe('GlobalSettings run logging', () => {
   })
 })
 
-// A tool result (a file, a page, search hits) keeps more text when the window has room, and never less than 3000 characters:
-// the switch is on unless the saved config says otherwise, and turning it off is saved as an explicit false.
-describe('GlobalSettings tool result size', () => {
-  const toggle = (w: ReturnType<typeof mountGlobal>['w']) =>
-    w.findAll('input[type="checkbox"]').find((t) => /tool results/i.test(t.element.closest('label')?.textContent ?? ''))!
-
-  it('is on when the config says nothing', () => {
-    const { w } = mountGlobal({}, 'runs')
-    expect((toggle(w).element as HTMLInputElement).checked).toBe(true)
-    expect(w.text()).toContain('never less than 3000 characters')
-  })
-
-  it('reflects a saved off', () => {
-    const { w } = mountGlobal({ agent: { adaptive_result_cap: false } }, 'runs')
-    expect((toggle(w).element as HTMLInputElement).checked).toBe(false)
-  })
-
-  it('saves an explicit false and an explicit true', async () => {
-    // The switch shows what the parent holds, so each direction starts from its own mount.
-    const on = mountGlobal({}, 'runs')
-    await toggle(on.w).setValue(false)
-    expect(on.last().agent).toEqual({ adaptive_result_cap: false })
-    const off = mountGlobal({ agent: { adaptive_result_cap: false } }, 'runs')
-    await toggle(off.w).setValue(true)
-    expect(off.last().agent).toEqual({ adaptive_result_cap: true })
-  })
-})
-
 describe('GlobalSettings', () => {
-  it('offers every configured model for primary and fallback routing', () => {
-    const { w } = mountGlobal()
-    const primary = fieldByLabel(w, /primary/i)
-    expect(primary.findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'qwen', 'gpt'])
-    expect(fieldByLabel(w, /fallback/i).findAll('option')).toHaveLength(3)
-  })
-
-  it('writes the scheduler whole, seeded with defaults, and clamps counts to at least one', async () => {
-    const { w, last } = mountGlobal()
-    await fieldByLabel(w, /local runs/i).setValue('0')
-    expect(last().scheduler).toEqual({ ...SCHEDULER_DEFAULTS, local_concurrency: 1 })
-    await fieldByLabel(w, /cloud runs/i).setValue('5')
-    expect(last().scheduler?.cloud_concurrency).toBe(5)
-  })
-
   it('writes the memory defaults as a pair, starting from assistant on and automations off', async () => {
     // The parent owns the config, so each interaction starts from the props as mounted.
     const { w, last } = mountGlobal()
@@ -125,44 +67,14 @@ describe('GlobalSettings', () => {
     expect(last().memory).toEqual({ assistant_hot: true, automation_hot: true })
   })
 
-  it('clamps the inbound wait at -1 (no limit)', async () => {
-    const { w, last } = mountGlobal()
-    await fieldByLabel(w, /wait up to/i).setValue('-5')
-    expect(last().scheduler?.inbound_wait_seconds).toBe(-1)
-  })
-
-  it('splits default arguments into an argument list', async () => {
-    const { w, last } = mountGlobal()
-    await fieldByLabel(w, /default arguments/i).setValue('--ctx-size 4096 --flash-attn')
-    expect(last().providers?.local?.default_args).toEqual(['--ctx-size', '4096', '--flash-attn'])
-  })
-
-  it('commits environment variables on blur, not on every keystroke', async () => {
-    const { w, onUpdate, last } = mountGlobal()
-    const env = fieldByLabel(w, /environment variables/i)
-    await env.setValue('A=1\nB=2')
-    expect(onUpdate).not.toHaveBeenCalled()
-    await env.trigger('blur')
-    expect(last().providers?.local?.environment).toEqual({ A: '1', B: '2' })
-  })
-
-  it('shows only the GPU fields the chosen provider uses', () => {
-    const labels = (gpu: string) => mountGlobal({ gpu_provider: gpu }).w.findAll('label').map((l) => l.text()).join('|')
-    expect(labels('macos')).not.toMatch(/gpu index/i)
-    expect(labels('nvidia')).toMatch(/gpu index/i)
-    expect(labels('nvidia')).toMatch(/tool binary/i)
-    expect(labels('sysfs')).toMatch(/sysfs device path/i)
-    expect(labels('sysfs')).not.toMatch(/tool binary/i)
-  })
-
   it('turns run logging on', async () => {
-    const { w, last } = mountGlobal({ run_logging: { enabled: false } })
+    const { w, last } = mountGlobal({ run_logging: { enabled: false } }, 'storage')
     await fieldByLabel(w, /run logging/i).setValue(true)
     expect(last().run_logging?.enabled).toBe(true)
   })
 
   it('changes the log level on the spot', async () => {
-    const { w, onLogLevel } = mountGlobal()
+    const { w, onLogLevel } = mountGlobal({}, 'storage')
     await w.findAll('button').find((b) => /^debug$/i.test(b.text()))!.trigger('click')
     expect(onLogLevel).toHaveBeenCalledWith('DEBUG')
   })
@@ -237,55 +149,5 @@ describe('GlobalSettings', () => {
       await button!.trigger('click')
       expect(last().reminders?.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
     })
-  })
-})
-
-// Helpers (sub-agents) run on a cloud model only, so the picker offers cloud models and "Off"; the pool size rides
-// along in the same agent block, keeping the block's other settings.
-describe('GlobalSettings helpers', () => {
-  const WITH_CLASSES = [
-    { name: 'qwen', provider: 'local', workload_class: 'local' },
-    { name: 'gpt', provider: 'openai', workload_class: 'cloud' },
-  ] as Model[]
-  const mountHelpers = (overrides: Partial<GlobalConfig> = {}) => {
-    const onUpdate = vi.fn()
-    const w = mount(GlobalSettings, {
-      props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', models: WITH_CLASSES, section: 'runs' as SettingsTab },
-      attrs: { 'onUpdate:editConfig': onUpdate },
-      global: { stubs: { Icon: true } },
-    })
-    return { w, last: (): GlobalConfig => onUpdate.mock.lastCall![0] }
-  }
-
-  it('offers only cloud models, and off by default', () => {
-    const { w } = mountHelpers()
-    const select = fieldByLabel(w, /Helper model/)
-    const options = select.findAll('option').map((o) => o.text())
-    expect(options.some((o) => o.startsWith('gpt'))).toBe(true)
-    expect(options.some((o) => o.startsWith('qwen'))).toBe(false)
-    expect((select.element as HTMLSelectElement).value).toBe('')
-  })
-
-  // A Helper model removed from the models (or one that is not a cloud model) still shows, flagged, so the user sees
-  // what is set and what to change, not a blank box.
-  it('shows a helper model that is no longer available, flagged, and keeps it selected', () => {
-    const { w } = mountHelpers({ agent: { subagent_model: 'gone-m' } })
-    const select = fieldByLabel(w, /Helper model/)
-    const options = select.findAll('option').map((o) => o.text())
-    expect(options).toContain('gone-m (not available)')
-    expect((select.element as HTMLSelectElement).value).toBe('gone-m')
-  })
-
-  it('shows no flagged option when the helper model is available or off', () => {
-    expect(fieldByLabel(mountHelpers({ agent: { subagent_model: 'gpt' } }).w, /Helper model/).findAll('option').map((o) => o.text()).join('|')).not.toContain('not available')
-    expect(fieldByLabel(mountHelpers().w, /Helper model/).findAll('option').map((o) => o.text()).join('|')).not.toContain('not available')
-  })
-
-  it('saves the helper model and pool size beside the other agent settings', async () => {
-    const { w, last } = mountHelpers({ agent: { adaptive_result_cap: false } })
-    await fieldByLabel(w, /Helper model/).setValue('gpt')
-    expect(last().agent).toEqual({ adaptive_result_cap: false, subagent_model: 'gpt' })
-    await fieldByLabel(w, /Helpers at once/).setValue('2')
-    expect(last().agent?.subagent_concurrency).toBe(2)
   })
 })

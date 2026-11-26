@@ -66,7 +66,7 @@ const SPECS: readonly NavSpec[] = [
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: false, group: 'stacks', stack: 'reminders', to: () => toReminders(), current: onDestination('reminders') },
   { id: 'newsroom', label: 'Newsroom', icon: 'nav-newsroom', tab: false, group: 'stacks', stack: 'newsroom', to: () => toNewsroom(), current: onDestination('newsroom') },
   { id: 'stacks', label: 'Add a stack', icon: 'nav-stacks', tab: false, group: 'stacks', to: () => toStacks(), current: onDestination('stacks') },
-  { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
+  { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: () => toModels(), current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },
   { id: 'settings', label: 'Settings', icon: 'nav-settings', tab: false, to: () => toSettings(), current: onDestination('settings') },
 ]

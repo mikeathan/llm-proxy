@@ -12,7 +12,6 @@ import type { ModelForm } from '../../types/model'
 import type { APIKeyItem, ProviderType } from '../../types/admin'
 import type { AvailableModel, Model, ProviderModelInfo, WorkloadClass } from '../../types/model'
 import { DEFAULT_CONFIG } from '../models/useConfig'
-import { motionScroll } from '../../utils/motion'
 
 // Numeric per-model tuning fields where a stored 0 means "unset = default".
 // Port, strings and booleans are deliberately not listed.
@@ -88,32 +87,6 @@ export function useProviderModels(
     if (!filterText.value) return providerModels.value
     const q = filterText.value.toLowerCase()
     return providerModels.value.filter((m) => m.id.toLowerCase().includes(q))
-  })
-
-  const groupsByKey = computed(() => {
-    const groups: { keyName: string; models: Model[] }[] = []
-    if (props.provider === 'local') {
-      const localModels = props.models.filter(m => m.provider === 'local')
-      if (localModels.length > 0) {
-        groups.push({ keyName: 'Local Models', models: localModels })
-      }
-      return groups
-    }
-    for (const key of props.apiKeys) {
-      groups.push({
-        keyName: key.name,
-        models: props.models.filter(m => m.provider === props.provider && m.provider_config?.api_key_name === key.name),
-      })
-    }
-    const noKeyModels = props.models.filter(m => {
-      if (m.provider !== props.provider) return false
-      const keyName = m.provider_config?.api_key_name
-      return !keyName || !props.apiKeys.some(k => k.name === keyName)
-    })
-    if (noKeyModels.length > 0) {
-      groups.push({ keyName: '', models: noKeyModels })
-    }
-    return groups
   })
 
   watch(
@@ -207,7 +180,6 @@ export function useProviderModels(
   function scanAndAdd(keyName: string) {
     startAdd()
     modelForm.value.key = keyName
-    window.scrollTo({ top: 0, behavior: motionScroll('smooth') })
   }
 
   function cancelEdit() {
@@ -308,20 +280,6 @@ export function useProviderModels(
       prefill: modelForm.value.prefill,
       provider_config: { api_key_name: '' },
     }
-    window.scrollTo({ top: 0, behavior: motionScroll('smooth') })
-  }
-
-  async function handleClearAll() {
-    const confirmed = await confirm({
-      title: 'Clear All Models',
-      message: `Are you sure you want to remove ALL models for ${props.provider}? This cannot be undone.`,
-      type: 'error',
-      confirmText: 'Clear All',
-      cancelText: 'Cancel',
-    })
-    if (!confirmed) return
-    await removeAllModels(props.provider)
-    emit('refresh')
   }
 
   const editingArgsStr = computed({
@@ -391,7 +349,6 @@ export function useProviderModels(
     agentDefaults,
     loopStrategyOptions,
     filteredProviderModels,
-    groupsByKey,
     alreadyConfiguredFilenames,
     editingArgsStr,
     discoveredPath,
@@ -402,7 +359,6 @@ export function useProviderModels(
     cancelEdit,
     saveNewModel,
     addDiscoveredModel,
-    handleClearAll,
     handleEdit,
     saveEdit,
     handleRemove,

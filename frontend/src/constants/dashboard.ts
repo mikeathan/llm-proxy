@@ -89,7 +89,9 @@ export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; boar
   agents: { text: 'What the agents did, and where they fetched from, is on the dashboard.', link: 'Open the Agents board', board: 'agents' },
   radio: { text: 'The radar, your devices, your networks and what changed are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
   newsroom: { text: 'The brief and the feed are read on the dashboard.', link: 'Open the Newsroom tab', board: NEWSROOM_BRIEF_BOARD },
-}/** The Network sub-tab (board) each Network card is on, so a link to a card opens the board that holds it. */
+  models: { text: 'The running model, calls and speed are on the dashboard.', link: 'Open the LLM and host tab', board: 'host' },
+}
+/** The Network sub-tab (board) each Network card is on, so a link to a card opens the board that holds it. */
 export const NETWORK_CARD_BOARD: Readonly<Record<string, string>> = {
   'network-overview': 'network',
   'network-devices': 'network-devices',

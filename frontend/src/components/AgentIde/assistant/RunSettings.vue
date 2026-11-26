@@ -8,7 +8,7 @@ import SelectInput from "../../common/forms/SelectInput.vue"
 import PopoverPanel from "../../common/layout/PopoverPanel.vue"
 import BaseToggle from "../../common/buttons/BaseToggle.vue"
 import { AGENT_LABEL, HELPERS_FIELD_LABEL, HELPERS_ON_SUFFIX, HELPERS_TOGGLE_LABEL, helpersHelp } from "../../../constants/labels"
-import { toSettings } from "../../../router/routes"
+import { toModels } from "../../../router/routes"
 import type { HelpersProblem } from "../../../types/helpers"
 
 // What the next message runs with, in one control beside the composer's tools: the profile (how the assistant
@@ -90,7 +90,7 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} agent${mo
             <BaseToggle :id="id" v-model="helpers" :described-by="describedBy" :label="HELPERS_TOGGLE_LABEL" :disabled="!helpersAvailable" />
           </template>
         </FormField>
-        <RouterLink v-if="helpersShown" :to="toSettings('runs')" class="helpers-link">{{ helpersHelpText.link }}</RouterLink>
+        <RouterLink v-if="helpersShown" :to="toModels('routing')" class="helpers-link">{{ helpersHelpText.link }}</RouterLink>
       </div>
     </PopoverPanel>
     </div>

@@ -102,7 +102,7 @@ describe('WorkspaceSwitcher', () => {
   })
 
   it('says "All workspaces" where the page is not about one, and offers no choice', async () => {
-    const { w } = await mountAt('/settings/local')
+    const { w } = await mountAt('/settings/memory')
     expect(w.text()).toContain('All workspaces')
     expect(w.find('button[aria-haspopup="menu"]').exists()).toBe(false)
   })

@@ -25,11 +25,24 @@ function mountTuning(workloadClass: WorkloadClass, reasoning?: ReasoningCapabili
 }
 
 describe('ModelTuningFields', () => {
-  it('derives the context budget and output cap for local models (read-only)', () => {
-    const { w } = mountTuning('local')
-    expect(fieldByLabel(w, /context budget/i).attributes('readonly')).toBeDefined()
-    expect(fieldByLabel(w, /max tokens/i).attributes('readonly')).toBeDefined()
-    expect(w.text()).toMatch(/derived/i)
+  // A local model's output cap, reasoning budget and context budget are set by the server (it clears submitted ones), so they are one
+  // sentence, never inputs: nothing there can block Save (pitfall 78).
+  it('shows the limits the server sets for a local model as a sentence, with no inputs', () => {
+    const { w } = mountTuning('local', undefined, { max_tokens: 87381, reasoning_budget: 29127, context_budget: 699052 })
+    const text = w.get('[data-test="derived-limits"]').text()
+    expect(text).toContain('Output up to 87.4K tokens')
+    expect(text).toContain('thinking 29.1K')
+    expect(text).toContain('history 699.1K characters')
+    expect(text).toContain('set by the server')
+    for (const label of [/max tokens/i, /context budget/i, /reasoning budget/i]) expect(() => fieldByLabel(w, label)).toThrow()
+  })
+
+  it('says a new local model gets its limits when it is saved', () => {
+    expect(mountTuning('local').w.get('[data-test="derived-limits"]').text()).toContain('when it is saved')
+  })
+
+  it('lets a cloud model set its reasoning budget', () => {
+    expect(fieldByLabel(mountTuning('cloud').w, /reasoning budget/i).attributes('readonly')).toBeUndefined()
   })
 
   it('lets cloud models set the context budget and output cap', async () => {
@@ -51,6 +64,49 @@ describe('ModelTuningFields', () => {
     const select = fieldByLabel(w, /loop strategy/i)
     expect(select.findAll('option').map((o) => o.text())).toEqual(['Provider default (ReAct)', 'ReAct', 'Plan first'])
     expect(w.text()).toContain(loopStrategyDescription('plan_execute'))
+  })
+
+  // A cloud model's limits are prefilled by the server, so the browser's own step and range checks must accept them: one that does not
+  // blocks Save with "Please select a valid value" (29127 is 87381 / 3, not a multiple of 128).
+  it('accepts the values the server fills in, so Save is not blocked', () => {
+    for (const workload of ['cloud', ''] as WorkloadClass[]) {
+      // Values the server derived for real models: n_ctx 262144 (Qwen), 1048576 (Inkling) and a cloud cap.
+      for (const values of [
+        { max_tokens: 87381, reasoning_budget: 29127, context_budget: 699052 },
+        { max_tokens: 349525, reasoning_budget: 116508, context_budget: 2796204 },
+        { max_tokens: 5461, reasoning_budget: 1820, context_budget: 43692 },
+      ]) {
+        const { w } = mountTuning(workload, undefined, values)
+        for (const label of [/max tokens/i, /reasoning budget/i, /context budget/i]) {
+          const input = fieldByLabel(w, label).element as HTMLInputElement
+          expect(input.validity.valid, `${workload} ${label} ${input.value}`).toBe(true)
+        }
+        w.unmount()
+      }
+    }
+  })
+
+  // Grouping folded the rarely changed fields away; every one must still be there to find and change.
+  it('keeps every tuning field reachable, the folded ones included', () => {
+    const ALWAYS = [/^max steps/i, /^temperature/i, /loop strategy/i, /prefill/i, /tool call format/i, /^timeout \(min\)/i, /per-tool timeout/i, /filesystem timeout/i, /max plan duration/i, /max plan steps/i, /guardrail timeout \(sec\)/i, /guardrail timeout behavio/i, /guardrail approval timeout/i]
+    const CLOUD_ONLY = [/^max tokens/i, /context budget/i, /reasoning budget/i]
+    const local = mountTuning('local').w
+    for (const label of ALWAYS) expect(() => fieldByLabel(local, label), String(label)).not.toThrow()
+    const cloud = mountTuning('cloud').w
+    for (const label of [...ALWAYS, ...CLOUD_ONLY]) expect(() => fieldByLabel(cloud, label), String(label)).not.toThrow()
+  })
+
+  it('says how many of the folded settings are set', () => {
+    expect(mountTuning('cloud').w.text()).toContain('all default')
+    expect(mountTuning('cloud', undefined, { timeout_minutes: 30, guardrail_timeout_behavior: 'fail-closed' }).w.text()).toContain('2 set')
+  })
+
+  // An unset select showed as a blank box; it shows its default option instead.
+  it('shows the default option of a select whose field is unset', () => {
+    const { w } = mountTuning('local')
+    expect((fieldByLabel(w, /loop strategy/i).element as HTMLSelectElement).selectedOptions[0]?.text).toBe('Provider default (ReAct)')
+    expect((fieldByLabel(w, /tool call format/i).element as HTMLSelectElement).selectedOptions[0]?.text).toBe('Auto (cloud: native · local: XML)')
+    expect((fieldByLabel(w, /guardrail timeout behavio/i).element as HTMLSelectElement).selectedOptions[0]?.text).toBe('Default (fail open)')
   })
 
   it('writes safety timeouts to the draft', async () => {

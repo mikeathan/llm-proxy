@@ -306,7 +306,7 @@ func (s *Service) acquireClient(ctx context.Context, log logging.Logger, req *Re
 	log.Error("get LLM client failed", "error", err)
 	// An actionable message when no model is selected, so the user gets a clear next step instead of a silent failure.
 	if primary, _ := s.deps.SelectModels(); primary == "" {
-		return nil, errors.New("No primary model is configured. Add and select a model in Settings → Providers, then retry.")
+		return nil, errors.New("No primary model is configured. Add a model on the Models page and choose it as the primary in Models › Routing, then retry.")
 	}
 	return nil, errors.New("failed to get LLM client")
 }

@@ -7,7 +7,7 @@ import { useSettingsSection } from '../../../composables/settings/useSettingsSec
 import { ROUTE_NAMES } from '../../../types/routes'
 import type { SettingsTab } from '../../../types/admin'
 
-const KNOWN: SettingsTab[] = ['local', 'search']
+const KNOWN: SettingsTab[] = ['agents', 'search']
 
 async function setup(path: string, loaded = true) {
   const router = createAppRouter(createMemoryHistory())
@@ -25,8 +25,8 @@ async function setup(path: string, loaded = true) {
 }
 
 describe('useSettingsSection', () => {
-  it('reads the section from the route, defaulting to local', async () => {
-    expect((await setup('/settings')).section().activeTab.value).toBe('local')
+  it('reads the section from the route, defaulting to the first (Agents)', async () => {
+    expect((await setup('/settings')).section().activeTab.value).toBe('agents')
     expect((await setup('/settings/search')).section().activeTab.value).toBe('search')
   })
 

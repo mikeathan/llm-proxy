@@ -83,7 +83,7 @@ export interface DashboardTab {
 export type DashboardCardSize = 'xs' | 'sm' | 'lg'
 
 /** The lines on stack pages that point to the dashboard: a stack's board, or one card of it. */
-export type BoardHintKey = 'network' | 'radio' | 'agents' | 'newsroom'
+export type BoardHintKey = 'network' | 'radio' | 'agents' | 'newsroom' | 'models'
 
 /** The layout choices that re-flow the cards of one board. */
 export type DashboardPreset = 'default' | 'compact' | 'two-columns' | 'one-column'

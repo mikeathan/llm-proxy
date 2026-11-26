@@ -160,7 +160,7 @@ take the window):
 - The floor is today's 3000, so no result is ever smaller; a model with no budget (`ContextBudget` 0) stays at 3000; each result takes
   half of what is left, so the caps shrink as the request fills and their total cannot reach the room.
 - Switch `agent.adaptive_result_cap` (default **on**: the floor means no result is worse than before, and the operator can turn it off
-  in Settings → Runs without a deploy); chat and automations; applies to the next run. This departs from this plan's first
+  in Models › Routing without a deploy, Settings → Runs before v0.142.0); chat and automations; applies to the next run. This departs from this plan's first
   "off by default" because the experiment above passed and the offline check below kept the five-city request unchanged.
 
 **Offline check (real sizes from today's recordings).** Base request 22.7k characters (10k messages + 12.8k tool schemas), sieve limit
