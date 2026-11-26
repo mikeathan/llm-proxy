@@ -17,7 +17,7 @@ Start here, then open only what the task needs.
 | **Decisions (why)** | [ADR-0004](../decisions/ADR-0004-explicit-primary-and-fallback-model.md) No model auto-bootstrap; explicit primary and fallback |
 | **Open plans (next)** | [`orchestrator/local-and-cloud-inference-performance.md`](../PLANS/orchestrator/local-and-cloud-inference-performance.md)<br>[`orchestrator/auto-model-router.md`](../PLANS/orchestrator/auto-model-router.md)<br>[`orchestrator/cost-and-savings-ledger.md`](../PLANS/orchestrator/cost-and-savings-ledger.md)<br>[`orchestrator/cloud-safety-threshold-decoupling.md`](../PLANS/orchestrator/cloud-safety-threshold-decoupling.md) |
 | **Learnings (tried before)** | [`learnings/orchestrator.md`](../learnings/orchestrator.md) — read before proposing an approach |
-| **Evidence (audits, evals)** | [`2026-10-09-local-prompt-cache.md`](../audits/2026-10-09-local-prompt-cache.md)<br>[`known-performance-findings.md`](../audits/known-performance-findings.md) |
+| **Evidence (audits, evals)** | [`2026-10-09-local-prompt-cache.md`](../audits/2026-10-09-local-prompt-cache.md)<br>[`known-performance-findings.md`](../audits/known-performance-findings.md)<br>[`2026-11-26-assistant-automations-service-review.md`](../audits/2026-11-26-assistant-automations-service-review.md) (B1–B5: model start/stop races, a log-level change restarts the model, opencode header) |
 | **Skills** | [`provider-integration`](../../.agents/skills/provider-integration/SKILL.md), [`llamacpp-setup`](../../.agents/skills/llamacpp-setup/SKILL.md) |
 | **Guides** | — |
 | **Archived plans** | [`ARCHIVE/orchestrator/`](../PLANS/ARCHIVE/orchestrator/); others by topic in [`ARCHIVE/README.md`](../PLANS/ARCHIVE/README.md) |
