@@ -13,8 +13,8 @@ the vertex steps below.
 
 ## Branch
 
-`assistant-calm-mobile`, from `origin/main` at `1a5306f7` (v0.144.0). Pushed with a pull request (the PR link is in
-the owner's report); not merged. One PR; merge order does not matter.
+`assistant-calm-mobile`, from `origin/main` at `1a5306f7` (v0.144.0). Pushed; pull request #318
+(https://github.com/mikeathan/llm-proxy/pull/318), not merged. One PR; merge order does not matter.
 
 ## Built
 
