@@ -27,10 +27,10 @@ const NotFoundView = () => import('../views/NotFoundView.vue')
 const LoginView = () => import('../views/LoginView.vue')
 const SetupView = () => import('../views/SetupView.vue')
 
-const WORKSPACES_META = { destination: 'workspaces', keepAlive: true, fullWidth: true, title: 'Workspaces' } as const
+const WORKSPACES_META = { destination: 'workspaces', keepAlive: true, title: 'Workspaces' } as const
 // The assistant is a Workspaces route (one kept-alive view), titled for what it is.
 const ASSISTANT_META = { ...WORKSPACES_META, title: 'Assistant' } as const
-const AUTOMATIONS_META = { destination: 'automations', fullWidth: true, title: 'Automations' } as const
+const AUTOMATIONS_META = { destination: 'automations', title: 'Automations' } as const
 const NETWORK_TAB_CARDS: Readonly<Record<string, string>> = { devices: 'network-devices', findings: 'network-findings', traffic: 'network-traffic', audits: 'network-audits' }
 const toBoardCard = (board: string, card: string, query: LocationQuery): RouteLocationRaw => ({ ...toDashboard(board, card), query: { ...query, board, card } })
 const NETWORK_TAB_PATTERN = NETWORK_TABS.join('|')
@@ -59,7 +59,7 @@ const devRoutes: RouteRecordRaw[] = import.meta.env.DEV
 export const routes: RouteRecordRaw[] = [
   // The app opens on the dashboard: its Home board mixes cards from every part of the system.
   { path: '/', redirect: () => homeLocation() },
-  { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: DashboardView, meta: { destination: 'dashboard', fullWidth: true, title: DASHBOARD_TITLE } },
+  { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: DashboardView, meta: { destination: 'dashboard', title: DASHBOARD_TITLE } },
 
   { path: '/workspaces', name: ROUTE_NAMES.workspaces, component: WorkspacesView, meta: WORKSPACES_META },
   {
@@ -86,13 +86,13 @@ export const routes: RouteRecordRaw[] = [
   { path: `/network/:tab(${Object.keys(NETWORK_TAB_CARDS).join('|')})`, redirect: (to) => toBoardCard(NETWORK_CARD_BOARD[NETWORK_TAB_CARDS[String(to.params.tab)]!]!, NETWORK_TAB_CARDS[String(to.params.tab)]!, to.query) },
   { path: '/radio/devices', redirect: (to) => toBoardCard('radio', 'radio-devices', to.query) },
   { path: '/radio/sensors', redirect: (to) => toBoardCard('radio', 'radio-sensors', to.query) },
-  { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', fullWidth: true, title: 'Network' } },
+  { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', title: 'Network' } },
   { path: '/stacks', name: ROUTE_NAMES.stacks, component: StacksView, meta: { destination: 'stacks', title: 'Stacks' } },
-  { path: `/agents/:tab(${AGENTS_TAB_PATTERN})?`, name: ROUTE_NAMES.agents, component: AgentsView, meta: { destination: 'agents', fullWidth: true, title: 'Agents' } },
-  { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', fullWidth: true, title: 'Radio' } },
+  { path: `/agents/:tab(${AGENTS_TAB_PATTERN})?`, name: ROUTE_NAMES.agents, component: AgentsView, meta: { destination: 'agents', title: 'Agents' } },
+  { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', title: 'Radio' } },
   // One device in full. Its own segment ("device"), so the tab pattern above never captures it.
-  { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', fullWidth: true, title: 'Radio device' } },
-  { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', fullWidth: true, title: 'Newsroom' } },
+  { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', title: 'Radio device' } },
+  { path: `/newsroom/:tab(${NEWSROOM_TAB_PATTERN})?`, name: ROUTE_NAMES.newsroom, component: NewsroomView, meta: { destination: 'newsroom', title: 'Newsroom' } },
   { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: `/models/:tab(${MODELS_TAB_PATTERN})?`, name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

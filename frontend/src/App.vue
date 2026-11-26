@@ -63,7 +63,8 @@ watch(
 // A phone keeps the content clear of the bottom bar (its height plus the home indicator).
 const BOTTOM_BAR_CLEARANCE = 'pb-[calc(3.5rem+env(safe-area-inset-bottom)+1rem)]'
 const contentClass = computed(() => [
-  route.meta.fullWidth ? 'w-full px-4 py-4 md:px-6 [counter-reset:section]' : 'mx-auto w-full max-w-[1120px] px-4 py-4 md:px-6 md:py-8 [counter-reset:section]',
+  // Every page uses the full width beside the menu; a view that needs a narrower column for a form caps it itself.
+  'w-full px-4 py-4 md:px-6 [counter-reset:section]',
   isMobile.value ? BOTTOM_BAR_CLEARANCE : '',
 ])
 
