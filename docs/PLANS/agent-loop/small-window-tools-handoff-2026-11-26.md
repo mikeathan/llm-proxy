@@ -47,7 +47,19 @@ window, and description text is tuned behaviour on every window (pitfall 57 show
 
 `go build ./...`, `go vet ./...`, `go test ./...` (120 packages ok), `go run ./tools/check-complexity/` (no new
 violations), `npm test` (3678 passed), `npm run build`, `npm run test:visual` (430 passed, 6 skipped),
-`./scripts/check-agent-harness.sh` (pass). **Not run:** a live chat on vertex.
+`./scripts/check-agent-harness.sh` (pass).
+
+**Live, 2026-11-26** (scratch backends of this branch and of origin/main on this Mac, reaching vertex's `/v1` through a loopback
+forwarder so the models classify as local; `scripts/prompt-eval.py` General cases P1–P7, terminal excluded, one run per cell):
+
+| Model (window) | main | branch | first-request prompt tokens main → branch |
+|---|---|---|---|
+| Qwen3.6 35B A3B (16384) | 7/7 | 7/7, same tool calls | ~5,870 → ~4,970 |
+| Inkling 2 Mini (8192) | 6/7 (P1 searched memory for "rust language") | 6/7 (P4: no reminder tool on a small window) | ~6,520 → ~3,830 |
+
+On the branch's P4 Inkling said it has no reminder tool and saved the reminder as an expiring memory instead. A scratch data
+folder has fewer tools than vertex (no network, radio or Newsroom stacks), so main's Inkling did not reproduce vertex's
+8724-token failure here. **Not run:** the deployed build on vertex itself.
 
 Measured by `TestFirstChatRequest_FitsAnEightKWindow`: a General chat's first request on 8k is 15,676 chars of the
 16,386 allowed at the default 3.0 chars/token (96%); at Inkling's observed 3.9 that is ~74%, leaving the conversation
@@ -68,6 +80,9 @@ about a quarter of the window. 8k stays tight: one large search result gets cut 
 ## Traps found
 
 - The default guardrail config switches search and fetch off, so a test built on a bare engine under-counts tools.
+- An OpenAI-compatible key pointing at another LAN machine (`http://vertex.local:4001/v1` or its IP) classifies the model as
+  cloud: only loopback, the model host and this machine's own IPs are local. Inkling then got max_tokens 1 on both builds
+  (pitfall 54's symptom, pre-existing). Live evals need a loopback forwarder to vertex.
 - `automation_journal` is in every mock tool list but only offered to journal automations.
 - The Models card's "context" figure is the GGUF training context, not the served window (unchanged here).
 - The small-window rule judges the context budget, not the raw window: a 16k model with a raised `max_tokens` would be
