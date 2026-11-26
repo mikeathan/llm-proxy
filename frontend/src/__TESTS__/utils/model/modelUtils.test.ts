@@ -4,6 +4,7 @@ import {
   loopStrategyDescription,
   getDefaultModelSettings,
   LOOP_STRATEGY_COPY,
+  uniqueModelName,
 } from '../../../utils/model/modelUtils'
 import type { AgentDefaults } from '../../../types/admin'
 import type { LoopStrategy } from '../../../types/model'
@@ -95,5 +96,21 @@ describe('getDefaultModelSettings', () => {
 
     const withOverride = getDefaultModelSettings('openai', agentDefaults({ guardrail_approval_timeout_seconds: 600 }))
     expect(withOverride.guardrail_approval_timeout_seconds).toBe(600)
+  })
+})
+
+describe('uniqueModelName', () => {
+  it('keeps a free name', () => {
+    expect(uniqueModelName('deepseek', 'nvidia', [{ name: 'qwen' }])).toBe('deepseek')
+  })
+  it('adds the provider when the same model id is already configured under another provider', () => {
+    expect(uniqueModelName('deepseek', 'nvidia', [{ name: 'deepseek' }])).toBe('deepseek-nvidia')
+  })
+  it('numbers the name when the provider suffix is taken too', () => {
+    const existing = [{ name: 'deepseek' }, { name: 'deepseek-nvidia' }]
+    expect(uniqueModelName('deepseek', 'nvidia', existing)).toBe('deepseek-nvidia-2')
+  })
+  it('leaves an empty name alone', () => {
+    expect(uniqueModelName('', 'nvidia', [{ name: '' }])).toBe('')
   })
 })

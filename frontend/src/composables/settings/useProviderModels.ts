@@ -4,6 +4,7 @@ import { useConfirm } from '../ui/useConfirm'
 import {
   getDefaultModelSettings,
   deriveModelName,
+  uniqueModelName,
   createEmptyModelForm,
   isLocalEndpoint,
   loopStrategyOptions as buildLoopStrategyOptions,
@@ -104,7 +105,7 @@ export function useProviderModels(
 
   watch(() => modelForm.value.id, (id) => {
     if (!id || !isAddingNew.value) return
-    const derived = deriveModelName(id)
+    const derived = uniqueModelName(deriveModelName(id), props.provider, state.value?.models ?? [])
     if (!modelForm.value.name || modelForm.value.name === lastDerivedName.value) {
       modelForm.value.name = derived
       lastDerivedName.value = derived
@@ -212,7 +213,7 @@ export function useProviderModels(
   async function saveNewModel() {
     const { name, key, id, filename, port, args, reasoning_enabled, ...rest } = modelForm.value
     const tuning = normaliseTuning(rest)
-    const finalName = name || deriveModelName(id, filename)
+    const finalName = name || uniqueModelName(deriveModelName(id, filename), props.provider, state.value?.models ?? [])
     if (props.provider === 'local') {
       if (!filename) return
       const picked = discovered.value?.filename === filename ? discovered.value.path : ''

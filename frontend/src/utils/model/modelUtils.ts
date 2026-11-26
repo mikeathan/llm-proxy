@@ -141,6 +141,22 @@ export function deriveModelName(modelId?: string, filename?: string): string {
 }
 
 /**
+ * Makes a derived model name unique among the configured models. Models are keyed by name, so the same model id
+ * added under a second provider (deepseek on OpenCode, then on NVIDIA) would be refused as "already exists":
+ * the second one takes the provider as a suffix instead, then a number if that is taken too.
+ */
+export function uniqueModelName(name: string, provider: string, existing: { name: string }[]): string {
+  if (!name) return name;
+  const taken = new Set(existing.map((m) => m.name));
+  if (!taken.has(name)) return name;
+  const withProvider = `${name}-${provider}`;
+  if (!taken.has(withProvider)) return withProvider;
+  let n = 2;
+  while (taken.has(`${withProvider}-${n}`)) n++;
+  return `${withProvider}-${n}`;
+}
+
+/**
  * Creates a fresh model form object with provider-specific defaults.
  */
 export function createEmptyModelForm(
