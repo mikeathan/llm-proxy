@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/models"
@@ -160,7 +161,7 @@ func llamaCppModelMeta(m models.ModelConfig) openAIModelMeta {
 	servingCtx := 0
 	if m.Metadata != nil && m.Metadata.Nctx > 0 {
 		servingCtx = m.Metadata.Nctx
-	} else if ctx := servingCtxFromArgs(m.Args); ctx > 0 {
+	} else if ctx := orchestrator.ServingContextFromArgs(m.Args); ctx > 0 {
 		servingCtx = ctx
 	}
 	if servingCtx == 0 {
@@ -171,22 +172,6 @@ func llamaCppModelMeta(m models.ModelConfig) openAIModelMeta {
 		meta.ContextLength = servingCtx
 	}
 	return meta
-}
-
-// servingCtxFromArgs extracts the serving context window from a local model's
-// launch args (--ctx-size N / -c N). Returns 0 when absent.
-func servingCtxFromArgs(args []string) int {
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--ctx-size", "--context-size", "-c":
-			if i+1 < len(args) {
-				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
-					return n
-				}
-			}
-		}
-	}
-	return 0
 }
 
 func peekModelName(r *http.Request) string {

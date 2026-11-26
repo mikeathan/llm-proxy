@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/llm/metadata"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/network"
@@ -128,6 +129,7 @@ func getModelsView(ctx context.Context, modelsList []models.ModelConfig, activeN
 			TimeoutMinutes:   timeoutMinutes,
 			ToolCallFormat:   toolCallFormat,
 			LoopStrategy:     loopStrategy,
+			SmallWindow:      toolpolicy.IsSmallWindow(mc.WorkloadClass, mc.ContextBudget),
 		}
 
 		if mc.Port > 0 {

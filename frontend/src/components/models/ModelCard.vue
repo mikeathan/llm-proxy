@@ -22,6 +22,8 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: "start"): void; (e: "stop"): void; (e: "edit"): void }>();
 
 const MS_PER_SECOND = 1000;
+const SMALL_WINDOW_NOTE =
+  "Small context window: chats get the core tools only (files, search, fetch, memory), and automations may fail as too large. For every tool, start it with --ctx-size 16384 or more and keep the default output cap.";
 const status = computed(() => modelStatus(props.model));
 const local = computed(() => isLocalModel(props.model));
 const meta = computed(() => {
@@ -55,6 +57,7 @@ const live = computed(() => {
     </div>
     <p class="m-0 font-mono text-[length:var(--text-small)] text-muted">{{ meta.join(" · ") }}</p>
     <p v-if="live" class="m-0 font-mono text-[length:var(--text-small)] text-secondary" data-test="live">{{ live }}</p>
+    <p v-if="model.small_window" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="small-window">{{ SMALL_WINDOW_NOTE }}</p>
     <div class="mt-auto flex flex-wrap gap-2 pt-1">
       <template v-if="local">
         <BaseButton v-if="model.active" variant="secondary" size="sm" icon="stop" @click="emit('stop')">Stop<span class="sr-only">{{ " " + model.name }}</span></BaseButton>

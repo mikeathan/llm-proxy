@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/models"
 )
 
@@ -92,6 +93,7 @@ func NormalizeModelConfig(baseDir string, cfg models.ModelConfig) models.ModelCo
 	if out.Filename == "" && out.Path != "" {
 		out.Filename = filepath.Base(out.Path)
 	}
+	orchestrator.DropStoredServingContext(&out)
 	return out
 }
 
