@@ -144,9 +144,12 @@ Action:
 
 // NativeToolReference lists available tools without XML format instructions.
 // Used when native tool calling is active — the LLM receives tool schemas
-// via the API but still needs text context about which tools exist.
+// via the API but still needs text context about which tools exist. It names the
+// tools only: each tool's description and parameters already travel in the
+// request's tools field, and repeating the descriptions here cost about 7,500
+// characters on every request (26 tools, 2026-11-26).
 const NativeToolReference = `## AVAILABLE TOOLS
-You have access to the following tools. Use them by their exact names.
+You have access to the following tools; each one's description and parameters come with the request. Use them by their exact names.
 
 %s
 
@@ -163,16 +166,16 @@ You have access to the following tools. Use them by their exact names.
  5. If a tool fails, you will receive the error. Fix it in your next turn.
 `
 
-// BuildNativeToolReference generates a lightweight tool list for native mode.
+// BuildNativeToolReference generates a lightweight tool list for native mode: the tools' names and the rules.
 func BuildNativeToolReference(tools []ToolInfo) string {
 	if len(tools) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	for _, t := range tools {
-		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", t.Name, t.Description))
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Name
 	}
-	return fmt.Sprintf(NativeToolReference, sb.String())
+	return fmt.Sprintf(NativeToolReference, strings.Join(names, ", "))
 }
 
 // ToolReferenceHeader is used to detect if a tool reference is already present.

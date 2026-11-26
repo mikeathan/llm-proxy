@@ -13,6 +13,10 @@ supersedes:
 
 ## Changelog
 
+- **1.18 (2026-11-26)** — **A chat on a small local window is shown the core tools, and the native tool reference names
+  tools only.** A General chat on an 8192-token local model failed before the question was read (8724 tokens, vertex
+  2026-11-21): every tool's description went both in `req.Tools` and in the system prompt's "AVAILABLE TOOLS" list.
+  See §2 and §7. Handoff: `docs/PLANS/agent-loop/small-window-tools-handoff-2026-11-26.md`.
 - **1.17 (2026-10-23)** — **A chat keeps its whole conversation.** The chat service cut the stored history to 12 KB at
   the start of every turn (`initSession`), which kept the system prompt and the first question and dropped the oldest
   messages after it, so a chat past 12 KB kept only its first question and its newest exchange: the model lost the
@@ -231,6 +235,12 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   sieve note, progress ledger and context warning. On a small window the physical sieve fires on every turn after
   the first prune (the 10-message tail alone can exceed the budget); before this, up to four copies of the warning
   accumulated in one request.
+- **A small local window gets the core tools** (1.18): a run on the assistant channel with no allow list, whose local
+  context budget is below what a 16384-token window derives (`toolpolicy.IsSmallWindow`), is shown only the filesystem,
+  search, network, memory, system, security and automation categories (`toolpolicy.SmallWindowTools`, applied in
+  `Agent.fitToolsToWindow` when the run is built, never mid-run). Automations, runs with an allow list (helpers) and
+  cloud runs are never trimmed. The admin model view carries `small_window` from the same rule.
+  `TestFirstChatRequest_FitsAnEightKWindow` pins a General chat's first request under an 8k window's limit.
 - **The budget covers the request, scaled for the model** (2026-10-18): see 1.7 above. Sizing lives in `request_size.go`
   (`measureRequest`, `requestLimit`, `shrinkHistory`, `shrinkToReportedWindow`); `sieve.go` keeps the message-dropping
   sieves and calls `shrinkHistory` last.
@@ -292,7 +302,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### 7. Native Tool Support (Constitution II.5)
 - Controlled by `Agent.useNativeTools` (resolved from `AgentOptions.UseNativeTools` > `ToolProvider.UseNativeTools()`).
-- When true: native tool schemas passed in `req.Tools`, LLM server sends tool-call deltas natively.
+- When true: native tool schemas passed in `req.Tools`, LLM server sends tool-call deltas natively. The system prompt's
+  "AVAILABLE TOOLS" reference names the tools and keeps its rules; it does not repeat their descriptions (1.18).
 - When false: tools stripped, tool manual injected into system prompt as text.
 - The HTTP client (`client.go`) does NOT strip tools — the agent controls this.
 - **Effective format resolution** (`LLMRuntimeManager.EffectiveToolCallFormat`): explicit `tool_call_format` ("native"/"xml") wins. Cloud workloads default to "native" (`ApplyMetadataDefaults`). A **local** OpenAI-compatible model with an unset format is probed once against its serving endpoint (`OpenAICompatibleProvider.ProbeNativeTools` — a minimal chat request with a tiny `tools` schema; `finish_reason == "tool_calls"` ⇒ supported) and the result is persisted onto the stored model config. Probe failures are not cached (XML fallback for that turn, re-probed next resolution). This removes the per-model `tool_call_format` patching that weak XML-format local models required — llama.cpp `--jinja`, Ollama, LM Studio, vLLM and friends are detected automatically, while XML-only servers keep XML text mode. **Ordering invariant**: the format must be resolved **before** the agent is built — `executor.go` calls `EffectiveToolCallFormat` ahead of `buildAgentOptions`/`NewAgent` (and the chat path resolves in `resolveModelConfig` before the agent builder). `ApplyModelConfig` locks `UseNativeTools` from the stored config at build time; resolving after `NewAgent` would leave the first cold-cache run (post-restart) in XML text mode with no `tools` array (2026-08-31 14:26 regression).

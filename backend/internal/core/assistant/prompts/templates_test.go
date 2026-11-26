@@ -49,6 +49,37 @@ func TestAssembleSystemPrompt_Layers(t *testing.T) {
 	}
 }
 
+// In native mode the request's tools field already carries every tool's description and schema, and the server
+// renders them into the prompt. The reference names the tools and keeps the rules; repeating each description cost
+// about 7,500 characters on every request (26 tools, 2026-11-26) and pushed an 8k window over before the question.
+func TestBuildNativeToolReference_NamesEveryToolOnceWithoutItsDescription(t *testing.T) {
+	ref := BuildNativeToolReference([]ToolInfo{
+		{Name: "read_file", Description: "READ FILE DESCRIPTION"},
+		{Name: "internet_search", Description: "SEARCH DESCRIPTION"},
+	})
+	if !strings.HasPrefix(ref, ToolReferenceHeader) {
+		t.Errorf("the reference must open with its header (the dedup check reads it): %q", ref[:40])
+	}
+	for _, name := range []string{"read_file", "internet_search"} {
+		if strings.Count(ref, name) != 1 {
+			t.Errorf("%s must be named exactly once:\n%s", name, ref)
+		}
+	}
+	for _, desc := range []string{"READ FILE DESCRIPTION", "SEARCH DESCRIPTION"} {
+		if strings.Contains(ref, desc) {
+			t.Errorf("the description %q travels in the tools field and must not be repeated:\n%s", desc, ref)
+		}
+	}
+	for _, rule := range []string{"Use ONLY the tools listed above.", "do NOT call write_file for the final answer", "If a tool fails"} {
+		if !strings.Contains(ref, rule) {
+			t.Errorf("the reference lost the rule %q:\n%s", rule, ref)
+		}
+	}
+	if BuildNativeToolReference(nil) != "" {
+		t.Error("no tools means no reference")
+	}
+}
+
 func TestBuildExecutionPlanPrompt_ParameterSchemas(t *testing.T) {
 	prompt := BuildExecutionPlanPrompt([]ToolInfo{
 		{

@@ -725,6 +725,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	if a.config.ReasoningSpec.Mode == reasoning.ModeThinkTokens {
 		a.config.ReasoningBudget = a.config.ReasoningSpec.Budget
 	}
+	a.fitToolsToWindow(opts.AllowedTools)
 
 	opts.Logger.Info("NewAgent: agent created", "max_tokens", a.config.MaxTokens, "reasoning_mode", int(a.config.ReasoningSpec.Mode), "max_steps", a.config.MaxSteps)
 	return a

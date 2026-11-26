@@ -101,6 +101,8 @@ export interface Model {
   guardrail_timeout_behavior?: string
   guardrail_approval_timeout_seconds?: number
   loop_strategy?: LoopStrategy
+  /** A local model whose window is under 16384 tokens: its chats are offered the core tools only (the server decides). */
+  small_window?: boolean
 }
 
 export interface ModelMetadata {

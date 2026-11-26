@@ -4,12 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/profile"
+	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 )
 
@@ -397,4 +403,163 @@ func TestAgent_ContextOverflowRederivesTheThinkBudget(t *testing.T) {
 			t.Errorf("think budget %d, want 666 (2000/3), unchanged", agent.config.ReasoningSpec.Budget)
 		}
 	})
+}
+
+// catalogTools is every built-in tool by name, plus the delegate tool and one a stack offers: the whole set a run can
+// be shown.
+func catalogTools() []proxy.Tool {
+	var out []proxy.Tool
+	for _, category := range models.ToolCategories() {
+		for _, name := range models.ToolsInCategory(category) {
+			out = append(out, proxy.Tool{Type: "function", Function: proxy.FunctionSchema{Name: name, Description: name + " does things"}})
+		}
+	}
+	return append(out, proxy.Tool{Type: "function", Function: proxy.FunctionSchema{Name: "stack_offered_tool", Description: "a stack's tool"}})
+}
+
+// firstRequest runs an agent to its first request and returns what that request carried.
+func firstRequest(t *testing.T, opts AgentOptions) proxy.ChatRequest {
+	t.Helper()
+	var first *proxy.ChatRequest
+	client := &MockClient{StreamFunc: func(_ context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		if first == nil {
+			first = &req
+		}
+		return textStream("done"), nil
+	}}
+	native := true
+	opts.UseNativeTools = &native
+	opts.MaxSteps = 3
+	agent := NewAgent(client, &MockProvider{Tools: catalogTools()}, &MockEngine{}, opts)
+	if _, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: proxy.SystemRole, Content: "s"}, {Role: proxy.UserRole, Content: "hi"}}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if first == nil {
+		t.Fatal("no request was sent")
+	}
+	return *first
+}
+
+func requestToolNames(req proxy.ChatRequest) []string {
+	out := make([]string, len(req.Tools))
+	for i, tool := range req.Tools {
+		out[i] = tool.Function.Name
+	}
+	return out
+}
+
+// A local model served with a window smaller than 16384 tokens cannot hold every tool's description and schema
+// (2026-11-21: an 8192-token Inkling run was 8724 tokens before the question), so a chat on one is shown the everyday
+// core. A run that names its own tools (an allow list) keeps them; an automation is never trimmed, because nobody is
+// there to see that a tool its task needs was left out (it fails with the too-large error instead); and a cloud budget
+// is a cost allowance, never a window.
+func TestNewAgent_ASmallLocalWindowOffersTheCoreTools(t *testing.T) {
+	const window8kBudget, window8kOutput = 21848, 2730   // what an 8192-token window derives
+	const window16kBudget, window16kOutput = 43692, 5461 // what a 16384-token window derives
+	// What a run is shown when nothing is trimmed: the guardrails and the profile still decide (the default config
+	// switches search and fetch off, and the default profile names no helpers, so the delegate tool is hidden).
+	untrimmed := requestToolNames(firstRequest(t, AgentOptions{WorkloadClass: models.WorkloadCloud, ContextBudget: window8kBudget, MaxResponseTokens: 8192}))
+	core := slices.DeleteFunc(slices.Clone(untrimmed), func(name string) bool { return !toolpolicy.KeptOnSmallWindow(name) })
+	if len(core) == 0 || len(core) == len(untrimmed) {
+		t.Fatalf("the fixture must hold both core and other tools: %v", untrimmed)
+	}
+
+	t.Run("an 8k local run gets the core tools only", func(t *testing.T) {
+		req := firstRequest(t, AgentOptions{WorkloadClass: models.WorkloadLocal, ContextBudget: window8kBudget, MaxResponseTokens: window8kOutput})
+		got := requestToolNames(req)
+		if !slices.Equal(got, core) {
+			t.Errorf("offered %v, want the core tools %v", got, core)
+		}
+		for _, want := range []string{models.ToolFileRead, models.ToolMemorySearch, models.ToolMemoryUpdate, models.ToolSystemError} {
+			if !slices.Contains(got, want) {
+				t.Errorf("%s must stay on a small window; offered %v", want, got)
+			}
+		}
+		system := req.Messages[0].Content
+		for _, gone := range []string{models.ToolScheduleReminder, models.ToolNewsroomFollow, models.ToolNetworkScan, "stack_offered_tool"} {
+			if slices.Contains(got, gone) || strings.Contains(system, gone) {
+				t.Errorf("%s must be left out of both the tools and the system prompt's reference", gone)
+			}
+		}
+	})
+	t.Run("an allow list is the run's own choice and is kept", func(t *testing.T) {
+		req := firstRequest(t, AgentOptions{WorkloadClass: models.WorkloadLocal, ContextBudget: window8kBudget, MaxResponseTokens: window8kOutput,
+			AllowedTools: []string{models.ToolScheduleReminder, models.ToolFileRead}})
+		if got := requestToolNames(req); !slices.Contains(got, models.ToolScheduleReminder) || !slices.Contains(got, models.ToolFileRead) {
+			t.Errorf("the allowed tools must all be offered, got %v", got)
+		}
+	})
+	t.Run("an automation on an 8k window is not trimmed", func(t *testing.T) {
+		req := firstRequest(t, AgentOptions{WorkloadClass: models.WorkloadLocal, ContextBudget: window8kBudget, MaxResponseTokens: window8kOutput,
+			Channel: ChannelAutomation})
+		if got := requestToolNames(req); !slices.Equal(got, untrimmed) {
+			t.Errorf("offered %v, want every tool %v", got, untrimmed)
+		}
+	})
+	t.Run("a 16k local run gets every tool", func(t *testing.T) {
+		req := firstRequest(t, AgentOptions{WorkloadClass: models.WorkloadLocal, ContextBudget: window16kBudget, MaxResponseTokens: window16kOutput})
+		if got := requestToolNames(req); !slices.Equal(got, untrimmed) {
+			t.Errorf("offered %v, want every tool %v", got, untrimmed)
+		}
+	})
+	t.Run("a cloud run is never trimmed", func(t *testing.T) {
+		if !slices.Contains(untrimmed, models.ToolScheduleReminder) || !slices.Contains(untrimmed, "stack_offered_tool") {
+			t.Errorf("a cloud run with a small budget must keep every tool, got %v", untrimmed)
+		}
+	})
+}
+
+
+// manifestTools is every built-in tool as a run is shown it: the description and schema its manifest gives.
+func manifestTools(t *testing.T) []proxy.Tool {
+	t.Helper()
+	var out []proxy.Tool
+	for _, category := range models.ToolCategories() {
+		for _, name := range models.ToolsInCategory(category) {
+			params, desc, err := tools.LoadManifestAsTool(category, name)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			out = append(out, proxy.Tool{Type: "function", Function: proxy.FunctionSchema{Name: name, Description: desc, Parameters: params}})
+		}
+	}
+	return out
+}
+
+// The first request of a General chat on an 8192-token local window, measured with the real prompt, the real tool
+// manifests and the largest memory block the window allows, fits the window. It failed on vertex before the question
+// was read (2026-11-21, 8724 tokens); a new core tool or a longer prompt that pushes it back over fails here instead.
+// The limit is taken at the default 3.0 characters a token, which a model's first request is sized by; the ratio a
+// model's own counts teach is higher for this mostly-prose request (Inkling: 3.9), which leaves the conversation about
+// a quarter of the window.
+func TestFirstChatRequest_FitsAnEightKWindow(t *testing.T) {
+	const budget, maxTokens = 21848, 2730 // what an 8192-token window derives
+	catalog, err := profile.NewCatalog("", logging.NewNopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	general, ok := catalog.Get("general")
+	if !ok {
+		t.Fatal("the general profile is missing")
+	}
+	native := true
+	opts := AgentOptions{WorkloadClass: models.WorkloadLocal, ContextBudget: budget, MaxResponseTokens: maxTokens, Profile: general, UseNativeTools: &native}
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, opts)
+	// automation_journal is listed only for an automation that keeps a journal (models.IsJournalRun), never in a chat.
+	excluded := append(general.ExcludedTools(), models.ToolAutomationJournal)
+	offered, err := toolpolicy.SmallWindowTools(&MockProvider{Tools: slices.DeleteFunc(manifestTools(t), func(tool proxy.Tool) bool {
+		return slices.Contains(excluded, tool.Function.Name)
+	})}).ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := prompts.BuildSystemMessage(BuildSystemPrompt(nil, "", general, true), true, "conversation-id", "", "Europe/London") +
+		"\n\n" + strings.Repeat("m", hotMemoryCharBudget(budget, models.WorkloadLocal)) + "\n\n" + prompts.MemorySaveGuidance
+	history := []proxy.Message{{Role: proxy.SystemRole, Content: system}, {Role: proxy.UserRole, Content: "what can you do?"}}
+
+	size := agent.measureRequest(history, offered)
+	t.Logf("%d tools; the first request is %d characters of the %d allowed (%.0f%%)", len(offered), size.chars, size.limit, 100*float64(size.chars)/float64(size.limit))
+	if size.over() {
+		t.Errorf("the first request is %d characters, over the %d an 8192-token window allows before the question is answered", size.chars, size.limit)
+	}
 }

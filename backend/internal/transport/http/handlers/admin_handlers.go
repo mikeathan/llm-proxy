@@ -137,6 +137,9 @@ type adminModelView struct {
 	TimeoutMinutes   int                    `json:"timeout_minutes"`
 	ToolCallFormat   string                 `json:"tool_call_format"`
 	LoopStrategy     string                 `json:"loop_strategy"`
+	// SmallWindow is true for a local model whose context budget is below what a 16384-token window gives by default: its
+	// chats are offered the core tools only (toolpolicy.IsSmallWindow, the agent's own rule).
+	SmallWindow bool `json:"small_window,omitempty"`
 }
 
 type adminActiveModel struct {

@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
@@ -31,6 +32,20 @@ func (s requestSize) over() bool { return s.limit > 0 && s.chars > s.limit }
 func (s requestSize) overhead() int { return max(s.chars-s.history, 0) }
 
 func (a *Agent) isLocalWorkload() bool { return a.config.WorkloadClass == models.WorkloadLocal }
+
+// fitToolsToWindow shows a chat on a small local window the everyday core tools only: every tool's description and
+// schema fill an 8192-token window before the question is read. A run that named its own tools (an allow list) keeps
+// them, and an automation is never trimmed: nobody is there to see that a tool its task needs was left out, so it
+// fails with the too-large error instead of reporting without that tool. Decided once, when the run is built, so the
+// tool list stays the same every turn.
+func (a *Agent) fitToolsToWindow(allowed []string) {
+	if len(allowed) > 0 || a.config.Channel != ChannelAssistant || !toolpolicy.IsSmallWindow(a.config.WorkloadClass, a.config.ContextBudget) {
+		return
+	}
+	a.deps.Provider = toolpolicy.SmallWindowTools(a.deps.Provider)
+	a.deps.Logger.Warn("small context window: this run is offered the core tools only",
+		"model", a.config.ModelName, "context_budget", a.config.ContextBudget, "kept_categories", toolpolicy.SmallWindowCategories)
+}
 
 // requestLimit is the characters a request may carry. On a local model ContextBudget is derived from the serving window
 // (window minus the output reserve, at 4 characters a token), so it is scaled by what the model's tokens really cost:
