@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, nextTick } from 'vue'
+import { computed, watch, nextTick, ref } from 'vue'
 import MarkdownViewer from '../../common/display/MarkdownViewer.vue'
 import CopyButton from '../../common/display/CopyButton.vue'
 import RunWarnings from '../../common/display/RunWarnings.vue'
@@ -8,9 +8,12 @@ import Icon from '../../icons/Icon.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
 import { useElapsedTimer } from '../../../composables/useElapsedTimer'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
-import { activityLabel, helpersLabel, tokenUsageLabel } from '../../../constants/labels'
+import { activityLabel, helpersLabel, summarizeSteps, tokenUsageLabel } from '../../../constants/labels'
 import { formatElapsedSeconds } from '../../../utils/format/time'
-import { toolDisplayName } from '../../../utils/assistant/toolSteps'
+import { describeToolStep, toolDisplayName } from '../../../utils/assistant/toolSteps'
+import { describeRunFailure } from '../../../utils/assistant/runFailure'
+import { toModels } from '../../../router/routes'
+import BaseButton from '../../common/buttons/BaseButton.vue'
 import { isFinishedPhase, isStreamingPhase, type InsetPhase } from '../../../types/inset'
 
 // The assistant's side of a turn, read like a document: one activity line
@@ -36,6 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggleInset: [idx: number]
   toggleSegment: [turnIdx: number, segIdx: number]
+  retry: []
 }>()
 
 // Only the last turn of a running conversation is live; every earlier turn is
@@ -56,7 +60,7 @@ const toolSteps = computed(() => props.turn.segments.filter((s) => s.kind === 't
 // display — during the initial wait (thinking with no streamed text yet) it
 // would otherwise paint an empty panel.
 const insetHasContent = computed(() =>
-  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail' || s.kind === 'error' || s.kind === 'notice') ||
+  props.turn.segments.some(s => (s.kind === 'reasoning' && s.text) || s.kind === 'tool_call' || s.kind === 'guardrail' || (s.kind === 'error' && live.value) || s.kind === 'notice') ||
   liveReasoningVisible.value ||
   turnPhase.value === 'generating')
 
@@ -91,7 +95,19 @@ const hasActivity = computed(() => live.value || props.turn.segments.length > 0)
 // Measured live, or read from the turn's stored run record after a reload.
 const MS_PER_SECOND = 1000
 const workedSeconds = computed(() => seconds.value || Math.round((props.turn.run?.duration_ms ?? 0) / MS_PER_SECOND))
-const activity = computed(() => activityLabel(turnPhase.value, toolSteps.value, workedSeconds.value))
+// The run's error, told as a sentence with its fix beside the answer instead of folded into the steps.
+const errorMessage = computed(() => {
+  const errors = props.turn.segments.filter((s) => s.kind === 'error')
+  const last = errors[errors.length - 1]
+  return last && last.kind === 'error' ? last.message : ''
+})
+const failure = computed(() => (errorMessage.value && !live.value ? describeRunFailure(errorMessage.value) : null))
+const failureDetailsOpen = ref(false)
+// What a finished turn did, in words ("Searched the web, read a web page"), from its tool steps.
+const stepSummary = computed(() =>
+  summarizeSteps(props.turn.segments.flatMap((s) => (s.kind === 'tool_call' ? [describeToolStep(s.name, s.args).verb] : []))))
+const activity = computed(() =>
+  activityLabel(turnPhase.value, toolSteps.value, workedSeconds.value, { summary: stepSummary.value, failed: !!failure.value }))
 
 // What the run record holds beyond the duration: the model, and the tokens
 // the provider reported. Nothing is shown that was not recorded.
@@ -105,7 +121,15 @@ const runMeta = computed(() => {
 // Facts the backend saved from this message before the run, recorded on the turn so they persist across reloads.
 const memorySaved = computed(() => props.turn.run?.memory_saved ?? [])
 const warnings = computed(() => props.turn.run?.warnings ?? [])
-const activityFailed = computed(() => props.turn.segments.some((s) => s.kind === 'error'))
+const activityFailed = computed(() => !!failure.value)
+
+// A thought reads as its first line until opened; the answer, not the model's reasoning, is what the turn is for.
+const openThoughts = ref(new Set<number>())
+function toggleThought(sIdx: number) {
+  const next = new Set(openThoughts.value)
+  if (!next.delete(sIdx)) next.add(sIdx)
+  openThoughts.value = next
+}
 
 // Models often open a step with "Thought:"; the timeline already labels it.
 const THOUGHT_PREFIX = /^\s*thought:\s*/i
@@ -156,8 +180,13 @@ watch(
     :class="['turn', { 'is-live': live, 'message-wrapper--virtualized': !live }]"
     aria-label="Assistant"
   >
+    <!-- A run that failed before any step has nothing to open: its line is a plain status. -->
+    <p v-if="hasActivity && !live && !insetHasContent" class="activity-line activity-line--static">
+      <span class="activity-mark" :class="{ 'is-failed': activityFailed }" aria-hidden="true"></span>
+      <span class="activity-label">{{ activity }}</span>
+    </p>
     <button
-      v-if="hasActivity"
+      v-else-if="hasActivity"
       type="button"
       class="activity-line"
       :aria-expanded="!isInsetCollapsed"
@@ -183,8 +212,18 @@ watch(
             <li v-if="seg.kind === 'reasoning' && seg.text" class="timeline-item inset-reasoning">
               <span class="timeline-marker" aria-hidden="true"><Icon name="thought" size="xs" /></span>
               <div class="timeline-body">
-                <span class="inset-label">Thought</span>
-                <MarkdownViewer :content="thoughtText(seg.text)" variant="compact" />
+                <MarkdownViewer v-if="openThoughts.has(sIdx)" :content="thoughtText(seg.text)" variant="compact" />
+                <button
+                  type="button"
+                  data-test="thought-toggle"
+                  class="thought-toggle"
+                  :class="{ 'is-open': openThoughts.has(sIdx) }"
+                  :aria-expanded="openThoughts.has(sIdx)"
+                  @click="toggleThought(sIdx)"
+                >
+                  <template v-if="openThoughts.has(sIdx)">Hide the thought</template>
+                  <template v-else>Thought: {{ thoughtText(seg.text) }}</template>
+                </button>
               </div>
             </li>
 
@@ -207,7 +246,7 @@ watch(
               </div>
             </li>
 
-            <li v-else-if="seg.kind === 'error'" class="timeline-item inset-error">
+            <li v-else-if="seg.kind === 'error' && live" class="timeline-item inset-error">
               <span class="timeline-marker timeline-marker--error" aria-hidden="true"><Icon name="close" size="xs" /></span>
               <div class="timeline-body">
                 <span class="inset-label inset-label--error">Error</span>
@@ -268,17 +307,30 @@ watch(
       <MarkdownViewer :content="turn.finalAnswer" variant="document" />
     </div>
 
+    <!-- A failed run: what went wrong and what to do, with the raw error one tap away. -->
+    <div v-if="failure" data-test="run-failure" class="turn-failure" role="alert">
+      <p class="turn-failure-title">{{ failure.title }}</p>
+      <p class="turn-failure-hint">{{ failure.hint }}</p>
+      <div class="turn-failure-actions">
+        <BaseButton variant="secondary" size="sm" icon="refresh" class-name="turn-failure-btn" @click="emit('retry')">Try again</BaseButton>
+        <RouterLink v-if="failure.fixInModels" :to="toModels()" class="turn-failure-link">Open Models</RouterLink>
+        <button type="button" class="turn-failure-details" :aria-expanded="failureDetailsOpen" @click="failureDetailsOpen = !failureDetailsOpen">
+          {{ failureDetailsOpen ? 'Hide details' : 'Details' }}
+        </button>
+      </div>
+      <p v-if="failureDetailsOpen" data-test="run-failure-details" class="turn-failure-raw">{{ errorMessage }}</p>
+    </div>
+
     <div v-if="memorySaved.length" data-test="memory-saved" class="turn-memory">
-      <span class="turn-memory-label">Saved to memory · remove it in the Memory panel</span>
-      <ul class="turn-memory-list">
-        <li v-for="fact in memorySaved" :key="fact">{{ fact }}</li>
-      </ul>
+      <Icon name="check" size="xs" class-name="flex-none text-state-success" />
+      <span>Remembered: {{ memorySaved.join('; ') }}<span class="turn-memory-hint"> · remove it in the Memory panel</span></span>
     </div>
 
     <RunWarnings v-if="warnings.length" :warnings="warnings" />
 
-    <div v-if="answerCopyable || runMeta" class="turn-footer">
-      <CopyButton v-if="answerCopyable" :text="turn.finalAnswer" title="Copy answer" />
+    <!-- Copy and the run record: on hover or focus where there is a pointer, under the latest answer on a touch screen. -->
+    <div v-if="answerCopyable || runMeta" class="turn-footer" :class="{ 'is-latest': isLastTurn }">
+      <CopyButton v-if="answerCopyable" :text="turn.finalAnswer" title="Copy answer" class="-ml-1.5" />
       <span v-if="runMeta" class="turn-meta">
         <span v-if="runMeta.model">{{ runMeta.model }}</span>
         <span v-if="runMeta.model && runMeta.tokens" aria-hidden="true">·</span>
@@ -317,6 +369,7 @@ watch(
   @apply -ml-1.5 flex max-w-full items-center gap-2 self-start rounded-[var(--radius-md)] px-1.5 py-1 text-left font-mono text-[length:var(--text-small)] text-muted transition-colors duration-fast hover:bg-surface-hover hover:text-secondary focus-visible:outline-none focus-visible:ring-2;
   border: none; background: transparent; cursor: pointer;
 }
+.activity-line--static { @apply m-0 cursor-default hover:bg-transparent hover:text-muted; }
 .activity-chevron { @apply flex flex-none text-faint transition-transform duration-fast; }
 .activity-chevron :deep(svg) { @apply h-3 w-3; }
 .activity-chevron.is-open { transform: rotate(90deg); }
@@ -380,10 +433,36 @@ watch(
 
 /* ── Answer and its actions ── */
 .turn-answer { @apply min-w-0 pt-1.5; }
-.turn-footer { @apply -ml-1.5 flex min-w-0 items-center gap-2; }
-.turn-memory { @apply flex min-w-0 flex-col gap-1 border-l-2 border-hairline pl-3 text-[length:var(--text-small)] text-muted; }
-.turn-memory-label { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-faint; }
-.turn-memory-list { @apply m-0 flex list-none flex-col gap-0.5 p-0 text-secondary; }
+.turn-footer { @apply flex min-w-0 items-center gap-2; }
+/* A pointer: the footer shows while the turn is hovered or holds focus. A touch screen: only under the latest answer. */
+@media (hover: hover) {
+  .turn-footer { @apply opacity-0 transition-opacity duration-fast; }
+  .turn:hover .turn-footer, .turn:focus-within .turn-footer { @apply opacity-100; }
+}
+@media (hover: none) {
+  .turn-footer:not(.is-latest) { display: none; }
+}
+.turn-memory { @apply flex min-w-0 items-start gap-2 text-[length:var(--text-small)] text-secondary; }
+.turn-memory :deep(svg) { @apply mt-1; }
+.turn-memory-hint { @apply text-faint; }
+
+/* ── A failed run ── */
+.turn-failure { @apply flex min-w-0 flex-col gap-2 rounded-[var(--radius-sm)] border-l-[3px] border-state-error bg-state-error/10 px-3 py-2.5; }
+.turn-failure p { @apply m-0; }
+.turn-failure-title { @apply font-semibold text-primary; }
+.turn-failure-hint { @apply text-[length:var(--text-small)] text-secondary; }
+.turn-failure-actions { @apply flex flex-wrap items-center gap-x-3 gap-y-1; }
+.turn-failure-link { @apply text-[length:var(--text-small)] text-accent-info-text hover:underline; }
+.turn-failure-details { @apply border-0 bg-transparent p-0 font-mono text-[length:var(--text-small)] text-muted hover:text-secondary; cursor: pointer; }
+.turn-failure-raw { @apply whitespace-pre-wrap break-words font-mono text-[length:var(--text-small)] text-muted; }
+@media (pointer: coarse) {
+  .turn-failure-link, .turn-failure-details { @apply inline-flex min-h-11 items-center; }
+}
+
+/* A thought reads as one line until opened. */
+.thought-toggle { @apply min-w-0 truncate border-0 bg-transparent p-0 text-left text-[length:var(--text-small)] italic text-faint hover:text-muted; cursor: pointer; }
+.thought-toggle.is-open { @apply not-italic font-mono text-[length:var(--text-micro)]; }
+@media (pointer: coarse) { .thought-toggle { @apply min-h-11; } }
 .turn-meta { @apply flex min-w-0 items-center gap-1.5 truncate font-mono text-[length:var(--text-micro)] text-faint; }
 
 /* ── Live thinking indicator ── */

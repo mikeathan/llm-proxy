@@ -150,6 +150,7 @@ const sidebarOpen = computed({
 });
 // A conversation that has not started: there is nothing to start new from, so New is not offered.
 const isFreshConversation = computed(() => !currentSessionId.value && messages.value.length === 0);
+const NEW_CHAT_TITLE = "New chat";
 const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || UNTITLED_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
@@ -333,7 +334,8 @@ const handleModelBusyCancel = () => {
   // the latest is in view, and the mobile sidebar gets out of the way.
   const settleLoadedSession = async () => {
     collapseAllInsets();
-    await scrollToLatest();
+    await nextTick();
+    chatMessagesRef.value?.settleAtBottom();
     if (compact.value) {
       sidebarOpen.value = false;
     }
@@ -460,10 +462,33 @@ const handleDeleteGroup = async (ids: string[]) => {
           <!-- A ready chat shows nothing (assistive technology still hears "Ready"); the state leads the title only while the chat is doing something. -->
           <span v-if="status.state === 'neutral'" data-test="chat-status" class="sr-only" role="status">{{ status.label }}</span>
           <StatusTag v-else data-test="chat-status" :state="status.state" :label="status.label" class="flex-none" />
-          <h2 v-if="!isFreshConversation" class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
+          <h2 v-if="!isFreshConversation && !compact" class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
+          <!-- A small screen: the bar names the chat and its workspace, as the top strip would. -->
+          <div v-if="compact" data-test="chat-bar-title" class="flex min-w-0 flex-col leading-tight">
+            <h2 class="m-0 min-w-0 truncate text-[length:var(--text-body)] font-semibold text-primary">{{ isFreshConversation ? NEW_CHAT_TITLE : conversationTitle }}</h2>
+            <span class="truncate font-mono text-[length:var(--text-micro)] text-faint">{{ workspaceId }}</span>
+          </div>
         </div>
         <div class="flex flex-none items-center gap-1">
-          <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
+          <!-- On a small screen what the next message runs with sits in the bar: the composer is one row there. -->
+          <RunSettings
+            v-if="compact && shownProfile"
+            v-model:profile="profileChoice"
+            v-model:model="model"
+            v-model:helpers="helpersOn"
+            :helpers-shown="helpersShown"
+            :helpers-available="helpersStatus.available"
+            :helpers-model="helpersStatus.model"
+            :helpers-problem="helpersStatus.problem"
+            :profile-options="profileChoices"
+            :model-options="modelOptions"
+            :profile-name="shownProfile.name"
+            :profile-summary="shownProfile.summary"
+            :disabled="loading"
+            :sheet="true"
+          />
+          <!-- The tab bar leaves the Assistant page on a phone; the ask panel closes. -->
+          <BaseButton v-if="variant === 'panel' || !isMobile" variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
         </div>
       </header>
 
@@ -490,6 +515,7 @@ const handleDeleteGroup = async (ids: string[]) => {
         :is-seg-expanded="isSegExpanded"
         :phase="phase"
         @retry="handleRetry"
+        @suggest="(text: string) => { inputMessage = text; chatInputRef?.focus(); }"
         @toggle-inset="toggleInset"
         @toggle-segment="toggleSegment"
       />
@@ -511,7 +537,7 @@ const handleDeleteGroup = async (ids: string[]) => {
       >
         <template #tools>
           <RunSettings
-            v-if="shownProfile"
+            v-if="shownProfile && !compact"
             v-model:profile="profileChoice"
             v-model:model="model"
             v-model:helpers="helpersOn"

@@ -81,16 +81,23 @@ describe('ChatBubble live reasoning gating', () => {
     expect(live.attributes('style')).toContain('display: none')
   })
 
-  it('still renders committed error segments in a historical turn', async () => {
+  it('shows a failed historical turn as a sentence with its fix, the raw error behind Details', async () => {
     const wrapper = mountBubble({
-      turn: turn({ segments: [{ kind: 'error', message: 'connection refused' }] }),
+      turn: turn({ segments: [{ kind: 'error', message: 'The model server rejected the request (HTTP 400): Request is missing x-opencode-session' }] }),
       liveReasoning: 'new run thinking…',
       isLastTurn: false,
       idx: 0,
       phase: 'thinking',
     })
-    // The committed error segment stays visible; only the live text is gated.
-    expect(wrapper.find('.inset-error').exists()).toBe(true)
+    // The error is not folded into the steps: the turn says it failed and what to do (audit 2026-11-26, U2).
+    const failure = wrapper.get('[data-test="run-failure"]')
+    expect(failure.text()).toContain("The model's provider turned the request down.")
+    expect(wrapper.get('.activity-line').text()).toBe('Failed')
+    expect(wrapper.find('[data-test="run-failure-details"]').exists()).toBe(false)
+    await failure.get('.turn-failure-details').trigger('click')
+    expect(wrapper.get('[data-test="run-failure-details"]').text()).toContain('x-opencode-session')
+    await failure.findAllComponents({ name: 'BaseButton' }).find((b: { text: () => string }) => b.text().includes('Try again'))!.trigger('click')
+    expect(wrapper.emitted('retry')).toHaveLength(1)
     // The live-reasoning block is v-show'd (kept in the DOM to avoid
     // expand/collapse flicker) — it must be hidden via display:none, not shown.
     const live = wrapper.find('.inset-reasoning--live')
@@ -128,8 +135,9 @@ describe('ChatBubble layout', () => {
     const w = finished({
       turn: turn({ finalAnswer: 'Answer', segments: [{ kind: 'reasoning', text: 'plan' }, tool('read_file'), tool('internet_search')] }),
     })
+    // It names what was done, not how many steps there were.
     const line = w.get('button.activity-line')
-    expect(line.text()).toContain('2 steps')
+    expect(line.text()).toContain('Read a file, searched the web')
     expect(line.attributes('aria-expanded')).toBe('false')
     expect(w.findAll('ol.timeline > :not(.inset-reasoning--live)')).toHaveLength(3)
     expect(w.get('ol.timeline').element.closest('.bubble-inset-wrap')?.classList.contains('collapsed')).toBe(true)
@@ -161,7 +169,7 @@ describe('ChatBubble layout', () => {
     await vi.advanceTimersByTimeAsync(75_000)
     expect(w.get('.activity-time').text()).toBe('1m 15s')
     await w.setProps({ loading: false, phase: 'done', turn: turn({ finalAnswer: 'Done', segments: [tool('read_file')] }) })
-    expect(w.get('button.activity-line').text()).toContain('Worked 1m 15s · 1 step')
+    expect(w.get('button.activity-line').text()).toContain('Read a file · 1m 15s')
   })
 
   it('shows an older turn as finished while a new run is live', () => {
@@ -169,9 +177,14 @@ describe('ChatBubble layout', () => {
     expect(w.get('.turn-answer').text()).toContain('Earlier answer')
   })
 
-  it('drops a reasoning step\'s own "Thought:" prefix, the step already says it', () => {
+  it('folds a thought to one line until it is opened, without doubling its own "Thought:" prefix', async () => {
     const w = finished({ isInsetCollapsed: false, turn: turn({ finalAnswer: 'A', segments: [{ kind: 'reasoning', text: 'Thought: check node first' }] }) })
-    expect(w.get('.inset-reasoning .md-stub').text()).toBe('check node first')
+    const toggle = w.get('[data-test="thought-toggle"]')
+    expect(toggle.text()).toBe('Thought: check node first')
+    const committed = '.inset-reasoning:not(.inset-reasoning--live) .md-stub'
+    expect(w.find(committed).exists()).toBe(false)
+    await toggle.trigger('click')
+    expect(w.get(committed).text()).toBe('check node first')
   })
 })
 
@@ -182,7 +195,7 @@ describe('ChatBubble run record', () => {
 
   it('says how long a reloaded turn worked, from its stored record', () => {
     const w = reloaded({ turn: turn({ finalAnswer: 'A', segments: [tool('read_file'), tool('internet_search')], run }) })
-    expect(w.get('button.activity-line').text()).toContain('Worked 42s · 2 steps')
+    expect(w.get('button.activity-line').text()).toContain('Read a file, searched the web · 42s')
   })
 
   it('names the model and the tokens it generated under the answer', () => {
@@ -201,8 +214,7 @@ describe('ChatBubble run record', () => {
   // An explicit "remember …" is saved by the backend before the run starts; the turn says so, and it survives a reload.
   it('says what was saved to memory from the message, and nothing when nothing was', () => {
     const saved = reloaded({ turn: turn({ finalAnswer: 'A', run: { memory_saved: ['the staging DB runs on port 5433', 'answer briefly'] } }) }).get('[data-test="memory-saved"]')
-    expect(saved.text()).toContain('Saved to memory')
-    expect(saved.findAll('li').map((li) => li.text())).toEqual(['the staging DB runs on port 5433', 'answer briefly'])
+    expect(saved.text()).toContain('Remembered: the staging DB runs on port 5433; answer briefly')
     expect(reloaded({ turn: turn({ finalAnswer: 'A', run: { model: 'gpt-x' } }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
     expect(reloaded({ turn: turn({ finalAnswer: 'A' }) }).find('[data-test="memory-saved"]').exists()).toBe(false)
   })

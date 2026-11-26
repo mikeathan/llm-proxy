@@ -6,6 +6,10 @@ import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import SlashHelper from './SlashHelper.vue'
 import ComposeSheet from './ComposeSheet.vue'
 import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
+import { useComposerFocus } from '../../../composables/ui/useComposerFocus'
+import { useDismissable } from '../../../composables/ui/useDismissable'
+import PopoverPanel from '../../common/layout/PopoverPanel.vue'
+import Icon from '../../icons/Icon.vue'
 import type { CommandInfo } from '../../../types/commands'
 
 // On a phone the stream is the point: the box starts one line tall, sits in one row with send/stop, and the
@@ -59,6 +63,18 @@ const TOOL_TOUCH = '[@media(pointer:coarse)]:h-11'
 const TOUCH_TARGET = '[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11'
 
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+
+// On a phone the tools (start a command, review memories) sit behind one + button in the message row, so the composer
+// is a single row; on a roomy screen they stay in the action row under the box.
+const { focused } = useComposerFocus()
+const moreOpen = ref(false)
+const moreRoot = ref<HTMLElement | null>(null)
+const morePanel = ref<HTMLElement | null>(null)
+useDismissable(moreRoot, moreOpen, morePanel)
+function fromMore(action: () => void) {
+  moreOpen.value = false
+  action()
+}
 const expanded = ref(false)
 const sheetOpen = ref(false)
 
@@ -139,12 +155,41 @@ onMounted(() => {
 })
 // The ask panel puts the cursor in the message when it opens.
 defineExpose({ focus: () => inputRef.value?.focus() })
-onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', onGlobalKeydown)
+  focused.value = false
+})
 </script>
 
 <template>
   <div class="input-area" :class="{ 'is-compact': compact }">
     <SlashHelper :suggestions="suggestions" :active="active" :preview="preview" @pick="pickCommand" @example="pickExample" />
+    <div v-if="compact" ref="moreRoot" data-test="composer-more" class="composer-more">
+      <BaseButton
+        variant="ghost"
+        size="lg"
+        icon="plus"
+        icon-only
+        label="Commands and memory"
+        :aria-expanded="moreOpen"
+        :class-name="TOUCH_TARGET"
+        @click="moreOpen = !moreOpen"
+      />
+      <Teleport to="body">
+        <div v-if="moreOpen" ref="morePanel">
+          <PopoverPanel id="composer-more-panel" title="Commands and memory" align="left" placement="above" @close="moreOpen = false">
+            <button type="button" class="more-item" :disabled="!canStartCommand || loading" @click="fromMore(startCommand)">
+              <span class="more-glyph" aria-hidden="true">/</span>
+              <span><span class="more-title">Start a command</span><span class="more-hint">/remind, /memory, /run …</span></span>
+            </button>
+            <button type="button" class="more-item" :disabled="!canReview || loading" @click="fromMore(() => emit('review'))">
+              <Icon name="memory" size="sm" class-name="more-glyph" />
+              <span><span class="more-title">Review memory for this chat</span><span class="more-hint">Ask the model which facts are worth keeping</span></span>
+            </button>
+          </PopoverPanel>
+        </div>
+      </Teleport>
+    </div>
     <div class="input-wrap">
       <ArcOrbitLoader :active="loading && paused" :thickness="1" />
       <textarea
@@ -153,6 +198,8 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
         :value="inputMessage"
         @input="emit('update:inputMessage', ($event.target as HTMLTextAreaElement).value)"
         @keydown="onKeydown"
+        @focus="focused = true"
+        @blur="focused = false"
         :placeholder="loading ? (compact ? COMPACT_WORKING_PLACEHOLDER : WORKING_PLACEHOLDER) : IDLE_PLACEHOLDER"
         class="chat-input"
         :class="{ 'is-loading': loading, 'is-expanded': expanded }"
@@ -168,7 +215,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
     </div>
     <!-- One action row under the box, every control centred on it: the tools (start a command, review the conversation for memories) on the left; a long draft's expand, then send or stop, on the right. -->
     <div data-test="composer-actions" class="flex items-center justify-between gap-2">
-      <div v-if="!(compact && loading)" data-test="composer-tools" class="composer-tools flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+      <div v-if="!compact" data-test="composer-tools" class="composer-tools flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
         <BaseButton variant="ghost" size="sm" aria-label="Commands" title="Start a command, such as /remind" :disabled="!canStartCommand || loading" :class-name="TOOL_TOUCH" @click="startCommand">
           <span aria-hidden="true">/</span><span>Commands</span>
         </BaseButton>
@@ -191,7 +238,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           v-if="loading"
           variant="primary"
           size="lg"
-          icon="send"
+          icon="arrow-up"
           icon-only
           label="Queue message to send when the run finishes"
           :class-name="TOUCH_TARGET"
@@ -199,7 +246,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           @click="emit('send')"
         />
         <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" :class-name="TOUCH_TARGET" @click="emit('cancel')" />
-        <BaseButton v-else variant="primary" size="lg" icon="send" icon-only label="Send" :class-name="TOUCH_TARGET" :disabled="!inputMessage.trim()" @click="emit('send')" />
+        <BaseButton v-else variant="primary" size="lg" icon="arrow-up" icon-only label="Send" :class-name="TOUCH_TARGET" :disabled="!inputMessage.trim()" @click="emit('send')" />
       </div>
     </div>
     <ComposeSheet
@@ -215,9 +262,10 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 <style scoped>
 /* A phone: the box and its send/stop buttons share one row (the action row's two groups become grid items); the
    command menu, draft size, queued line and tools take the full width above and below. */
-.input-area.is-compact { @apply grid items-end gap-x-2 gap-y-1.5 p-2; grid-template-columns: minmax(0, 1fr) auto; }
-.input-area.is-compact > :not(.input-wrap):not([data-test='composer-actions']) { grid-column: 1 / -1; }
+.input-area.is-compact { @apply grid items-end gap-x-1.5 gap-y-1.5 p-2; grid-template-columns: auto minmax(0, 1fr) auto; }
+.input-area.is-compact > :not(.input-wrap):not([data-test='composer-actions']):not(.composer-more) { grid-column: 1 / -1; }
 .input-area.is-compact > [data-test='composer-actions'] { display: contents; }
+.input-area.is-compact .composer-more { order: 0; }
 .input-area.is-compact .input-wrap { order: 0; }
 .input-area.is-compact .composer-buttons { order: 1; }
 .input-area.is-compact > [data-test='draft-size'], .input-area.is-compact > [data-test='queued-message'] { order: 2; }
@@ -232,5 +280,9 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .chat-input.is-loading { @apply border-transparent; }
 /* 16px on a touch screen: below that the browser zooms the page when the box is focused. */
 @media (pointer: coarse) { .chat-input { font-size: 16px; } }
+.more-item { @apply flex min-h-[52px] w-full items-center gap-3 border-0 bg-transparent px-4 py-2 text-left text-primary hover:bg-surface-hover disabled:opacity-50; cursor: pointer; }
+.more-glyph { @apply w-5 flex-none text-center font-mono text-muted; }
+.more-title { @apply block text-[length:var(--text-body)]; }
+.more-hint { @apply block text-[length:var(--text-small)] text-faint; }
 
 </style>

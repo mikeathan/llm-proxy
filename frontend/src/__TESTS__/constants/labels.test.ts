@@ -1,8 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { activityLabel, helpersLabel } from '../../constants/labels'
+import { activityLabel, helpersLabel, summarizeSteps } from '../../constants/labels'
 
 // The one-line summary above an assistant answer (ChatBubble). Duration shows
 // only when it was measured (a run watched live), never a guessed one.
+describe('summarizeSteps', () => {
+  it('names what was done, counts repeats and folds the rest', () => {
+    expect(summarizeSteps(['Searched the web', 'Read a web page'])).toBe('Searched the web, read a web page')
+    expect(summarizeSteps(['Searched the web', 'Searched the web', 'Read a web page'])).toBe('Searched the web (2), read a web page')
+    expect(summarizeSteps(['Searched the web', 'Read a web page', 'Searched memory', 'Ran a command'])).toBe('Searched the web, read a web page +2 more')
+  })
+})
+
+describe('activityLabel for a finished turn', () => {
+  it('says what was done, or that it failed', () => {
+    expect(activityLabel('done', 2, 48, { summary: 'Searched the web, read a web page' })).toBe('Searched the web, read a web page · 48s')
+    expect(activityLabel('done', 0, 1, { failed: true })).toBe('Failed after 1s')
+    expect(activityLabel('done', 0, 0, { failed: true })).toBe('Failed')
+  })
+})
+
 describe('activityLabel', () => {
   it('says what a live run is doing', () => {
     expect(activityLabel('thinking', 0, 0)).toBe('Thinking')
