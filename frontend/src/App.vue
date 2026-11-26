@@ -44,12 +44,13 @@ const navBadges = computed(() => {
   return counts
 })
 const openNotification = (item: NotificationItem) => runNotifications.dismissItem(item.id)
-const { isMobile } = useResponsiveLayout()
+const { isMobile, breakpoint } = useResponsiveLayout()
 // On a phone the Assistant page is one bar, the conversation and the message box: its own bar names the chat and its
 // workspace, so the top strip steps aside (the tab bar's badges still carry the notifications), and the tab bar steps
 // aside too while the message box has the keyboard.
 const { focused: composerFocused } = useComposerFocus()
-const assistantPhone = computed(() => isMobile.value && route.name === ROUTE_NAMES.workspaceAssistant)
+// A phone is below `sm`, as the chat itself counts it (AssistantChat's compact bar); a tablet keeps the top strip.
+const assistantPhone = computed(() => breakpoint.value === 'base' && route.name === ROUTE_NAMES.workspaceAssistant)
 const showTabs = computed(() => isMobile.value && !(assistantPhone.value && composerFocused.value))
 
 // Keep-alive is opt-in by route meta (plan D19): once a `keepAlive` route has

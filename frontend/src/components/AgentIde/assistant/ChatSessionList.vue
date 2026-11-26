@@ -10,6 +10,7 @@ import MicroLabel from '../../common/display/MicroLabel.vue'
 import StatusTag from '../../common/display/StatusTag.vue'
 import SearchInput from '../../common/forms/SearchInput.vue'
 import Icon from '../../icons/Icon.vue'
+import WorkspaceSwitcher from '../../layout/WorkspaceSwitcher.vue'
 
 // The workspace's conversations (plan D14): searchable by title, pinnable
 // (kept per workspace in this browser), grouped Pinned · Today · Yesterday ·
@@ -22,6 +23,8 @@ const props = defineProps<{
   currentSessionId: string | null
   workspaceId: string
   isMobile?: boolean
+  /** The phone's Assistant page has no top strip: the list carries the workspace switcher. */
+  showWorkspace?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -83,7 +86,9 @@ function rowAction(action: () => void) {
 <template>
   <div class="flex h-full w-full flex-col overflow-hidden bg-surface-raised">
     <div class="flex flex-none items-center justify-between gap-2 px-3 py-2">
-      <MicroLabel>Conversations</MicroLabel>
+      <!-- A phone's Assistant page has no top strip, so the workspace is chosen here. -->
+      <WorkspaceSwitcher v-if="showWorkspace" :mobile="true" />
+      <MicroLabel v-else>Conversations</MicroLabel>
       <span class="flex items-center gap-1">
         <BaseButton v-if="sessions.length" variant="ghost" size="sm" icon="trash" icon-only label="Delete all conversations" @click="emit('clear-all')" />
         <BaseButton variant="ghost" size="sm" icon="chevron-left" icon-only label="Hide conversations" @click="emit('close')" />

@@ -418,6 +418,7 @@ const handleDeleteGroup = async (ids: string[]) => {
           :current-session-id="currentSessionId"
           :workspace-id="workspaceId"
           :is-mobile="true"
+          :show-workspace="variant !== 'panel' && isMobile"
           @load="handleLoadSession"
           @delete="handleDeleteSession"
           @rename="handleRenameSession"

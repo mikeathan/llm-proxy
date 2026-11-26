@@ -95,8 +95,10 @@ const {
 const { state: adminState } = useModels()
 const toast = useToast()
 const { runningSessions, reconcileRunning, reconcileRunningConversation } = useAssistant()
-const { isMobile } = useResponsiveLayout()
+const { isMobile, breakpoint } = useResponsiveLayout()
 const { focused: composerFocused } = useComposerFocus()
+// A phone (below `sm`) draws no top strip on the Assistant page (App.vue), so the chat starts at the top there.
+const phone = computed(() => breakpoint.value === 'base')
 const { workspaceHistory, refreshHistory } = useWorkspaceHistory()
 const refreshWorkspaceHistory = () => refreshHistory(ws.value, fetchWorkspaceState, fetchGlobalActivity)
 
@@ -413,8 +415,8 @@ usePolling(() => {
         v-else-if="activeMainView === 'assistant'"
         :class="[
           'h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)] max-lg:fixed max-lg:inset-x-0 max-lg:z-20 max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none',
-          isMobile ? 'max-lg:top-0' : 'max-lg:top-12',
-          isMobile && composerFocused ? 'max-lg:bottom-0' : 'max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))]',
+          phone ? 'max-lg:top-0' : 'max-lg:top-12',
+          phone && composerFocused ? 'max-lg:bottom-0' : 'max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))]',
         ]"
       >
         <AssistantChat

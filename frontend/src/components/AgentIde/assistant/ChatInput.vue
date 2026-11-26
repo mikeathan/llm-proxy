@@ -66,7 +66,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 
 // On a phone the tools (start a command, review memories) sit behind one + button in the message row, so the composer
 // is a single row; on a roomy screen they stay in the action row under the box.
-const { focused } = useComposerFocus()
+const { onFocus, onBlur, reset: resetFocus } = useComposerFocus()
 const moreOpen = ref(false)
 const moreRoot = ref<HTMLElement | null>(null)
 const morePanel = ref<HTMLElement | null>(null)
@@ -157,7 +157,7 @@ onMounted(() => {
 defineExpose({ focus: () => inputRef.value?.focus() })
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
-  focused.value = false
+  resetFocus()
 })
 </script>
 
@@ -198,8 +198,8 @@ onUnmounted(() => {
         :value="inputMessage"
         @input="emit('update:inputMessage', ($event.target as HTMLTextAreaElement).value)"
         @keydown="onKeydown"
-        @focus="focused = true"
-        @blur="focused = false"
+        @focus="onFocus"
+        @blur="onBlur"
         :placeholder="loading ? (compact ? COMPACT_WORKING_PLACEHOLDER : WORKING_PLACEHOLDER) : IDLE_PLACEHOLDER"
         class="chat-input"
         :class="{ 'is-loading': loading, 'is-expanded': expanded }"

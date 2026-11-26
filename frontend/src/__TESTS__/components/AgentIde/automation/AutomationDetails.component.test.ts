@@ -197,6 +197,15 @@ describe('AutomationDetails', () => {
     expect(w.get('.md').text()).toBe('Listening: 486 cycles.')
   })
 
+  it('says on the result tab that a run is on, and leads to it', async () => {
+    const w = await mountDetails({ isExecuting: true })
+    const note = w.get('[data-test="running-now"]')
+    expect(note.text()).toContain('Running now')
+    expect(w.text()).not.toContain('All good')
+    await note.get('button').trigger('click')
+    expect(tab(w, 'Live run').attributes('aria-checked')).toBe('true')
+  })
+
   it('says there is no result yet when it has never run', async () => {
     const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
     expect(w.text()).toContain('No result yet')

@@ -254,10 +254,15 @@ const runKey = (run: AutomationRun) => run.id;
       <NetauditHelp />
     </template>
 
+    <!-- While a run is on, the last result gives way to it: say so and lead to the live run. -->
+    <Callout v-if="!isAudit && shown('results') && showLiveUI" tone="info" title="Running now" data-test="running-now">
+      Its result appears here when it finishes.
+      <template #actions><BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="auditTab = 'live'">Watch it live</BaseButton></template>
+    </Callout>
     <EmptyState
-      v-if="!isAudit && shown('results') && !automation.last_error && !automation.last_output && !automation.last_warnings?.length"
+      v-else-if="!isAudit && shown('results') && !automation.last_error && !automation.last_output && !automation.last_warnings?.length"
       title="No result yet"
-      :body="showLiveUI ? 'It is running now; its result appears here when it finishes.' : 'Run it, or wait for its schedule; the result appears here.'"
+      body="Run it, or wait for its schedule; the result appears here."
     />
     <Panel v-if="shown(lastResultTab) && !showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" :title="isAudit ? 'Last result' : undefined">
       <div v-if="!automation.last_error && automation.last_warnings?.length" class="mb-3 flex flex-col gap-2">

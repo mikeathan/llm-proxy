@@ -113,3 +113,26 @@ test('a new chat offers starter prompts that fill the message box', async ({ pag
   await starter.click()
   await expect(page.getByRole('textbox', { name: 'Message the assistant' })).toHaveValue(text)
 })
+
+// Tapping Send blurs the message box first and the tab bar comes back after it; the tap must still send. (Chrome's touch
+// emulation lands the tap even with no delay before the bar returns, so this proves the tap works, not that the delay in
+// useComposerFocus is needed; the delay is kept as a guard for real devices.)
+test.describe('on a touch phone', () => {
+  test.use({ hasTouch: true, isMobile: true })
+
+  test('a tap on Send sends, and a tap on + opens its menu', async ({ page }, info) => {
+    test.skip(info.project.name !== 'mobile', 'phone layout')
+    await open(page)
+    const box = page.getByRole('textbox', { name: 'Message the assistant' })
+    await box.tap()
+    await box.fill('is it still raining?')
+    await page.getByRole('button', { name: 'Send', exact: true }).tap()
+    // The message left the box and joined the conversation: the tap landed on Send.
+    await expect(box).toHaveValue('')
+    await expect(page.locator('.turn-group').last()).toContainText('is it still raining?')
+
+    await box.tap()
+    await page.getByRole('button', { name: 'Commands and memory' }).tap()
+    await expect(page.getByRole('dialog', { name: 'Commands and memory' })).toBeVisible()
+  })
+})
