@@ -31,6 +31,7 @@ type RuntimeClientProvider struct {
 	model   string
 	headers http.Header
 	local   bool
+	session string
 
 	newClient func(baseURL string, model string, headers http.Header, local bool) Client
 }
@@ -93,12 +94,18 @@ func (p *RuntimeClientProvider) ensureClient(inst llm.ModelInstance, modelName s
 	// - URL changed (port/host changed)
 	// - headers changed
 	// - workload class changed (the client's transport and reasoning field follow it)
-	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) || p.local != inst.Local {
+	if p.client == nil || p.model != modelName || p.url != baseURL || !compareHeaders(p.headers, inst.Headers) || p.local != inst.Local ||
+		p.session != inst.SessionHeader {
 		p.client = p.newClient(baseURL, inst.ModelID, inst.Headers, inst.Local)
+		// A provider that routes by conversation (OpenCode Go) gets a stable id per conversation on every request.
+		if s, ok := p.client.(interface{ SetSessionHeader(string) }); ok && inst.SessionHeader != "" {
+			s.SetSessionHeader(inst.SessionHeader)
+		}
 		p.model = modelName
 		p.url = baseURL
 		p.headers = inst.Headers
 		p.local = inst.Local
+		p.session = inst.SessionHeader
 	}
 }
 

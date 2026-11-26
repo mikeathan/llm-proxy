@@ -296,6 +296,8 @@ var providerReasoningCapabilities = map[string]ReasoningCapability{
 	models.ProviderGemini:     {Mode: ModeEffort, Effort: EffortMedium, DefaultEnabled: true, Toggleable: true},
 	models.ProviderOpenAI:     {Mode: ModeEffort, Effort: EffortMedium, DefaultEnabled: true, Toggleable: true},
 	models.ProviderOpenRouter: {Mode: ModeObject, Effort: EffortMedium, DefaultEnabled: true, Toggleable: true, Enabled: true},
+	// OpenCode Go speaks OpenAI Chat Completions and translates for each model, so it takes OpenAI's reasoning_effort.
+	models.ProviderOpenCodeGo: {Mode: ModeEffort, Effort: EffortMedium, DefaultEnabled: true, Toggleable: true},
 	models.ProviderNVIDIA:     {Mode: ModeEnableThinking, Effort: EffortMedium, DefaultEnabled: true, Toggleable: true, Enabled: true},
 }
 

@@ -50,6 +50,9 @@ type ModelInstance struct {
 	// Local reports that the model is a local workload (a llama.cpp server,
 	// possibly behind an OpenAI-style URL), which decides the client built for it.
 	Local bool
+	// SessionHeader names a header the provider wants on every chat request with a stable per-conversation id
+	// (providers.ConversationSessionID); empty for most providers.
+	SessionHeader string
 }
 
 type ActiveModelInfo struct {
@@ -498,13 +501,17 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		return ModelInstance{}, err
 	}
 
-	return ModelInstance{
+	inst := ModelInstance{
 		Name:    name,
 		ModelID: cfg.Filename,
 		URL:     url,
 		Headers: headers,
 		Local:   cfg.WorkloadClass == models.WorkloadLocal,
-	}, nil
+	}
+	if s, ok := provider.(interface{ SessionHeader() string }); ok {
+		inst.SessionHeader = s.SessionHeader()
+	}
+	return inst, nil
 }
 
 func (m *LLMRuntimeManager) StopActive() error {

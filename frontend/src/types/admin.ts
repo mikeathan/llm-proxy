@@ -1,7 +1,7 @@
 // Global configuration types
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
-export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
+export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia' | 'opencode-go'
 // The sections of Settings. Everything about models (the models, providers and keys, the local engine, routing and the model
 // processes) is on the Models page (Constitution III.8 as amended 2026-11-26).
 export type SettingsTab = 'appearance' | 'memory' | 'storage' | 'limits' | 'guardrails' | 'security' | 'communication' | 'search' | 'agents' | 'sign-in'

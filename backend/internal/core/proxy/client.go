@@ -60,6 +60,14 @@ type LLMClient struct {
 	reasoningField     string
 	// preserveThinking sends chat_template_kwargs.preserve_thinking (local llama.cpp only; see withTemplateKwargs).
 	preserveThinking bool
+	// sessionHeader, when set, is sent on every request with a stable per-conversation id (SetSessionHeader).
+	sessionHeader string
+}
+
+// SetSessionHeader makes the client send header on every request, carrying providers.ConversationSessionID of the
+// request body, for a provider that routes and caches by conversation (ProviderManifest.SessionHeader).
+func (c *LLMClient) SetSessionHeader(header string) {
+	c.sessionHeader = header
 }
 
 // retryObserverKey is the context key for a per-request retry observer. A
@@ -541,6 +549,9 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 			for _, v := range vv {
 				req.Header.Add(k, v)
 			}
+		}
+		if c.sessionHeader != "" && req.Header.Get(c.sessionHeader) == "" {
+			req.Header.Set(c.sessionHeader, providers.ConversationSessionID(body))
 		}
 
 		resp, err := c.httpClient.Do(req)

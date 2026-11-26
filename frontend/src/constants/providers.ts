@@ -9,6 +9,7 @@ export const PROVIDER_IDS = [
   "openai",
   "openrouter",
   "nvidia",
+  "opencode-go",
 ] as const;
 
 // Display labels for every provider, keyed by ProviderType so adding a provider without a label fails type-checking. A provider the
@@ -19,4 +20,5 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   openai: "OpenAI / Compatible",
   openrouter: "OpenRouter",
   nvidia: "NVIDIA NIM",
+  "opencode-go": "OpenCode Go",
 };
