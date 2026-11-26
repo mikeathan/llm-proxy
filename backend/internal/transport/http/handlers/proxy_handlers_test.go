@@ -210,28 +210,6 @@ func TestEnsureModelProxyHandler_CloudModelIsSentUnderTheProvidersId(t *testing.
 	}
 }
 
-func TestServingCtxFromArgs(t *testing.T) {
-	cases := []struct {
-		name string
-		args []string
-		want int
-	}{
-		{"ctx-size flag", []string{"-m", "x.gguf", "--ctx-size", "8192"}, 8192},
-		{"short -c flag", []string{"-c", "4096"}, 4096},
-		{"context-size flag", []string{"--context-size", "2048"}, 2048},
-		{"no ctx flag", []string{"-m", "x.gguf", "--threads", "8"}, 0},
-		{"missing value", []string{"--ctx-size"}, 0},
-		{"nil args", nil, 0},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := servingCtxFromArgs(c.args); got != c.want {
-				t.Fatalf("expected %d, got %d", c.want, got)
-			}
-		})
-	}
-}
-
 type countingSink struct {
 	mu    sync.Mutex
 	calls []modelstats.Call

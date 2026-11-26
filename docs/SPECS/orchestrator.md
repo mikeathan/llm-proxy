@@ -85,8 +85,19 @@ from model metadata, and applies provider-tier tuning defaults.
 
   - **Local workloads** (`WorkloadClass == local`): `LocalBudgetPolicy.resolveContext`
     1. `Metadata.Nctx` (serving context from llama.cpp `/slots`) — highest priority.
-    2. `Metadata.ContextLength` (training context from GGUF), capped by `defaultLocalContextMax`.
-    3. `defaultLocalContextLength` (8192) — the universal numeric local fallback.
+    2. `--ctx-size` / `--context-size` / `-c` in the model's launch args (`ServingContextFromArgs`): the window the
+       server is started with, used until the running server reports its own. `0` (llama-server: use the file's
+       context) counts as unset. Added 2026-11-26: without it a model launched with `--ctx-size 8192` was sized by its
+       1,048,576-token training context until a run reconciled it. With `--parallel N` > 1 llama-server may split the
+       window between slots; the server's report (priority 1) is what corrects that.
+       For a model this app launches (provider `local`) whose args set the window, a **stored** `n_ctx` is dropped when the
+       config enters the runtime and when it is saved (`orchestrator.DropStoredServingContext`): it was either a
+       training-context guess or a report taken under args since changed, and it outranked `--ctx-size` (vertex
+       2026-11-26: Ornith at 8192 stored 262144, Nemotron at 16384 stored 1048576). Only the live report, held in memory
+       by `ReconcileLocalServingContext`, outranks the args. The add/edit enrichment records `n_ctx` for a local model
+       only when a server reported it; a training context stays in `context_length`.
+    3. `Metadata.ContextLength` (training context from GGUF), capped by `defaultLocalContextMax`.
+    4. `defaultLocalContextLength` (8192) — the universal numeric local fallback.
     The local path NEVER consults `providerCtxDefaults` — a local workload can
     never leak into a 128K/1M cloud calculation.
 

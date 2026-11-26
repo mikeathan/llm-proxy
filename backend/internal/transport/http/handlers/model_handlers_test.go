@@ -250,14 +250,17 @@ func TestEnrichResolvesContextViaOrchestrator(t *testing.T) {
 			wantNctx: 8192,
 		},
 		{
-			name:     "training context under cap used",
+			// A training context is not a serving window: recorded as n_ctx it outranked --ctx-size (vertex
+			// 2026-11-26, Ornith stored 262144 while launched at 8192). It stays in context_length, which the
+			// budget falls back to after the launch args.
+			name:     "a local training context is not recorded as the serving window",
 			meta:     &models.ModelMeta{ContextLength: 65536},
-			wantNctx: 65536,
+			wantNctx: 0,
 		},
 		{
-			name:     "training context above old 128K cap now capped at 1M",
+			name:     "a training context above 1M is not recorded either",
 			meta:     &models.ModelMeta{ContextLength: 2000000},
-			wantNctx: 1048576,
+			wantNctx: 0,
 		},
 		{
 			name:        "no meta leaves metadata untouched (no serving context known)",

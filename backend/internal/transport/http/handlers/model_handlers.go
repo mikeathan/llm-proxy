@@ -227,6 +227,23 @@ func (r *modelFormRequest) hasRealContext() bool {
 	return false
 }
 
+// servingWindowToRecord is the window the enrichment records as the model's serving context (Metadata.Nctx). For a
+// local model that is only a window a server reported (its /slots or listing n_ctx): a training context resolved in its
+// place is a guess, and recorded as n_ctx it outranked --ctx-size. A cloud model records the resolved context, its
+// published window.
+func (r *modelFormRequest) servingWindowToRecord(workload models.WorkloadClass, resolved int) int {
+	if workload != models.WorkloadLocal {
+		return resolved
+	}
+	if r.Meta != nil {
+		return r.Meta.Nctx
+	}
+	if r.Metadata != nil {
+		return r.Metadata.Nctx
+	}
+	return 0
+}
+
 // enrichMetadataFromProviders populates model metadata from the provider's
 // model-listing API (meta, limits) and auto-computes InternalCreditWeight
 // from OpenRouter pricing.  When exact context length is available, it
@@ -281,8 +298,9 @@ func (r *modelFormRequest) enrichMetadataFromProviders(classify func(models.Mode
 		metaCtx = 0
 	}
 
+	servingCtx := r.servingWindowToRecord(workload, metaCtx)
 	if r.Metadata == nil && metaCtx > 0 {
-		r.Metadata = &models.ModelMetadata{ContextLength: r.Meta.ContextLength, Nctx: metaCtx, Parameters: r.Meta.Parameters}
+		r.Metadata = &models.ModelMetadata{ContextLength: r.Meta.ContextLength, Nctx: servingCtx, Parameters: r.Meta.Parameters}
 	}
 	if r.Meta != nil && r.Meta.Serving != "" {
 		if r.Metadata == nil {
@@ -294,7 +312,7 @@ func (r *modelFormRequest) enrichMetadataFromProviders(classify func(models.Mode
 		if r.Meta != nil {
 			r.Metadata.Parameters = r.Meta.Parameters
 		}
-		r.Metadata.Nctx = metaCtx
+		r.Metadata.Nctx = servingCtx
 	}
 
 	// Published capabilities (Phase 2): keep the live-catalog numbers for the
@@ -626,6 +644,7 @@ func persistModelAndOverrides(
 ) error {
 	persistCfg := modelConfigFromRequest(req, filename, "", append([]string{}, req.Args...), nil)
 	persistCfg.WorkloadClass = runtimeCfg.WorkloadClass
+	orchestrator.DropStoredServingContext(&persistCfg) // the saved copy too: its launch args are the window
 	orchestrator.ApplyMetadataDefaults(&persistCfg)
 	if err := persistFn(persistCfg); err != nil {
 		return err

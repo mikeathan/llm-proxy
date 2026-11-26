@@ -13,6 +13,8 @@
 package orchestrator
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 
 	"llm-proxy/models"
@@ -45,8 +47,9 @@ type ContextResolution struct {
 // ResolveLocalContext resolves the serving context for a local workload:
 //
 //  1. Metadata.Nctx               (serving context, /slots or /v1/props)
-//  2. Metadata.ContextLength      capped by defaultLocalContextMax
-//  3. defaultLocalContextLength   (8192) — the universal local fallback
+//  2. --ctx-size in the launch args (the window the server is started with)
+//  3. Metadata.ContextLength      capped by defaultLocalContextMax
+//  4. defaultLocalContextLength   (8192) — the universal local fallback
 //
 // It never consults providerCtxDefaults, so a local workload can never leak
 // into a 128K/1M cloud calculation.  Always returns a numeric value — the
@@ -54,6 +57,9 @@ type ContextResolution struct {
 func ResolveLocalContext(cfg *models.ModelConfig) int {
 	if cfg.Metadata != nil && cfg.Metadata.Nctx > 0 {
 		return cfg.Metadata.Nctx
+	}
+	if ctx := ServingContextFromArgs(cfg.Args); ctx > 0 {
+		return ctx
 	}
 	if cfg.Metadata != nil && cfg.Metadata.ContextLength > 0 {
 		ctx := cfg.Metadata.ContextLength
@@ -63,6 +69,39 @@ func ResolveLocalContext(cfg *models.ModelConfig) int {
 		return ctx
 	}
 	return defaultLocalContextLength
+}
+
+// DropStoredServingContext clears the stored serving window (Metadata.Nctx) of a model this app launches whose launch
+// args set its window: until its server answers, the args are the window (ResolveLocalContext then reads them), and the
+// live report replaces them when it does (ReconcileLocalServingContext, in memory). A stored n_ctx on such a model is a
+// training-context guess the add form recorded, or a report taken under args since changed; it used to outrank
+// --ctx-size (vertex 2026-11-26: Ornith launched at 8192 stored 262144). The metadata is copied, never changed in place:
+// other copies of the config share it.
+func DropStoredServingContext(cfg *models.ModelConfig) {
+	launched := cfg.Provider == "" || cfg.Provider == models.ProviderLocal
+	if !launched || cfg.Metadata == nil || cfg.Metadata.Nctx == 0 || ServingContextFromArgs(cfg.Args) == 0 {
+		return
+	}
+	md := *cfg.Metadata
+	md.Nctx = 0
+	cfg.Metadata = &md
+}
+
+// ctxSizeFlags are the llama-server flags that set the serving window.
+var ctxSizeFlags = []string{"--ctx-size", "--context-size", "-c"}
+
+// ServingContextFromArgs is the serving window a local model's launch args set (--ctx-size N, --context-size N or
+// -c N); 0 when they set none, or set 0, which tells llama-server to use the file's own context.
+func ServingContextFromArgs(args []string) int {
+	for i := 0; i+1 < len(args); i++ {
+		if !slices.Contains(ctxSizeFlags, args[i]) {
+			continue
+		}
+		if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 // --- Published context source (cloud) ---

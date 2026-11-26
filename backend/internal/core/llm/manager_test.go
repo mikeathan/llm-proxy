@@ -537,6 +537,46 @@ func TestReconcileLocalServingContext(t *testing.T) {
 	}
 }
 
+// A model this app launches with --ctx-size is sized by its args, not by a stored n_ctx (vertex 2026-11-26: Ornith
+// launched at 8192 had 262144 stored and was shown and listed with a 262144-token window until it ran). The running
+// server's own report still wins once it answers (here 4096: a server that splits its window between slots), and a Sync
+// goes back to the args until the server is asked again.
+func TestLaunchArgsSizeAModelUntilItsServerAnswers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/slots" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[{"id":0,"n_ctx":4096}]`))
+	}))
+	defer server.Close()
+	port, err := strconv.Atoi(strings.TrimPrefix(server.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatalf("parse httptest port: %v", err)
+	}
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	cfg := staleQwen(port)
+	cfg.Args = []string{"--ctx-size", "8192"}
+	if err := m.AddModel(cfg); err != nil {
+		t.Fatalf("AddModel: %v", err)
+	}
+	m.Sync()
+	if got := findModel(t, m, "qwen"); got.ContextBudget != 21848 || got.MaxTokens != 2730 {
+		t.Fatalf("before the server answers: budget %d, max tokens %d; want 21848 and 2730 (--ctx-size 8192)", got.ContextBudget, got.MaxTokens)
+	}
+
+	m.ReconcileLocalServingContext(context.Background(), "qwen")
+	if got := findModel(t, m, "qwen"); got.Metadata.Nctx != 4096 || got.MaxTokens != 4096/3 {
+		t.Fatalf("after the server answers: n_ctx %d, max tokens %d; want the server's 4096", got.Metadata.Nctx, got.MaxTokens)
+	}
+
+	m.Sync()
+	if got := findModel(t, m, "qwen"); got.MaxTokens != 2730 {
+		t.Errorf("after a Sync: max tokens %d, want 2730 from --ctx-size until the server is asked again", got.MaxTokens)
+	}
+}
+
 // loadingServer is a llama-server that answers its window only once it has finished loading: until then /slots and
 // /v1/models answer 503 "Loading model", as the real server does while it reads the weights.
 type loadingServer struct {
