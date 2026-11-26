@@ -163,8 +163,6 @@ declare module 'vue-router' {
     public?: boolean
     // Page title segment for document.title.
     title?: string
-    // Uses the full content width (IDE-style panes) instead of the reading column.
-    fullWidth?: boolean
   }
 }
 
