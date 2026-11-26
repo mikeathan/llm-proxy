@@ -106,14 +106,12 @@ func TestStreamHeartbeat_EmitsStillThinkingOnSilentStall(t *testing.T) {
 	}
 }
 
-// TestStreamHeartbeat_NoStillThinkingDuringActiveStreaming: a continuously
-// advancing stream must NOT emit still_thinking (silent-stall gate keeps the
-// bus quiet while the model is actively producing output).
+// TestStreamHeartbeat_NoStillThinkingDuringActiveStreaming: a stream whose
+// output advanced since the last tick must NOT emit still_thinking (the
+// silent-stall gate keeps the bus quiet while the model is producing output).
+// It drives handleTick directly: racing 1 ms chunks against a 5 ms ticker
+// failed under -race on a loaded CI runner whenever one gap ran past a tick.
 func TestStreamHeartbeat_NoStillThinkingDuringActiveStreaming(t *testing.T) {
-	// Chunks arrive faster than the heartbeat cadence so content always
-	// advances between ticks — the silent-stall gate must stay quiet.
-	setStreamHeartbeatInterval(t, 5*time.Millisecond)
-
 	events := &lifeEvents{}
 	agent := &Agent{
 		config: AgentConfig{Channel: "test", MaxTokens: 1_000_000},
@@ -122,24 +120,28 @@ func TestStreamHeartbeat_NoStillThinkingDuringActiveStreaming(t *testing.T) {
 			Observer: events.observer(),
 		},
 	}
+	now := time.Now()
+	st := &streamRun{agent: agent, fullMsg: &proxy.Message{Role: proxy.AssistantRole}, startTime: now, firstDeltaAt: now}
 
-	feed := make(chan *proxy.ChatResponse, 1)
-	go func() {
-		defer close(feed)
-		for i := 0; i < 100; i++ {
-			feed <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "x"}}}}
-			time.Sleep(time.Millisecond)
+	for i := 0; i < 10; i++ {
+		// Content and reasoning take turns advancing; either one counts as output.
+		if i%2 == 0 {
+			st.contentLen.Add(1)
+		} else {
+			st.reasoningLen.Add(1)
 		}
-	}()
-
-	var fullMsg proxy.Message
-	fullMsg.Role = proxy.AssistantRole
-	if err := agent.processStream(context.Background(), feed, &fullMsg, false, false); err != nil {
-		t.Fatalf("processStream returned unexpected error: %v", err)
+		if st.handleTick() {
+			t.Fatal("handleTick stopped an active stream")
+		}
 	}
-
 	if n := events.count(PhaseStillThinking); n != 0 {
 		t.Fatalf("expected no still_thinking during active streaming, got %d", n)
+	}
+
+	// The gate opens once nothing advanced since the last tick.
+	st.handleTick()
+	if n := events.count(PhaseStillThinking); n != 1 {
+		t.Fatalf("expected one still_thinking after a silent tick, got %d", n)
 	}
 }
 
