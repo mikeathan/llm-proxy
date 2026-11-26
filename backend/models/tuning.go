@@ -37,6 +37,7 @@ var providerTuningDefaults = map[string]ProviderTuning{
 	ProviderGemini:     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 8192, ToolCallFormat: "native", Prefill: false, DefaultContext: 1_048_576},
 	ProviderOpenAI:     {MaxSteps: 35, ContextBudget: 50000, MaxTokens: 8192, ToolCallFormat: "native", Prefill: false, DefaultContext: 128_000},
 	ProviderOpenRouter: {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 8192, ToolCallFormat: "native", Prefill: false, DefaultContext: 128_000},
+	ProviderOpenCodeGo: {MaxSteps: 30, ContextBudget: 30000, MaxTokens: 8192, ToolCallFormat: "native", Prefill: false, DefaultContext: 128_000},
 	ProviderNVIDIA:     {MaxSteps: 30, ContextBudget: 20000, MaxTokens: 8192, ToolCallFormat: "native", Prefill: false, DefaultContext: 128_000},
 }
 

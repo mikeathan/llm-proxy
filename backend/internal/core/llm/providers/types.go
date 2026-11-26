@@ -12,7 +12,10 @@ import (
 
 // RunningModel represents a managed local model process.
 type RunningModel struct {
-	Cfg        models.ModelConfig
+	Cfg models.ModelConfig
+	// LaunchArgs are the arguments the server was started with (host and port included), so a settings save can tell
+	// whether the running server would be launched differently now (LLMRuntimeManager.launchChangedLocked).
+	LaunchArgs []string
 	Cmd        *exec.Cmd
 	Cancel     context.CancelFunc
 	Started    time.Time

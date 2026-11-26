@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
+	"slices"
 	"syscall"
 	"time"
 
@@ -60,6 +62,7 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	}
 
 	m.retainActiveModelLogsLocked()
+	m.stopping = model.Done()
 	m.activeModel = nil
 	m.activeProvider = nil
 	m.activeCloudConfig = nil
@@ -86,6 +89,90 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 			<-done // Ensure wait is complete
 		}
 	}
+}
+
+// awaitStopLocked waits, with the lock released, until the last server told to stop has exited, so the next start never
+// finds the port still held by it. It reports whether it released the lock (the caller must re-check its state). The
+// wait is bounded by the stop's own waiter, which kills the server after shutdownTimeout.
+func (m *LLMRuntimeManager) awaitStopLocked(ctx context.Context) (bool, error) {
+	done := m.stopping
+	if done == nil {
+		return false, nil
+	}
+	select {
+	case <-done:
+		m.stopping = nil
+		return false, nil
+	default:
+	}
+	m.mu.Unlock()
+	var err error
+	select {
+	case <-done:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	m.mu.Lock()
+	return true, err
+}
+
+// clearSlotLocked frees the local slot for another model. A model still loading is left to finish (the caller is told
+// to wait); a running one is stopped and waited for; a stop made elsewhere (a settings save) is waited for until that
+// server has exited. retry means the lock was released and the caller must re-check its state.
+func (m *LLMRuntimeManager) clearSlotLocked(ctx context.Context) (retry bool, err error) {
+	if m.stillLoadingLocked() && !isExplicitStart(ctx) {
+		return false, models.ErrModelStarting
+	}
+	if waiter := m.signalStopLocked(); waiter != nil {
+		m.mu.Unlock()
+		waiter()
+		m.mu.Lock()
+		return true, nil
+	}
+	return m.awaitStopLocked(ctx)
+}
+
+// loadingGrace is how long a local model that is still loading is protected from being stopped by a request for
+// another model. Without it two callers wanting different models stopped each other's server before either was ready.
+const loadingGrace = 2 * time.Minute
+
+// stillLoadingLocked reports whether the active local model is still loading and within loadingGrace. llama-server opens
+// its port before the model has loaded, so "loaded" is the window the server has reported (servingCtxSynced), not an
+// open port.
+func (m *LLMRuntimeManager) stillLoadingLocked() bool {
+	a := m.activeModel
+	return a != nil && !a.Exited() && !m.servingCtxSynced[a.Cfg.Name] && time.Since(a.Started) < loadingGrace
+}
+
+type explicitStartKey struct{}
+
+// WithExplicitStart marks a request as the owner's own Start of a model (the Models page), which may stop a model that
+// is still loading; requests a run or an outside caller make wait for it instead.
+func WithExplicitStart(ctx context.Context) context.Context {
+	return context.WithValue(ctx, explicitStartKey{}, true)
+}
+
+func isExplicitStart(ctx context.Context) bool {
+	explicit, _ := ctx.Value(explicitStartKey{}).(bool)
+	return explicit
+}
+
+// launchChangedLocked reports whether starting cfg would launch a different server from the running one: other
+// arguments, model file or environment. Settings that are not part of the launch (temperature, budgets) do not count.
+// The running side is what the server was started with (LaunchArgs), so a change of the model host made just before this
+// save (the System settings handler sets it first) still counts.
+func (m *LLMRuntimeManager) launchChangedLocked(cfg models.ModelConfig) bool {
+	running := m.activeModel
+	next := m.enrichModelLocked(cfg)
+	if next.Port == 0 {
+		next.Port = running.Cfg.Port
+	}
+	host := m.registrar.ModelHost()
+	launched := running.LaunchArgs
+	if launched == nil {
+		launched = providers.BuildLaunchArgs(running.Cfg, host)
+	}
+	return !slices.Equal(launched, providers.BuildLaunchArgs(next, host)) || !maps.Equal(running.Cfg.Environment, next.Environment)
 }
 
 // reapIdleModels periodically checks and shuts down unused local models.

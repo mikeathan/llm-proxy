@@ -72,6 +72,13 @@ export interface AssistantMessage {
   run?: TurnRun
 }
 
+// A failed run told in words (describeRunFailure): what went wrong, what to do, and whether Models is where to fix it.
+export interface RunFailure {
+  title: string
+  hint: string
+  fixInModels: boolean
+}
+
 export interface SessionBrief {
   id: string
   snippet: string

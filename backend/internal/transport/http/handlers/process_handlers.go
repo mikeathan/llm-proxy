@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/process"
@@ -75,7 +76,8 @@ func (h *ProcessHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	mi, err := h.runtime.EnsureModel(r.Context(), req.Name)
+	// The owner's own Start may stop a model that is still loading; a run's request would wait for it instead.
+	mi, err := h.runtime.EnsureModel(llm.WithExplicitStart(r.Context()), req.Name)
 	if err == models.ErrModelStarting {
 		w.WriteHeader(http.StatusAccepted)
 		respondJSON(w, adminStartResponse{Status: models.ModelStatusStarting, Model: req.Name})

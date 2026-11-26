@@ -1,9 +1,9 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.6"
+version: "1.7"
 status: stable
-last_updated: 2026-10-21
+last_updated: 2026-11-26
 constitution_references: [VI]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,19 @@ supersedes:
 
 ## Changelog
 
+- **1.7 (2026-11-26)** — Local model switching and a provider's session header (v0.145.0; review
+  `audits/2026-11-26-assistant-automations-service-review.md` B1–B4). (1) A start of a local model waits until the last
+  server told to stop has exited, so it never finds its port still held (`awaitStopLocked`). (2) `UpdateModel` restarts
+  the running model only when its launch changes (arguments, model file, environment); a settings save that changes none
+  of them leaves it running (pitfall 81). (3) A request for another local model does not stop one that is still loading (its
+  server has not reported its window yet; llama-server opens its port before the model is loaded): for up to two minutes
+  after its start the caller is answered "starting" and waits (`loadingGrace`). The owner's own Start on the Models page
+  is exempt (`WithExplicitStart`). The running side of the launch comparison is what the server was started with
+  (`RunningModel.LaunchArgs`), so a model-host change made just before the save restarts it. (4) A provider
+  manifest may name a `session_header`; every chat request to that provider then carries a stable id per conversation,
+  derived from the request (model plus first system and first user message, `providers.ConversationSessionID`), for
+  the service's own calls and for outside `/v1` callers that send none. **OpenCode Go** (`opencode-go`,
+  `https://opencode.ai/inference/go/openai/v1`, `x-opencode-session`) is the first provider that names one.
 - **1.6 (2026-10-21)** — The think-token budget is only as good as the output cap it is derived from (`max_tokens / 3`): on the
   incident run the stale cap (87,381, from the 262k training window) gave a 29,127-token budget on a 16,384-token window, so the
   stream interceptor's cut (3x the budget) never fired and a 16k-character reasoning loop ran. Replaying the looping request with

@@ -50,6 +50,9 @@ type ModelInstance struct {
 	// Local reports that the model is a local workload (a llama.cpp server,
 	// possibly behind an OpenAI-style URL), which decides the client built for it.
 	Local bool
+	// SessionHeader names a header the provider wants on every chat request with a stable per-conversation id
+	// (providers.ConversationSessionID); empty for most providers.
+	SessionHeader string
 }
 
 type ActiveModelInfo struct {
@@ -145,6 +148,10 @@ type LLMRuntimeManager struct {
 	// residency refuses local-model evictions that would stop a model an
 	// admitted run or inbound caller is using (residency.go). nil = unguarded.
 	residency ResidencyGuard
+
+	// stopping is the exit channel of the last local server told to stop. A stop clears activeModel at once, so a
+	// start must wait on this until the old server has let go of the port (awaitStopLocked).
+	stopping <-chan struct{}
 }
 
 func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, settings models.UserSettings, secrets models.SecretsStore, regSource func() models.RegistryData) *LLMRuntimeManager {
@@ -462,11 +469,9 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 			}
 
 			activePort := m.activePortLocked()
-			waiter := m.signalStopLocked()
-			if waiter != nil {
-				m.mu.Unlock()
-				waiter()
-				m.mu.Lock()
+			if retry, err := m.clearSlotLocked(ctx); err != nil {
+				return ModelInstance{}, err
+			} else if retry {
 				continue
 			}
 
@@ -496,13 +501,17 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 		return ModelInstance{}, err
 	}
 
-	return ModelInstance{
+	inst := ModelInstance{
 		Name:    name,
 		ModelID: cfg.Filename,
 		URL:     url,
 		Headers: headers,
 		Local:   cfg.WorkloadClass == models.WorkloadLocal,
-	}, nil
+	}
+	if s, ok := provider.(interface{ SessionHeader() string }); ok {
+		inst.SessionHeader = s.SessionHeader()
+	}
+	return inst, nil
 }
 
 func (m *LLMRuntimeManager) StopActive() error {
@@ -790,8 +799,11 @@ func (m *LLMRuntimeManager) UpdateModel(cfg models.ModelConfig) error {
 	if local, ok := m.registrar.ListConfigs()["local"]; ok {
 		modelDir = local.ModelDir
 	}
-	m.models[cfg.Name] = normalizeModelConfig(modelDir, cfg)
-	if m.activeModel != nil && m.activeModel.Cfg.Name == cfg.Name {
+	next := normalizeModelConfig(modelDir, cfg)
+	m.models[cfg.Name] = next
+	// Restart only when the server would be launched differently; a save that changes nothing about the launch (the
+	// System settings handler pushes the same environment to every model) keeps it running.
+	if m.activeModel != nil && m.activeModel.Cfg.Name == cfg.Name && m.launchChangedLocked(next) {
 		waiter := m.signalStopLocked()
 		if waiter != nil {
 			go waiter()

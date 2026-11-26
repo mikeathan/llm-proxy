@@ -48,16 +48,35 @@ export const HELPER_STATUS_LABEL: Record<HelperProgress['status'], string> = {
 const ACTIVITY_SEPARATOR = ' · '
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-export function activityLabel(phase: InsetPhase, steps: number, seconds: number): string {
+// A finished turn names what it did (`summary`, from summarizeSteps) rather than counting steps; a failed one says so.
+export function activityLabel(phase: InsetPhase, steps: number, seconds: number, finished: { summary?: string; failed?: boolean } = {}): string {
   switch (phase) {
     case 'thinking':   return 'Thinking'
     case 'working':    return `Working${ACTIVITY_SEPARATOR}${plural(steps, 'step')}`
     case 'generating': return 'Writing the answer'
     default: {
-      const parts = [seconds > 0 ? `Worked ${formatElapsedSeconds(seconds)}` : '', steps > 0 ? plural(steps, 'step') : ''].filter(Boolean)
+      const time = seconds > 0 ? formatElapsedSeconds(seconds) : ''
+      if (finished.failed) return time ? `Failed after ${time}` : 'Failed'
+      if (finished.summary) return [finished.summary, time].filter(Boolean).join(ACTIVITY_SEPARATOR)
+      const parts = [time ? `Worked ${time}` : '', steps > 0 ? plural(steps, 'step') : ''].filter(Boolean)
       return parts.length ? parts.join(ACTIVITY_SEPARATOR) : 'Reasoning'
     }
   }
+}
+
+// summarizeSteps turns a finished turn's tool steps (their past-tense verbs, in order) into one phrase for the activity
+// line: "Searched the web, read a web page", a repeated step counted ("Searched the web (3)"), and at most two named
+// before "+N more".
+const SUMMARY_NAMED_STEPS = 2
+export function summarizeSteps(verbs: string[]): string {
+  const counts = new Map<string, number>()
+  for (const verb of verbs) counts.set(verb, (counts.get(verb) ?? 0) + 1)
+  const named = [...counts].slice(0, SUMMARY_NAMED_STEPS).map(([verb, n], i) => {
+    const phrase = i === 0 ? verb : verb.charAt(0).toLowerCase() + verb.slice(1)
+    return n > 1 ? `${phrase} (${n})` : phrase
+  })
+  const rest = counts.size - SUMMARY_NAMED_STEPS
+  return named.join(', ') + (rest > 0 ? ` +${rest} more` : '')
 }
 
 // The tokens a turn used, as the provider reported them: what it generated

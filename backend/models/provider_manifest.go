@@ -10,6 +10,9 @@ type ProviderManifest struct {
 	Auth           AuthProviderConfig `json:"auth"`             // authentication settings
 	Endpoints      ProviderEndpoints  `json:"endpoints"`        // endpoint paths
 	Icon           string             `json:"icon,omitempty"`   // emoji or icon slug
+	// SessionHeader names a header the provider wants on every chat request, carrying a stable id per conversation
+	// (OpenCode Go answers 400 MissingSessionID without x-opencode-session). Empty: none.
+	SessionHeader string `json:"session_header,omitempty"`
 }
 
 type ProviderArchetype string

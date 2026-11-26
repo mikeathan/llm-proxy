@@ -7,6 +7,7 @@ import { useViewManager } from "../composables/ui/useViewManager"
 import { useFileEditor } from "../composables/editor/useFileEditor"
 import { useWorkspaceHistory } from "../composables/automation/useWorkspaceHistory"
 import { useResponsiveLayout } from "../composables/ui/useResponsiveLayout"
+import { useComposerFocus } from "../composables/ui/useComposerFocus"
 import { useDestinationRoute } from "../composables/ui/useDestinationRoute"
 import { useUnsavedChangesGuard } from "../composables/ui/useUnsavedChangesGuard"
 import { useLastWorkspace } from "../composables/ui/useLastWorkspace"
@@ -94,7 +95,10 @@ const {
 const { state: adminState } = useModels()
 const toast = useToast()
 const { runningSessions, reconcileRunning, reconcileRunningConversation } = useAssistant()
-const { isMobile } = useResponsiveLayout()
+const { isMobile, breakpoint } = useResponsiveLayout()
+const { focused: composerFocused } = useComposerFocus()
+// A phone (below `sm`) draws no top strip on the Assistant page (App.vue), so the chat starts at the top there.
+const phone = computed(() => breakpoint.value === 'base')
 const { workspaceHistory, refreshHistory } = useWorkspaceHistory()
 const refreshWorkspaceHistory = () => refreshHistory(ws.value, fetchWorkspaceState, fetchGlobalActivity)
 
@@ -405,7 +409,16 @@ usePolling(() => {
         </Panel>
       </div>
 
-      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)] max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))] max-lg:top-12 max-lg:z-20 max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none">
+      <!-- Below lg the chat is fixed between the top strip and the tab bar; on a phone the strip steps aside (App.vue) and
+           the tab bar too while the message box has the keyboard. -->
+      <div
+        v-else-if="activeMainView === 'assistant'"
+        :class="[
+          'h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)] max-lg:fixed max-lg:inset-x-0 max-lg:z-20 max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none',
+          phone ? 'max-lg:top-0' : 'max-lg:top-12',
+          phone && composerFocused ? 'max-lg:bottom-0' : 'max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))]',
+        ]"
+      >
         <AssistantChat
           v-if="viewActive"
           :workspaceId="ws"

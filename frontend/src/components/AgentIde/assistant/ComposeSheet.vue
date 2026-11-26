@@ -50,7 +50,7 @@ watch(
     <header class="flex flex-none items-center gap-2 border-b border-hairline p-2">
       <BaseButton variant="ghost" size="lg" class-name="[@media(pointer:coarse)]:h-11" @click="emit('close')">Done</BaseButton>
       <span data-test="sheet-size" class="min-w-0 flex-1 truncate text-center font-mono text-[length:var(--text-micro)] tabular-nums text-muted">{{ size }}</span>
-      <BaseButton variant="primary" size="lg" icon="send" class-name="[@media(pointer:coarse)]:h-11" :disabled="!modelValue.trim()" @click="emit('send')">Send</BaseButton>
+      <BaseButton variant="primary" size="lg" icon="arrow-up" class-name="[@media(pointer:coarse)]:h-11" :disabled="!modelValue.trim()" @click="emit('send')">Send</BaseButton>
     </header>
     <textarea
       ref="field"

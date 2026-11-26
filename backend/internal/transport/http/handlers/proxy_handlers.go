@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/modelstats"
 	"llm-proxy/internal/platform/network"
@@ -223,6 +224,20 @@ func setRequestModel(r *http.Request, modelID string) {
 	r.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
 }
 
+// setSessionHeader gives an outside caller's request the per-conversation id its provider wants (OpenCode Go's
+// x-opencode-session), unless the caller sent one: a client that already tracks its sessions knows better.
+func setSessionHeader(r *http.Request, header string) {
+	if header == "" || r.Header.Get(header) != "" || r.Body == nil {
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	r.Header.Set(header, providers.ConversationSessionID(raw))
+}
+
 func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.Header.Get("X-Model-Name")
 	if model == "" {
@@ -282,6 +297,7 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 				r.Header.Set(k, v)
 			}
 		}
+		setSessionHeader(r, mi.SessionHeader)
 		inner.ServeHTTP(w, r)
 	})
 

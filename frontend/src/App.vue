@@ -18,6 +18,8 @@ import { useConfirm } from './composables/ui/useConfirm'
 import { useActiveWorkspace } from './composables/ui/useActiveWorkspace'
 import { useEnabledStacks } from './composables/stacks/useEnabledStacks'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
+import { useComposerFocus } from './composables/ui/useComposerFocus'
+import { ROUTE_NAMES } from './types/routes'
 import NotificationBell from './components/common/display/NotificationBell.vue'
 import { badgeTarget } from './utils/navigation'
 import type { NavId } from './types/routes'
@@ -42,7 +44,14 @@ const navBadges = computed(() => {
   return counts
 })
 const openNotification = (item: NotificationItem) => runNotifications.dismissItem(item.id)
-const { isMobile } = useResponsiveLayout()
+const { isMobile, breakpoint } = useResponsiveLayout()
+// On a phone the Assistant page is one bar, the conversation and the message box: its own bar names the chat and its
+// workspace, so the top strip steps aside (the tab bar's badges still carry the notifications), and the tab bar steps
+// aside too while the message box has the keyboard.
+const { focused: composerFocused } = useComposerFocus()
+// A phone is below `sm`, as the chat itself counts it (AssistantChat's compact bar); a tablet keeps the top strip.
+const assistantPhone = computed(() => breakpoint.value === 'base' && route.name === ROUTE_NAMES.workspaceAssistant)
+const showTabs = computed(() => isMobile.value && !(assistantPhone.value && composerFocused.value))
 
 // Keep-alive is opt-in by route meta (plan D19): once a `keepAlive` route has
 // resolved its lazy component, that component's name joins the include list.
@@ -90,7 +99,7 @@ onMounted(() => {
     <AppSidebar v-if="!isMobile" :badges="navBadges" />
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <AdminHeader :mobile="isMobile">
+      <AdminHeader v-if="!assistantPhone" :mobile="isMobile">
         <template #actions>
           <AskField :mobile="isMobile" />
           <NotificationBell
@@ -124,7 +133,7 @@ onMounted(() => {
     <AskPanel />
 
     <!-- A phone's navigation: tabs within thumb's reach and a More sheet. -->
-    <BottomTabs v-if="isMobile" :badges="navBadges" />
+    <BottomTabs v-if="showTabs" :badges="navBadges" />
   </div>
 
   <Toast />

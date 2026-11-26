@@ -41,6 +41,8 @@ const emit = defineEmits<{ (e: "activate", row: T): void }>()
 defineSlots<
   { [K in `cell-${string}`]?: (props: { row: T }) => unknown } & { [K in `header-${string}`]?: () => unknown } & {
     empty?(): unknown
+    /** A phone's row, in place of the labelled stacked card: for a list read at a glance (the automations). */
+    'mobile-row'?(props: { row: T }): unknown
   }
 >()
 
@@ -100,12 +102,16 @@ function onKeydown(event: KeyboardEvent, row: T) {
           @click="onClick($event, row)"
           @keydown="onKeydown($event, row)"
         >
+          <td v-if="$slots['mobile-row']" class="hidden max-sm:block">
+            <slot name="mobile-row" :row="row" />
+          </td>
           <td
             v-for="column in columns"
             :key="column.key"
             :data-label="column.label"
             :class="[
               'px-4 py-[9px] align-middle text-secondary group-hover:bg-surface-raised',
+              $slots['mobile-row'] ? 'max-sm:hidden' : '',
               'max-sm:flex max-sm:justify-between max-sm:gap-3 max-sm:px-0 max-sm:py-[3px] max-sm:text-right max-sm:group-hover:bg-transparent',
               'max-sm:before:flex-none max-sm:before:text-left max-sm:before:font-mono max-sm:before:text-[length:var(--text-micro)] max-sm:before:uppercase max-sm:before:leading-5 max-sm:before:tracking-[var(--tracking-micro)] max-sm:before:text-muted max-sm:before:content-[attr(data-label)]',
               column.numeric ? 'text-right font-mono text-[length:var(--text-small)] tabular-nums' : '',

@@ -15,6 +15,9 @@ const (
 	ProviderOpenAI     = "openai"
 	ProviderOpenRouter = "openrouter"
 	ProviderNVIDIA     = "nvidia"
+	// ProviderOpenCodeGo is OpenCode's Go plan: an OpenAI-compatible gateway that wants a per-conversation session
+	// header (definitions/opencode-go.json).
+	ProviderOpenCodeGo = "opencode-go"
 )
 
 // ProviderIDs returns the canonical, ordered list of provider keys.
@@ -25,6 +28,7 @@ func ProviderIDs() []string {
 		ProviderOpenAI,
 		ProviderOpenRouter,
 		ProviderNVIDIA,
+		ProviderOpenCodeGo,
 	}
 }
 
@@ -34,7 +38,7 @@ func ProviderIDs() []string {
 // provider_defaults, so the frontend never hardcodes the provider list.
 func SupportsBaseURL(id string) bool {
 	switch id {
-	case ProviderOpenAI, ProviderOpenRouter, ProviderNVIDIA:
+	case ProviderOpenAI, ProviderOpenRouter, ProviderNVIDIA, ProviderOpenCodeGo:
 		return true
 	default:
 		return false

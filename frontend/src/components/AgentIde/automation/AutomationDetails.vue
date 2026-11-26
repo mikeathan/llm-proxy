@@ -13,7 +13,7 @@ import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
-import { nextRunLabel, triggerLabel } from "../../../utils/automation/automationDisplay";
+import { nextRunLabel, reportBody, triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
@@ -71,8 +71,7 @@ const journal = useAutomationJournal(
 
 // The console holds the latest run's steps in memory only (nothing is stored per run unless
 // run directories are enabled), so a finished run often has none to show.
-const NO_STEPS_KEPT = "No steps to show. The console keeps the latest run's steps in memory only, so they are gone after a restart. The run's result is under Runs below.";
-const NEVER_RAN = "Not running. A run's reasoning, tool calls and answer stream here as it happens.";
+const NOT_RUNNING = "Not running now. Start a run and its steps appear here as they happen; finished runs are under History.";
 
 const runs = computed(() =>
   [...(props.automation.history ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)),
@@ -81,12 +80,16 @@ const runs = computed(() =>
 const activeRun = computed(() => runs.value[0] ?? null);
 const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_running));
 
-// A network audit's page is split by job, so one screen holds one thing: the results, the run as it happens, the history
-// and the setup. Every other automation keeps the single page (`shown` is always true for it).
+// Every automation's page is split by job, so one screen holds one thing: the result, the run as it happens, the history
+// and the setup (it was one long column for all but the network audit; review 2026-11-26, M1). It opens on the result;
+// while a run is on, the Live run tab is marked and the result says the run is on.
 type AuditTab = "results" | "live" | "history" | "setup";
 const isAudit = computed(() => props.automation.profile === AUDITOR_PROFILE);
 const auditTab = ref<AuditTab>("results");
-const shown = (tab: AuditTab) => !isAudit.value || auditTab.value === tab;
+const shown = (tab: AuditTab) => auditTab.value === tab;
+// An audit's result tab is its findings report, so the model's write-up sits with its history; any other automation's
+// result is its last output.
+const lastResultTab = computed<AuditTab>(() => (isAudit.value ? "history" : "results"));
 const auditTabs = computed(() => [
   { value: "results", label: "Results" },
   { value: "live", label: "Live run", live: showLiveUI.value },
@@ -96,7 +99,7 @@ const auditTabs = computed(() => [
 // A different automation starts on its results again.
 watch(() => props.automation.id, () => { auditTab.value = "results"; });
 // The saved report of an audit starts with the scan data, which is the Results tab; here only the model's part is shown.
-const lastResult = computed(() => (isAudit.value ? assessmentOf(props.automation.last_output ?? "") : (props.automation.last_output ?? "")));
+const lastResult = computed(() => (isAudit.value ? assessmentOf(props.automation.last_output ?? "") : reportBody(props.automation.last_output ?? "")));
 
 // Unified renderer: reuse the assistant ChatMessages view for automation runs.
 // useLiveConsole streams the SSE channel and feeds AgentEvents through the
@@ -199,7 +202,6 @@ const RUN_COLUMNS: DataTableColumn<AutomationRun>[] = [
   { key: "status", label: "Status" },
   { key: "duration", label: "Duration", numeric: true, value: (run) => formatDuration(run.duration_ms) },
   { key: "model", label: "Model", value: (run) => run.model || "default" },
-  { key: "id", label: "ID" },
   { key: "actions", label: "Actions" },
 ];
 const runKey = (run: AutomationRun) => run.id;
@@ -215,8 +217,8 @@ const runKey = (run: AutomationRun) => run.id;
         </p>
         <NetauditToolbar />
       </div>
-      <SegmentedControl :model-value="auditTab" :options="auditTabs" label="Part of the audit" touch :tone="showLiveUI ? 'running' : undefined" @update:model-value="auditTab = $event as AuditTab" />
     </template>
+    <SegmentedControl :model-value="auditTab" :options="auditTabs" :label="isAudit ? 'Part of the audit' : 'Part of the automation'" touch :tone="showLiveUI ? 'running' : undefined" @update:model-value="auditTab = $event as AuditTab" />
 
     <Panel v-if="shown('setup')" title="Configuration">
       <dl class="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-x-6 gap-y-3">
@@ -252,7 +254,17 @@ const runKey = (run: AutomationRun) => run.id;
       <NetauditHelp />
     </template>
 
-    <Panel v-if="shown('history') && !showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" title="Last result">
+    <!-- While a run is on, the last result gives way to it: say so and lead to the live run. -->
+    <Callout v-if="!isAudit && shown('results') && showLiveUI" tone="info" title="Running now" data-test="running-now">
+      Its result appears here when it finishes.
+      <template #actions><BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="auditTab = 'live'">Watch it live</BaseButton></template>
+    </Callout>
+    <EmptyState
+      v-else-if="!isAudit && shown('results') && !automation.last_error && !automation.last_output && !automation.last_warnings?.length"
+      title="No result yet"
+      body="Run it, or wait for its schedule; the result appears here."
+    />
+    <Panel v-if="shown(lastResultTab) && !showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" :title="isAudit ? 'Last result' : undefined">
       <div v-if="!automation.last_error && automation.last_warnings?.length" class="mb-3 flex flex-col gap-2">
         <StatusTag v-bind="runOutcomeTag({ error: '', warnings: automation.last_warnings })" />
         <RunWarnings :warnings="automation.last_warnings" />
@@ -269,7 +281,7 @@ const runKey = (run: AutomationRun) => run.id;
           <span v-if="automation.last_report_path" class="flex min-w-0 flex-wrap items-baseline gap-2 text-[length:var(--text-small)] text-muted">
             Saved as <SavedReportLink :workspace-id="automation.workspace" :path="automation.last_report_path" />
           </span>
-          <CopyButton :text="automation.last_output" title="Copy last output" class="ml-auto" />
+          <CopyButton :text="lastResult" title="Copy the report" class="ml-auto" />
         </span>
         <MarkdownViewer :content="lastResult" />
       </div>
@@ -302,9 +314,7 @@ const runKey = (run: AutomationRun) => run.id;
         :decision="pendingDecision"
         :submit="submitDecision"
       />
-      <p v-if="!showLiveUI && !hasOutput" class="m-0 text-[length:var(--text-small)] text-muted">
-        {{ runs.length ? NO_STEPS_KEPT : NEVER_RAN }}
-      </p>
+      <p v-if="!showLiveUI && !hasOutput" class="m-0 text-[length:var(--text-small)] text-muted">{{ NOT_RUNNING }}</p>
       <div v-else class="max-h-[60vh] overflow-y-auto">
         <ChatMessages
           mode="automation"
@@ -328,20 +338,32 @@ const runKey = (run: AutomationRun) => run.id;
 
     <Panel v-if="shown('history')" title="Runs" flush>
       <template v-if="runs.length" #actions>
-        <BaseButton variant="danger" size="sm" icon="trash" :disabled="showLiveUI" @click="clearRuns">Clear all runs</BaseButton>
+        <BaseButton variant="ghost" size="sm" icon="trash" :disabled="showLiveUI" @click="clearRuns">Clear runs</BaseButton>
       </template>
       <DataTable :columns="RUN_COLUMNS" :rows="runs" :row-key="runKey" caption="Runs of this automation" activatable @activate="emit('open-run', $event)">
         <template #empty>
           <EmptyState title="No runs yet" body="Run the automation, or wait for its schedule; each run appears here." />
+        </template>
+        <!-- A phone: one line per run, when it finished, how it went and how long it took. -->
+        <template #mobile-row="{ row }">
+          <div data-test="run-row" class="flex min-w-0 items-center gap-3 py-1">
+            <span :class="['h-2.5 w-2.5 flex-none rounded-full', row.error ? 'bg-state-error' : row.warnings?.length ? 'bg-state-running' : 'bg-state-success']" aria-hidden="true" />
+            <div class="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+              <time :datetime="row.timestamp" class="text-primary">{{ formatAbsoluteTime(row.timestamp) }}</time>
+              <span class="truncate text-[length:var(--text-small)] text-muted">
+                {{ runOutcomeTag(row).label }}<template v-if="row.duration_ms"> · {{ formatDuration(row.duration_ms) }}</template><template v-if="row.error"> · {{ row.error }}</template>
+              </span>
+            </div>
+            <span @click.stop>
+              <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete run ${row.id}`" class-name="h-11 w-11" :disabled="showLiveUI" @click="deleteRun(row)" />
+            </span>
+          </div>
         </template>
         <template #cell-finished="{ row }">
           <time :datetime="row.timestamp" :title="formatAbsoluteTime(row.timestamp)" class="whitespace-nowrap font-mono text-[length:var(--text-small)] text-muted">{{ formatRelativeTime(row.timestamp) }}</time>
         </template>
         <template #cell-status="{ row }">
           <StatusTag v-bind="runOutcomeTag(row)" />
-        </template>
-        <template #cell-id="{ row }">
-          <span @click.stop><IdChip :id="row.id" /></span>
         </template>
         <template #cell-actions="{ row }">
           <span @click.stop>

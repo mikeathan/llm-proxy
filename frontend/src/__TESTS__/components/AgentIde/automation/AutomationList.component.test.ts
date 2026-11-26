@@ -175,4 +175,20 @@ describe('AutomationList', () => {
     expect(named(w, 'Delete nightly').exists()).toBe(true)
     expect(row(w, 'nightly').find('a[aria-label="Edit nightly"]').exists()).toBe(true)
   })
+
+  // A phone reads the list at a glance: each row says how the automation last went, in words (review 2026-11-26, M2).
+  it('says how each automation last went: worked, failed, running or not run yet', async () => {
+    const w = await mountList([
+      auto('ok', { history: [{ id: 'r1', timestamp: '2026-11-25T02:00:00Z', error: '', duration_ms: 247_000 } as never] }),
+      auto('bad', { history: [{ id: 'r2', timestamp: '2026-11-25T02:00:00Z', error: 'model would not start' } as never] }),
+      auto('busy', { is_running: true }),
+      auto('new'),
+    ])
+    const summary = (name: string) => w.findAll('[data-test="automation-row"]').find((r) => r.text().includes(name))!.text()
+    expect(summary('ok')).toMatch(/Every hour · worked .* in 4m 7s/)
+    expect(summary('bad')).toMatch(/failed /)
+    expect(summary('busy')).toContain('running now')
+    expect(summary('new')).toContain('not run yet')
+    expect(row(w, 'ok').text()).toMatch(/worked .* in 4m 7s/)
+  })
 })

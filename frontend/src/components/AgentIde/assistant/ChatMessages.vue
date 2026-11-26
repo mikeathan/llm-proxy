@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue'
 import type { Turn } from '../../../types/message'
 import type { AssistantMessage } from '../../../types/assistant'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
@@ -30,6 +30,7 @@ const isAutomation = computed(() => props.mode === 'automation')
 
 const emit = defineEmits<{
   retry: [text: string]
+  suggest: [text: string]
   toggleInset: [idx: number]
   toggleSegment: [turnIdx: number, segIdx: number]
   "scroll-update": [atBottom: boolean]
@@ -99,8 +100,39 @@ watch(() => props.thinking, maybeScroll)
 // flush is wasted work; a new turns array is enough to detect the change.
 watch(() => props.turns, maybeScroll)
 
+// A conversation that has just opened lands on its latest message. Finished turns are drawn lazily
+// (content-visibility: auto) and their answers lay out after the first scroll, so the pane keeps growing for a moment:
+// stay pinned to the bottom while it settles, unless the reader scrolls first.
+const SETTLE_MS = 1500
+const READER_INPUT = ['wheel', 'touchstart', 'keydown'] as const
+let stopSettling: (() => void) | null = null
+function settleAtBottom() {
+  stopSettling?.()
+  const el = container.value
+  if (!el) return
+  const pin = () => { el.scrollTop = el.scrollHeight }
+  pin()
+  const observer = new ResizeObserver(pin)
+  for (const child of Array.from(el.children)) observer.observe(child)
+  const release = () => stopSettling?.()
+  const timer = window.setTimeout(release, SETTLE_MS)
+  READER_INPUT.forEach((type) => el.addEventListener(type, release, { passive: true }))
+  stopSettling = () => {
+    observer.disconnect()
+    window.clearTimeout(timer)
+    READER_INPUT.forEach((type) => el.removeEventListener(type, release))
+    stopSettling = null
+    onContainerScroll()
+  }
+}
+onBeforeUnmount(() => stopSettling?.())
+
+// Starter prompts for a new chat: they fill the message box, they do not send.
+const STARTERS = ['What changed in this workspace today?', 'Remind me tomorrow at 9 to check the backups', 'Summarise the last automation report']
+
 defineExpose({
   scrollToBottom: (behavior: ScrollBehavior = "smooth") => scrollToBottom(container.value, behavior),
+  settleAtBottom,
 })
 </script>
 
@@ -110,11 +142,12 @@ defineExpose({
 
     <!-- Empty state (plan D14): says what the agent will do, and frames the
          guardrail approval as an expected step rather than an error. -->
-    <div v-if="messages.length === 0 && !loading && !isAutomation" class="chat-empty">
-      <p class="chat-empty-eyebrow">Assistant · <span class="font-mono normal-case">{{ workspaceId }}</span></p>
+    <div v-if="messages.length === 0 && !loading && !isAutomation" class="chat-empty" data-test="chat-empty">
       <h3 class="chat-empty-title">Ask about this workspace</h3>
-      <p>It reads and changes files in <span class="font-mono text-primary">{{ workspaceId }}</span> and uses the tools its guardrails allow.</p>
-      <p>When a step is blocked, it stops and asks you — approving or denying it is part of the normal flow.</p>
+      <p>It reads and changes files in <span class="font-mono text-primary">{{ workspaceId }}</span> and asks you before a step its guardrails block.</p>
+      <div class="chat-empty-starters">
+        <button v-for="s in STARTERS" :key="s" type="button" class="chat-empty-starter" @click="emit('suggest', s)">{{ s }}</button>
+      </div>
       <p class="chat-empty-hint">Enter sends · Shift+Enter adds a line · Ctrl / ⌘ K focuses the message box.</p>
     </div>
 
@@ -141,6 +174,7 @@ defineExpose({
         :is-seg-expanded="isSegExpanded"
         @toggle-inset="emit('toggleInset', idx)"
         @toggle-segment="(turnIdx, segIdx) => emit('toggleSegment', turnIdx, segIdx)"
+        @retry="emit('retry', turn.userMessage)"
       />
     </section>
 
@@ -159,13 +193,16 @@ defineExpose({
 
 <style scoped>
 .message-container { @apply relative flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
-.turn-group { @apply mx-auto flex w-full max-w-[52rem] flex-col gap-6; }
-/* An automation's console is read like a log, not a chat: it may use the width of the page (phones are unaffected). */
-.turn-group--wide { @apply max-w-[88rem]; }
-.chat-empty { @apply mx-auto flex max-w-[56ch] flex-col gap-2 border border-dashed border-control p-5 text-[length:var(--text-small)] text-secondary; }
+/* The chat uses the width of the page, as every other page does (owner, 2026-11-26). */
+.turn-group { @apply flex w-full flex-col gap-6; }
+.turn-group--wide { @apply w-full; }
+/* A new chat sits at the bottom, by the message box, where the eye already is. */
+.chat-empty { @apply mt-auto flex max-w-[60ch] flex-col gap-3 text-[length:var(--text-body)] text-muted; }
 .chat-empty p { @apply m-0; }
-.chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }
 .chat-empty-title { @apply m-0 text-[length:var(--text-heading)] font-semibold text-primary; }
+.chat-empty-starters { @apply flex flex-wrap gap-2; }
+.chat-empty-starter { @apply min-h-9 rounded-[var(--radius-sm)] border border-control bg-transparent px-3 text-left text-[length:var(--text-small)] text-secondary transition-colors duration-fast hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2; cursor: pointer; }
+@media (pointer: coarse) { .chat-empty-starter { @apply min-h-11; } }
 .chat-empty-hint { @apply font-mono text-[length:var(--text-micro)] text-faint; }
 /* Keyboard shortcuts mean nothing on a touch screen. */
 @media (pointer: coarse) { .chat-empty-hint { display: none; } }

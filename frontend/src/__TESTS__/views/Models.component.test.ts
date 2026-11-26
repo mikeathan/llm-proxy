@@ -90,7 +90,7 @@ describe('Models page', () => {
     await mountModels()
     expect(models.refresh).toHaveBeenCalled()
     expect(AdminApiService.fetchState).toHaveBeenCalledTimes(1)
-    for (const p of ['gemini', 'openai', 'openrouter', 'nvidia']) expect(AdminApiService.fetchProviderKeys).toHaveBeenCalledWith(p)
+    for (const p of ['gemini', 'openai', 'openrouter', 'nvidia', 'opencode-go']) expect(AdminApiService.fetchProviderKeys).toHaveBeenCalledWith(p)
   })
 
   it('has four tabs, Models first, each its own address', async () => {
@@ -160,7 +160,7 @@ describe('Models page', () => {
     await flushPromises()
     expect(w.get('[role="dialog"]').text()).toContain('Add a model')
     const where = fieldByLabel(w, /where it runs/i)
-    expect(where.findAll('option').map((o) => o.text())).toEqual(['This computer (llama.cpp)', 'Google Gemini', 'OpenAI / Compatible', 'OpenRouter', 'NVIDIA NIM'])
+    expect(where.findAll('option').map((o) => o.text())).toEqual(['This computer (llama.cpp)', 'Google Gemini', 'OpenAI / Compatible', 'OpenRouter', 'NVIDIA NIM', 'OpenCode Go'])
     expect(() => fieldByLabel(w, /model filename/i)).not.toThrow()
     await where.setValue('openai')
     await flushPromises()
@@ -199,7 +199,7 @@ describe('Models page', () => {
       const { w } = await mountModels('/models/providers')
       await vi.waitFor(() => expect(w.get('[data-provider="openai"]').text()).toContain('1 key'))
       const sections = w.findAll('[data-provider]')
-      expect(sections.map((s) => s.attributes('data-provider'))).toEqual(['gemini', 'openai', 'openrouter', 'nvidia'])
+      expect(sections.map((s) => s.attributes('data-provider'))).toEqual(['gemini', 'openai', 'openrouter', 'nvidia', 'opencode-go'])
       expect(w.get('[data-provider="openai"]').text()).toContain('1 key · 1 model')
       expect(w.get('[data-provider="nvidia"]').text()).toContain('Not set up')
       expect(() => fieldByLabel(w, /vertex ai project id/i)).not.toThrow()

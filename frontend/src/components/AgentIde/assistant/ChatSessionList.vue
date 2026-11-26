@@ -10,6 +10,7 @@ import MicroLabel from '../../common/display/MicroLabel.vue'
 import StatusTag from '../../common/display/StatusTag.vue'
 import SearchInput from '../../common/forms/SearchInput.vue'
 import Icon from '../../icons/Icon.vue'
+import WorkspaceSwitcher from '../../layout/WorkspaceSwitcher.vue'
 
 // The workspace's conversations (plan D14): searchable by title, pinnable
 // (kept per workspace in this browser), grouped Pinned · Today · Yesterday ·
@@ -22,6 +23,8 @@ const props = defineProps<{
   currentSessionId: string | null
   workspaceId: string
   isMobile?: boolean
+  /** The phone's Assistant page has no top strip: the list carries the workspace switcher. */
+  showWorkspace?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -69,12 +72,23 @@ function confirmRename() {
 const cancelRename = () => {
   renaming.value = null
 }
+
+// On a touch screen a row shows one ⋯ button; its actions open in a line under the title (three icons on every row
+// made the list read as a toolbar). With a pointer they show on hover or focus.
+const actionsOpen = ref<string | null>(null)
+const toggleActions = (id: string) => { actionsOpen.value = actionsOpen.value === id ? null : id }
+function rowAction(action: () => void) {
+  actionsOpen.value = null
+  action()
+}
 </script>
 
 <template>
   <div class="flex h-full w-full flex-col overflow-hidden bg-surface-raised">
     <div class="flex flex-none items-center justify-between gap-2 px-3 py-2">
-      <MicroLabel>Conversations</MicroLabel>
+      <!-- A phone's Assistant page has no top strip, so the workspace is chosen here. -->
+      <WorkspaceSwitcher v-if="showWorkspace" :mobile="true" />
+      <MicroLabel v-else>Conversations</MicroLabel>
       <span class="flex items-center gap-1">
         <BaseButton v-if="sessions.length" variant="ghost" size="sm" icon="trash" icon-only label="Delete all conversations" @click="emit('clear-all')" />
         <BaseButton variant="ghost" size="sm" icon="chevron-left" icon-only label="Hide conversations" @click="emit('close')" />
@@ -123,7 +137,7 @@ const cancelRename = () => {
               v-for="session in section.sessions"
               :key="session.id"
               :class="[
-                'session-row group relative flex min-w-0 items-center gap-1 border-l-2 px-2 py-1.5',
+                'session-row group relative flex min-w-0 flex-wrap items-center gap-1 border-l-2 px-2 py-1.5',
                 currentSessionId === session.id ? 'border-accent-brand bg-surface-active' : 'border-transparent hover:bg-surface-hover',
               ]"
             >
@@ -159,9 +173,27 @@ const cancelRename = () => {
                 </span>
               </button>
 
+              <BaseButton
+                v-if="isMobile && renaming !== session.id"
+                data-test="session-more"
+                variant="ghost"
+                size="sm"
+                icon="more"
+                icon-only
+                :label="`Actions for ${titleOf(session)}`"
+                :aria-expanded="actionsOpen === session.id"
+                class-name="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+                @click="toggleActions(session.id)"
+              />
+              <span v-if="isMobile && actionsOpen === session.id" data-test="session-actions" class="flex w-full flex-wrap gap-1 pb-1 pl-1">
+                <BaseButton variant="ghost" size="sm" class-name="min-h-11" @click="rowAction(() => togglePin(session.id))">{{ pinned.has(session.id) ? 'Unpin' : 'Pin' }}</BaseButton>
+                <BaseButton v-if="session.running" variant="ghost" size="sm" class-name="min-h-11" @click="rowAction(() => emit('cancel', session.id))">Stop</BaseButton>
+                <BaseButton variant="ghost" size="sm" class-name="min-h-11" @click="rowAction(() => startRename(session))">Rename</BaseButton>
+                <BaseButton variant="ghost" size="sm" class-name="min-h-11 !text-state-error" @click="rowAction(() => emit('delete', session.id))">Delete…</BaseButton>
+              </span>
               <span
-                v-if="renaming !== session.id"
-                :class="['session-actions flex-none items-center', isMobile ? 'flex' : 'hidden group-hover:flex group-focus-within:flex']"
+                v-if="!isMobile && renaming !== session.id"
+                class="session-actions hidden flex-none items-center group-hover:flex group-focus-within:flex"
               >
                 <BaseButton
                   variant="ghost"

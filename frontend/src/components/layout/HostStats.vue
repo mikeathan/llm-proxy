@@ -56,7 +56,8 @@ const running = computed(() => {
 </script>
 
 <template>
-  <div v-if="host" ref="root" class="relative flex-none">
+  <!-- A phone shows only the token rate, and only while a model is generating: an idle "0.0 t/s" is noise there. -->
+  <div v-if="host" ref="root" :class="['relative flex-none', { 'max-md:hidden': host.tokensPerSecond <= 0 }]">
     <button
       type="button"
       :aria-expanded="open"
