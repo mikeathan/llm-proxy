@@ -312,6 +312,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/app-logs", hs.Process.AdminAppLogsClearHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/app-logs/tail", hs.Process.AdminAppLogsTailHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/metrics", hs.Process.AdminMetricsHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/metrics/footprint", hs.Process.AdminFootprintHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/start", hs.Process.AdminStartHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/stop", hs.Process.AdminStopHandler, textMethodNotAllowed)
 	router.Get("/admin/api/runtime/processes", hs.Process.AdminProcessesHandler, jsonMethodNotAllowed)

@@ -107,6 +107,14 @@ func (s *AppContext) MetricsSnapshot() metrics.MetricsSnapshot {
 	return s.metrics.Snapshot()
 }
 
+// Footprint reports what this service and the model server (modelPID, 0 when none runs) cost the machine.
+func (s *AppContext) Footprint(modelPID int) metrics.Footprint {
+	return s.footprint.Read([]metrics.FootprintTarget{
+		{Role: metrics.RoleService, PID: os.Getpid()},
+		{Role: metrics.RoleModel, PID: modelPID},
+	})
+}
+
 func (s *AppContext) SetTerminalSource(src metrics.TerminalSource) {
 	if s.metrics != nil {
 		s.metrics.SetTerminalSource(src)

@@ -24,6 +24,7 @@ type MockAdminService struct {
 	ResolveModelPathFunc            func(string, string) string
 	RefreshMetricsServiceFunc       func()
 	MetricsSnapshotFunc             func() metrics.MetricsSnapshot
+	FootprintFunc                   func(modelPID int) metrics.Footprint
 	EnvironmentFunc                 func() map[string]string
 	ModelsFunc                      func() []models.ModelConfig
 	ProvidersFunc                   func() map[string]models.ProviderItem
@@ -169,6 +170,13 @@ func (m *MockAdminService) MetricsSnapshot() metrics.MetricsSnapshot {
 		return m.MetricsSnapshotFunc()
 	}
 	return metrics.MetricsSnapshot{}
+}
+
+func (m *MockAdminService) Footprint(modelPID int) metrics.Footprint {
+	if m.FootprintFunc != nil {
+		return m.FootprintFunc(modelPID)
+	}
+	return metrics.Footprint{}
 }
 
 func (m *MockAdminService) Environment() map[string]string {
