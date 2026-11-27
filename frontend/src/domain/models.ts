@@ -54,15 +54,17 @@ export function groupModelsByKey(models: readonly Model[], keyNames: readonly st
   return orphans.length ? [...groups, { key: "", models: orphans }] : groups;
 }
 
-/** The provider rail: All models, This computer, then each cloud provider with what it holds. */
-export function railEntries(providers: readonly { id: ProviderType; label: string }[], models: readonly Model[], keyCount: (p: ProviderType) => number): ProviderRailEntry[] {
+/** The provider rail: All models, This computer, then each cloud provider with what it holds; error when its last key test failed. */
+export function railEntries(providers: readonly { id: ProviderType; label: string }[], models: readonly Model[], keyCount: (p: ProviderType) => number, keyFailed: (p: ProviderType) => boolean = () => false): ProviderRailEntry[] {
   const local = models.filter(isLocalModel);
   return [
     { id: "all", label: "All models", summary: plural(models.length, "model"), state: "neutral" },
     { id: LOCAL, label: "This computer", summary: plural(local.length, "model"), state: local.some((m) => m.active) ? "success" : "neutral" },
     ...providers.map((p) => {
       const mine = models.filter((m) => m.provider === p.id).length;
-      return { id: p.id, label: p.label, summary: providerSummary(keyCount(p.id), mine), state: keyCount(p.id) ? ("info" as const) : ("neutral" as const) };
+      const broken = keyCount(p.id) > 0 && keyFailed(p.id);
+      const summary = providerSummary(keyCount(p.id), mine) + (broken ? " · key test failed" : "");
+      return { id: p.id, label: p.label, summary, state: broken ? ("error" as const) : keyCount(p.id) ? ("info" as const) : ("neutral" as const) };
     }),
   ];
 }

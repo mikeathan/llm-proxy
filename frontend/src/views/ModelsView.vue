@@ -91,7 +91,7 @@ const baseUrlOf = (p: ProviderType) => manifests.value.find((m) => m.id === p)?.
 // provider. On a phone the list is a screen of its own and a provider has a way back to it.
 // By name, so the rail does not reorder itself while the manifests and keys load.
 const byLabel = computed(() => [...providers.value].sort((a, b) => a.label.localeCompare(b.label)))
-const rail = computed(() => railEntries(byLabel.value, models.value, (p) => apiKeysOf(p).length))
+const rail = computed(() => railEntries(byLabel.value, models.value, (p) => apiKeysOf(p).length, (p) => !!providerKeys.failed.value[p]))
 const connectedCount = computed(() => providers.value.filter((p) => apiKeysOf(p.id).length > 0).length)
 const selected = computed<RailId>(() => {
   const id = route.params.provider

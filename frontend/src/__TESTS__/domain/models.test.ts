@@ -88,6 +88,11 @@ describe('railEntries', () => {
     ])
   })
 
+  it('marks a provider whose key failed its test, even though it is connected', () => {
+    const entries = railEntries([{ id: 'openrouter', label: 'OpenRouter' }], [], () => 1, (p) => p === 'openrouter')
+    expect(entries[2]).toMatchObject({ summary: '1 key · 0 models · key test failed', state: 'error' })
+  })
+
   it('shows This computer as idle when no local model runs', () => {
     expect(railEntries([], [IDLE], () => 0)[1]?.state).toBe('neutral')
   })

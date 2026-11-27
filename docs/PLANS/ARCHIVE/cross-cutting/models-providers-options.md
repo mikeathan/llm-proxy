@@ -1,7 +1,7 @@
 ---
-status: partial
+status: complete
 date: 2026-11-26
-last_reviewed: 2026-11-26
+last_reviewed: 2026-11-27
 related_specs: [SPEC-003]
 constitution_references: [III.8]
 related_plans: [../ARCHIVE/cross-cutting/models-redesign.md]
@@ -48,12 +48,11 @@ Sources were search summaries, not opened pages; labels may have changed.
 **A** if the owner will accept amending ADR-0090 and III.8 (providers, keys and models in one place; scales to many providers); **B** for the
 smallest change. D is shown for completeness and breaks on a phone with many providers.
 
-## Remaining work (built: rail + pane, Add key behind a button, per-provider base URL, ⋯ menu, keys grouped with their models, phone Providers row / list / provider screens)
-- **Connect a provider as three steps** (provider, key with Test, choose models). Today a provider not set up is a rail entry whose pane has an Add key button.
-- **Find models per key.** `AdminApiService.fetchProviderModels(provider, apiKeyName)` exists and the model editor uses it; the pane's per-key "Add a model" opens the editor on that key, which is the same step.
-- **A warning dot in the rail** for a provider whose key failed its test (the test result is only held while a key is open).
-- **Add key as a bottom sheet on a phone;** it is the same inline form at every width.
-- **Owner:** merge, then check Models on vertex (OpenRouter and NVIDIA keys, phone width).
+## Remaining work (built: rail + pane, Add key behind a button, per-provider base URL, ⋯ menu, keys grouped with their models, phone Providers row / list / provider screens, rail warning dot, Add key drawer on a phone)
+- **Rail warning dot (built):** `useProviderKeys.failed` keeps whether a provider's last key test failed (the open editor clears `testStatus`, not this); `railEntries` marks it `error` with "key test failed" in the summary. A saved key or a passing test clears it. It lives for the page session; a key never tested shows no dot.
+- **Add key on a phone (built):** `NewApiKeyForm.vue` is the form; `ApiKeySettings.vue` shows it inline on a desktop and in a teleported `ContextDrawer` (full screen) when `isMobile`. Not a half-height sheet: the repo has no such component and one drawer is the existing overlay.
+- **Not built, on purpose: connect a provider as three steps, and Find models.** The path is already two presses: the rail entry's Add key opens the key editor on the new key (Test connection is there), and Add a model in the header then picks that key and fetches its models (`fetchProviderModels`). A wizard would repeat both screens; revisit only if a first-time user stalls there.
+- **Owner:** check Models on vertex (OpenRouter and NVIDIA keys, phone width): the red dot after a bad key, the New key drawer.
 
 ## Handoff (2026-11-26)
 - **Branch and commit state:** everything is uncommitted on `models-unique-name-per-provider`, on top of 33885bad (pushed to origin, not on main). It ships in that PR unless the owner wants a separate branch. `backend/internal/transport/http/frontend_dist/index.html` is rebuilt and goes in the same commit.

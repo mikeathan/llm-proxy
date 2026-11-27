@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { fieldByLabel } from '../../helpers/fieldByLabel'
 import type { APIKeyItem } from '../../../types/admin'
 
 const confirm = vi.fn()
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
+const isMobile = ref(false)
+vi.mock('../../../composables/ui/useResponsiveLayout', () => ({ useResponsiveLayout: () => ({ isMobile }) }))
 
 import ApiKeySettings from '../../../components/settings/ApiKeySettings.vue'
 
@@ -32,6 +35,21 @@ describe('ApiKeySettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     confirm.mockResolvedValue(true)
+    isMobile.value = false
+  })
+
+  // On a phone the form is a drawer over the page (it opens full screen), not a block that pushes the keys down.
+  it('opens the add-key form in a drawer on a phone, and Close dismisses it', async () => {
+    isMobile.value = true
+    const { w, button } = mountKeys()
+    await button(/^add key$/i).trigger('click')
+    const drawer = document.body.querySelector('[role="dialog"]')
+    expect(drawer?.textContent).toContain('New key')
+    expect(drawer?.querySelector('input[type="password"]')).not.toBeNull()
+    ;(document.body.querySelector('[data-test="drawer-scrim"]') as HTMLElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    w.unmount()
   })
 
   it('lists keys by name with only their last four characters', () => {
