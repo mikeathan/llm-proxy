@@ -5,8 +5,11 @@ import { useConfirm } from "../../composables/ui/useConfirm";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import FormField from "../common/forms/FormField.vue";
 import MicroLabel from "../common/display/MicroLabel.vue";
+import ContextDrawer from "../layout/ContextDrawer.vue";
+import NewApiKeyForm from "./NewApiKeyForm.vue";
+import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout";
 
-// A cloud provider's API keys: pick one to edit, test or remove it, or press Add key for a form to add one (closed until then). The page
+// A cloud provider's API keys: pick one to edit, test or remove it, or press Add key for a form to add one (closed until then; a drawer on a phone). The page
 // saves the whole list as soon as it changes (the server answers with masked values), so there is no separate Save here. Removing one key is
 // confirmed here, and takes the models that use it along; removing every key is the provider menu's.
 const props = defineProps<{
@@ -29,6 +32,7 @@ const emit = defineEmits<{
 const MASK = "••••••••";
 const TAIL = 4;
 const { confirm } = useConfirm();
+const { isMobile } = useResponsiveLayout();
 
 const masked = (key: string) => `${MASK}${key.slice(-TAIL)}`;
 const modelsUsing = (name: string) => props.modelCounts?.[name] ?? 0;
@@ -108,9 +112,6 @@ async function removeSelected() {
 
 // ── Add a key ────────────────────────────────────────────────────────────
 const adding = ref(false);
-const newKeyName = ref("");
-const newKeyValue = ref("");
-const newKeyBaseUrl = ref("");
 
 const newId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
@@ -120,22 +121,10 @@ function openAdd() {
   adding.value = true;
 }
 
-function closeAdd() {
-  adding.value = false;
-  newKeyName.value = "";
-  newKeyValue.value = "";
-  newKeyBaseUrl.value = "";
-}
+const closeAdd = () => (adding.value = false);
 
-function addKey() {
-  const key = newKeyValue.value.trim();
-  if (!key) return;
-  const item: APIKeyItem = {
-    id: newId(),
-    name: newKeyName.value.trim() || `Key ${props.apiKeys.length + 1}`,
-    key,
-    base_url: newKeyBaseUrl.value.trim() || undefined,
-  };
+function addKey(draft: { name: string; key: string; base_url?: string }) {
+  const item: APIKeyItem = { id: newId(), name: draft.name || `Key ${props.apiKeys.length + 1}`, key: draft.key, base_url: draft.base_url };
   emit("update:apiKeys", [...props.apiKeys, item]);
   closeAdd();
   openEditor(item);
@@ -217,30 +206,17 @@ function addKey() {
       <BaseButton v-if="!adding" variant="secondary" size="sm" icon="plus" @click="openAdd">Add key</BaseButton>
     </div>
 
-    <!-- A plain container, not a <form>: browsers offer to save a password when a form with a password field is submitted. -->
-    <div v-if="adding" class="flex flex-col gap-3 border border-dashed border-control p-4">
-      <MicroLabel>New key</MicroLabel>
-      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
-        <FormField label="Key value" hint="Stored encrypted; only its last four characters are shown afterwards.">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="newKeyValue" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
-          </template>
-        </FormField>
-        <FormField label="Key name" hint="Optional, e.g. Personal.">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="newKeyName" :aria-describedby="describedBy" type="text" class="form-control" autocomplete="off" />
-          </template>
-        </FormField>
-        <FormField v-if="showBaseUrl" label="Base URL" hint="Optional.">
-          <template #default="{ id, describedBy }">
-            <input :id="id" v-model="newKeyBaseUrl" :aria-describedby="describedBy" type="text" class="form-control font-mono" :placeholder="baseUrlPlaceholder" autocomplete="off" />
-          </template>
-        </FormField>
+    <template v-if="adding">
+      <!-- Teleported to <body>, like the model editor: inside the page a drawer sat under the app header and the phone's tab bar. -->
+      <Teleport v-if="isMobile" to="body">
+        <ContextDrawer open title="New key" @update:open="(v: boolean) => !v && closeAdd()">
+          <NewApiKeyForm :show-base-url="showBaseUrl" :base-url-placeholder="baseUrlPlaceholder" @add="addKey" @cancel="closeAdd" />
+        </ContextDrawer>
+      </Teleport>
+      <div v-else class="flex flex-col gap-3 border border-dashed border-control p-4">
+        <MicroLabel>New key</MicroLabel>
+        <NewApiKeyForm :show-base-url="showBaseUrl" :base-url-placeholder="baseUrlPlaceholder" @add="addKey" @cancel="closeAdd" />
       </div>
-      <div class="flex justify-end gap-2">
-        <BaseButton variant="ghost" size="sm" @click="closeAdd">Cancel</BaseButton>
-        <BaseButton variant="primary" size="sm" icon="plus" :disabled="!newKeyValue.trim()" @click="addKey">Add key</BaseButton>
-      </div>
-    </div>
+    </template>
   </div>
 </template>

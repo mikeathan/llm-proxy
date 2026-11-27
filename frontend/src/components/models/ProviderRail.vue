@@ -9,7 +9,7 @@ import type { StatusState } from "../../types/ui";
 
 defineProps<{ entries: readonly ProviderRailEntry[]; selected: RailId }>();
 
-const DOT: Partial<Record<StatusState, string>> = { success: "bg-state-success", info: "bg-accent-info" };
+const DOT: Partial<Record<StatusState, string>> = { success: "bg-state-success", info: "bg-accent-info", error: "bg-state-error" };
 const dotClass = (state: StatusState) => DOT[state] ?? "bg-faint";
 const to = (id: RailId) => (id === "all" ? toModels() : toModelsProvider(id));
 </script>

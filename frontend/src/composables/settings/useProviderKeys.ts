@@ -18,6 +18,8 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
   const toast = useToast()
   const keys = ref<Partial<Record<ProviderType, APIKeyItem[]>>>({})
   const testStatus = ref<Partial<Record<ProviderType, ProviderTestStatus>>>({})
+  // Whether the last test of a provider's key failed: outlives testStatus, which an open editor clears, so the rail can show a warning.
+  const failed = ref<Partial<Record<ProviderType, boolean>>>({})
   const timers = new Set<ReturnType<typeof setTimeout>>()
 
   // The answer is awaited before the record is copied: several providers load at once (the Models page), and copying first let the
@@ -35,6 +37,7 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
     try {
       const saved = await save()
       keys.value = { ...keys.value, [provider]: saved }
+      failed.value = { ...failed.value, [provider]: false }
       await onKeysChanged()
     } catch (e) {
       toast.error(`${failure}: ${errorMessage(e)}`)
@@ -52,6 +55,7 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
     try {
       const res = await AdminApiService.testConnection(provider, payload.key, payload.id, payload.base_url || baseUrlOf(provider))
       testStatus.value = { ...testStatus.value, [provider]: { loading: false, success: res.message } }
+      failed.value = { ...failed.value, [provider]: false }
       const timer = setTimeout(() => {
         timers.delete(timer)
         if (testStatus.value[provider]?.success === res.message) clearTest(provider)
@@ -59,6 +63,7 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
       timers.add(timer)
     } catch (e) {
       testStatus.value = { ...testStatus.value, [provider]: { loading: false, error: errorMessage(e) } }
+      failed.value = { ...failed.value, [provider]: true }
     }
   }
 
@@ -71,5 +76,5 @@ export function useProviderKeys(onKeysChanged: () => Promise<void>, baseUrlOf: (
     timers.clear()
   })
 
-  return { keys, testStatus, load, save, clearAll, test, clearTest }
+  return { keys, testStatus, failed, load, save, clearAll, test, clearTest }
 }

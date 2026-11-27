@@ -239,7 +239,7 @@ export interface ProviderRailEntry {
   label: string
   /** What it holds, in a few words ("1 key · 2 models", "Not set up"). */
   summary: string
-  /** success: a local model runs; info: a cloud provider with a key; neutral: nothing running or set up. */
+  /** success: a local model runs; info: a cloud provider with a key; error: its last key test failed; neutral: nothing running or set up. */
   state: StatusState
 }
 

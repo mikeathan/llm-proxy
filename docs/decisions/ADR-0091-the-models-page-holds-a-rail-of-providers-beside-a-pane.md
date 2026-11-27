@@ -14,7 +14,7 @@ superseded_by:
 ADR-0090 (accepted the same day) put everything about models on one page with four tabs, one of them **Providers**: a folding section per cloud
 provider holding its keys, an always-open "Add a key" form, "Remove all keys" and "Remove all models" buttons, and a hidden "Add a model". The
 owner called it "an ugly mess" and asked for one view of providers, keys and models, without a fold per provider and with the Add key form behind
-a button. Mocks (`docs/PLANS/cross-cutting/models-providers-mocks/`, options A to D) were drawn from the real data; the owner chose A.
+a button. Mocks (`docs/PLANS/ARCHIVE/cross-cutting/models-providers-mocks/`, options A to D) were drawn from the real data; the owner chose A.
 Hermes Agent, Cherry Studio, Open WebUI and Jan were looked at: they all go provider, key, models.
 
 ## Decision
@@ -44,4 +44,4 @@ Hermes Agent, Cherry Studio, Open WebUI and Jan were looked at: they all go prov
 - **A phone dropdown for the rail:** hides what is set up; a Providers row and screen shows it.
 
 ## Links
-- Plan and mocks: `docs/PLANS/cross-cutting/models-providers-options.md`; SPEC-003 2.79; amends ADR-0090.
+- Plan and mocks: `docs/PLANS/ARCHIVE/cross-cutting/models-providers-options.md`; SPEC-003 2.79; amends ADR-0090.
