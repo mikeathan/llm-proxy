@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { DEFAULT_CONFIG } from '../src/composables/models/useConfig'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi } from './support/adminApi'
 
-// The Models page (ADR-0090): the models as cards or a list, edited in a side panel, and the Providers,
-// Engine and Routing tabs. Sample data in the shape of a real install: eight local models with one running, four cloud models.
+// The Models page (ADR-0090, ADR-0091): a rail of providers beside a pane (all models as cards or a list, This computer, one provider with its
+// keys and models), edited in a side panel, and the Engine and Routing tabs. Sample data in the shape of a real install: eight local models with one running, four cloud models.
 const MIN = 60_000
 // The page clock is fixed, so "up 43m" and "2 minutes ago" are the same in every run (the screenshots compare them).
 const NOW = new Date('2026-11-26T09:00:00Z')
@@ -86,18 +86,37 @@ test('on a phone the editor is a full-screen sheet with Save in reach', async ({
   await expect(page).toHaveScreenshot('models-editor-phone.png')
 })
 
-test('Providers: one section per provider, with its keys and Add a model', async ({ page }, info) => {
+test('Providers: the rail lists every provider with what it holds (a screen of its own on a phone)', async ({ page }, info) => {
   await open(page, 'models/providers')
-  await expect(page.locator('[data-provider="nvidia"]')).toContainText('1 key · 2 models')
-  await expect(page.locator('[data-provider="gemini"]')).toContainText('Not set up')
+  const rail = page.getByRole('navigation', { name: 'Providers' })
+  await expect(rail).toContainText('1 key · 2 models')
+  await expect(rail).toContainText('Not set up')
   await expectNoSidewaysScroll(page)
-  await lookAt(page, info, 'models-providers', true)
-  await expect(page).toHaveScreenshot('models-providers.png', { fullPage: true })
+  await lookAt(page, info, 'models-provider-list', true)
+  await expect(page).toHaveScreenshot('models-provider-list.png', { fullPage: true })
 })
 
-test('Engine: the local engine, the files not added yet, and one Save', async ({ page }, info) => {
-  await open(page, 'models/engine')
+test('A provider: its keys, Add key behind a button, and under each key the models it serves', async ({ page }, info) => {
+  await open(page, 'models/providers/nvidia')
+  const pane = page.locator('[data-test="provider-pane"]')
+  await expect(pane).toContainText('team')
+  await expect(pane.locator('[data-key-group="team"]')).toContainText('glm-5.3-flash')
+  await expect(page.getByLabel('Key value')).toHaveCount(0)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, info, 'models-provider', true)
+  await expect(page).toHaveScreenshot('models-provider.png', { fullPage: true })
+})
+
+test('This computer: the local models and the files not added yet', async ({ page }, info) => {
+  await open(page, 'models/providers/local')
   await expect(page.getByRole('button', { name: 'Add Gemma 4 12B' })).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, info, 'models-this-computer', true)
+  await expect(page).toHaveScreenshot('models-this-computer.png', { fullPage: true })
+})
+
+test('Engine: the local engine and one Save', async ({ page }, info) => {
+  await open(page, 'models/engine')
   await expect(page.getByRole('button', { name: 'Save model settings' })).toBeVisible()
   await expectNoSidewaysScroll(page)
   await lookAt(page, info, 'models-engine', true)

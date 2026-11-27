@@ -1,6 +1,6 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { NETWORK_CARD_BOARD, NEWSROOM_BRIEF_BOARD, NEWSROOM_FEED_BOARD } from '../constants/dashboard'
-import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import { MODELS_PROVIDERS_SEGMENT, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
 import type { BriefPlace } from '../types/newsroom'
 import type { ActivityFilters, AgentsTab, AutomationStart, ModelsTab, NetworkSettingsGroup, NetworkTab, RadioTab, NewsroomTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
@@ -120,8 +120,14 @@ export const toFeed = (): RouteLocationNamedRaw => toDashboard(NEWSROOM_FEED_BOA
 /** The Reminders page; without a tab it is the list of reminders. */
 export const toReminders = (tab?: RemindersTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders, params: tab ? { tab } : {} })
 
-/** The Models page: the models (the page without a tab), Providers, Engine or Routing. */
+/** The Models page: every model and provider (the page without a tab), Engine or Routing. */
 export const toModels = (tab?: ModelsTab): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.models, params: tab ? { tab } : {} })
+
+/** The Models page on one provider ("local" is This computer); without one, the list of providers (a screen of its own on a phone). */
+export const toModelsProvider = (provider?: string): RouteLocationNamedRaw => ({
+  name: ROUTE_NAMES.models,
+  params: provider ? { tab: MODELS_PROVIDERS_SEGMENT, provider } : { tab: MODELS_PROVIDERS_SEGMENT },
+})
 
 /** Activity with its filters in the query; unset or empty filters are omitted. */
 export const toActivity = (filters: ActivityFilters = {}): RouteLocationNamedRaw => {
