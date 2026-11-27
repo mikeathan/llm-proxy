@@ -3,6 +3,8 @@ import { computed, toRef } from 'vue'
 import { useHeartbeat } from '../../../composables/automation/useHeartbeat'
 import { useConnectorOptions } from '../../../composables/automation/useConnectorOptions'
 import { useModels } from '../../../composables/models/useModels'
+import { useProviders } from '../../../composables/models/useProviders'
+import { modelChoiceLabel } from '../../../domain/models'
 import { useUnsavedChangesGuard } from '../../../composables/ui/useUnsavedChangesGuard'
 import { HEARTBEAT_TASK_FILE, heartbeatEveryOptions, heartbeatStatusText } from '../../../utils/automation/heartbeat'
 import { asUtc, formatAbsoluteTime, formatRelativeTime } from '../../../utils/format/time'
@@ -24,6 +26,7 @@ const { state, draft, loading, loadError, saving, saveError, dirty, activeHoursI
 // The window stays editable while it blocks Save, even with the heartbeat off, so it can always be fixed.
 const windowLocked = computed(() => !draft.value?.enabled && !activeHoursInvalid.value)
 const { state: admin } = useModels()
+const { getLabel } = useProviders()
 const { connectorOptions, noConnectors } = useConnectorOptions(computed(() => draft.value?.connector ?? ''))
 useUnsavedChangesGuard(dirty)
 
@@ -81,7 +84,7 @@ const status = computed(() => state.value?.status)
                 <option v-for="m in localModels" :key="m.name" :value="m.name">{{ m.name }}</option>
               </optgroup>
               <optgroup v-if="cloudModels.length" label="Cloud models">
-                <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ m.name }} · {{ m.provider }}</option>
+                <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ modelChoiceLabel(m, getLabel) }}</option>
               </optgroup>
             </select>
           </template>

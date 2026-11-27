@@ -45,7 +45,10 @@ const panel = ref<HTMLElement | null>(null)
 const panelId = useId()
 useDismissable(root, open, panel)
 
-const modelLabel = computed(() => props.modelOptions.find((o) => o.value === model.value)?.label ?? "")
+const chosenOption = computed(() => props.modelOptions.find((o) => o.value === model.value))
+const modelLabel = computed(() => (chosenOption.value ? `${chosenOption.value.label}${chosenOption.value.group ? ` on ${chosenOption.value.group}` : ""}` : ""))
+// The closed select shows only the model's name; where it runs is said under it.
+const modelHint = computed(() => (chosenOption.value?.group ? `Runs on ${chosenOption.value.group}. Used for the next message.` : "Used for the next message."))
 // Helpers count as on only when they will be used: the profile names them and the server can run them.
 // With no problem given but helpers unavailable, the model was simply never chosen.
 const helpersHelpText = computed(() => helpersHelp(props.helpersAvailable ? "" : (props.helpersProblem || "unset"), props.helpersModel ?? ""))
@@ -80,7 +83,7 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} agent${mo
             <SelectInput :id="id" v-model="profile" :options="profileOptions" :label="AGENT_LABEL" :aria-describedby="describedBy" />
           </template>
         </FormField>
-        <FormField v-if="modelOptions.length > 1" label="Model" hint="Used for the next message.">
+        <FormField v-if="modelOptions.length > 1" label="Model" :hint="modelHint">
           <template #default="{ id, describedBy }">
             <SelectInput :id="id" v-model="model" :options="modelOptions" label="Model" :aria-describedby="describedBy" />
           </template>

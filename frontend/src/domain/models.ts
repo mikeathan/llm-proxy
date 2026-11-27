@@ -39,6 +39,15 @@ export function filterModels(models: readonly Model[], scope: ModelScope, text: 
   });
 }
 
+/**
+ * A model in a picker: its name, then where it runs ("deepseek-v4.1-flash · OpenCode Go"), so the same model on two providers
+ * reads as two choices. Names are unique in the registry, so the value stays the name; only the label carries the provider.
+ */
+export const modelChoiceLabel = (m: Pick<Model, "name" | "provider">, providerLabel: (p: ProviderType) => string): string => `${m.name} · ${modelProviderName(m, providerLabel)}`;
+
+/** Where a model runs, as a person reads it: "Local", or the provider's display name. */
+export const modelProviderName = (m: Pick<Model, "provider">, providerLabel: (p: ProviderType) => string): string => (m.provider === LOCAL ? "Local" : providerLabel(m.provider));
+
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** What a cloud provider holds, in a few words: not set up until it has a key. */

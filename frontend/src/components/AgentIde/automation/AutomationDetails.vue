@@ -6,6 +6,8 @@ import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { useAutomationJournal } from "../../../composables/automation/useAutomationJournal";
 import { useConfirm } from "../../../composables/ui/useConfirm";
 import { useModels } from "../../../composables/models/useModels";
+import { useProviders } from "../../../composables/models/useProviders";
+import { modelChoiceLabel } from "../../../domain/models";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
 import { AGENT_LABEL } from "../../../constants/labels";
 import { profileLabel } from "../../../utils/assistant/profileChoice";
@@ -148,8 +150,11 @@ const consoleState = computed(() => {
 
 // An automation with no model of its own runs on the primary model, so that is the one a run records.
 const { state: modelState } = useModels();
+const { getLabel } = useProviders();
+// A model named with where it runs, so the same model on two providers is told apart; a name the registry no longer has shows as it is.
+const withProvider = (name: string) => { const m = modelState.value?.models?.find((x) => x.name === name); return m ? modelChoiceLabel(m, getLabel) : name; };
 const primaryModel = computed(() => modelState.value?.config?.primary_model ?? "");
-const modelLabel = computed(() => props.automation.model || (primaryModel.value ? `Default (${primaryModel.value})` : "Workspace default"));
+const modelLabel = computed(() => (props.automation.model ? withProvider(props.automation.model) : primaryModel.value ? `Default (${withProvider(primaryModel.value)})` : "Workspace default"));
 const runsOnModel = computed(() => props.automation.model || primaryModel.value);
 const { profiles } = useProfiles();
 

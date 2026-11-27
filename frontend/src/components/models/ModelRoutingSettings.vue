@@ -3,6 +3,8 @@ import { computed } from "vue";
 import Panel from "../common/layout/Panel.vue";
 import FormField from "../common/forms/FormField.vue";
 import BaseToggle from "../common/buttons/BaseToggle.vue";
+import { useProviders } from "../../composables/models/useProviders";
+import { modelChoiceLabel } from "../../domain/models";
 import { useConfigDraftFields } from "../../composables/settings/useConfigDraftFields";
 import { SUBAGENT_DEFAULT_CONCURRENCY, SUBAGENT_MAX_CONCURRENCY } from "../../constants/settings";
 import { HELPER_MODEL_UNAVAILABLE_SUFFIX } from "../../constants/labels";
@@ -64,6 +66,8 @@ const adaptiveResultCap = computed({
   set: (adaptive_result_cap: boolean) => replaceConfig({ agent: { ...props.editConfig.agent, adaptive_result_cap } }),
 });
 
+const { getLabel } = useProviders();
+
 // Helpers (delegated sub-agents) run on a cloud model only: a local one would take the GPU from the parent run.
 const cloudModels = computed(() => props.models.filter((m) => m.workload_class === "cloud"));
 const subagentModel = computed({
@@ -87,7 +91,7 @@ const subagentConcurrency = computed({
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="primaryModel" :aria-describedby="describedBy" class="form-control">
               <option value="">Auto — first available</option>
-              <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
+              <option v-for="m in models" :key="m.name" :value="m.name">{{ modelChoiceLabel(m, getLabel) }}</option>
             </select>
           </template>
         </FormField>
@@ -95,7 +99,7 @@ const subagentConcurrency = computed({
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="fallbackModel" :aria-describedby="describedBy" class="form-control">
               <option value="">None — no fallback</option>
-              <option v-for="m in models" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
+              <option v-for="m in models" :key="m.name" :value="m.name">{{ modelChoiceLabel(m, getLabel) }}</option>
             </select>
           </template>
         </FormField>
@@ -107,7 +111,7 @@ const subagentConcurrency = computed({
             <select :id="id" v-model="subagentModel" :aria-describedby="describedBy" class="form-control">
               <option value="">Off — no helpers</option>
               <option v-if="subagentModelUnavailable" :value="subagentModel">{{ subagentModel }}{{ HELPER_MODEL_UNAVAILABLE_SUFFIX }}</option>
-              <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
+              <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ modelChoiceLabel(m, getLabel) }}</option>
             </select>
           </template>
         </FormField>

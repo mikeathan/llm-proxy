@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { useMemory } from '../../../composables/memory/useMemory'
 import { useModels } from '../../../composables/models/useModels'
+import { useProviders } from '../../../composables/models/useProviders'
+import { modelProviderName } from '../../../domain/models'
 import { PRIORITY_HIGH } from '../../../constants/memory'
 import type { ChoiceOption } from '../../../types/ui'
 import SelectInput from '../../common/forms/SelectInput.vue'
@@ -18,9 +20,10 @@ const NO_MODEL_LABEL = 'No model (default budget)'
 
 const { injectionPreview, fetchInjectionPreview, memoryRevision } = useMemory()
 const { state } = useModels()
+const { getLabel } = useProviders()
 
 const modelOptions = computed<ChoiceOption[]>(() => [
-  ...(state.value?.models ?? []).map((m) => ({ value: m.name, label: m.name })),
+  ...(state.value?.models ?? []).map((m) => ({ value: m.name, label: m.name, group: modelProviderName(m, getLabel) })),
   { value: NO_MODEL, label: NO_MODEL_LABEL },
 ])
 const model = ref(state.value?.models?.[0]?.name ?? NO_MODEL)

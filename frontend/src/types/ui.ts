@@ -68,6 +68,8 @@ export interface ChoiceOption {
   label: string
   /** Something is happening on this option right now (a run): it gets a small pulsing dot. */
   live?: boolean
+  /** Options sharing a group are listed under one heading in a SelectInput; options with none come first, ungrouped. */
+  group?: string
 }
 
 // ToastType backs the transient toast notifications (useToast).
