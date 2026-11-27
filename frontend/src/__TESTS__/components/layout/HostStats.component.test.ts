@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../../router'
+import { PRODUCT_NAME } from '../../../config/brand'
 
 const fetchMetrics = vi.fn()
+const fetchFootprint = vi.fn()
 vi.mock('../../../services/monitoring/metricsService', () => ({
-  MetricsApiService: { fetchMetrics: () => fetchMetrics(), fetchLogLevel: vi.fn().mockResolvedValue('INFO'), updateLogLevel: vi.fn() },
+  MetricsApiService: { fetchMetrics: () => fetchMetrics(), fetchFootprint: () => fetchFootprint(), fetchLogLevel: vi.fn().mockResolvedValue('INFO'), updateLogLevel: vi.fn() },
 }))
 const fetchState = vi.fn()
 vi.mock('../../../services/admin/adminService', () => ({ AdminApiService: { fetchState: () => fetchState() } }))
@@ -21,12 +23,23 @@ const GPU = {
 }
 const SAMPLE = { load_percent: 0.2, mem_used_mb: 7475.2, mem_total_mb: 47923.2, llm_tokens_per_sec: 33.2, gpu: GPU }
 
+const FOOTPRINT = {
+  processes: [
+    { role: 'service', pid: 10, cpu_percent: null, rss_mb: 512, threads: 21, open_files: 34, uptime_seconds: 3725 },
+    { role: 'model', pid: 20, cpu_percent: 12.5, rss_mb: 20480, threads: 40, uptime_seconds: 90, gpu_vram_mb: 18432 },
+  ],
+  go: { heap_mb: 48.2, total_mb: 90.7, goroutines: 120, gc_cycles: 33 },
+  timestamp: '2026-11-27T10:00:00Z',
+}
+
 // The composable keeps module-level state, so each test gets a fresh module.
 async function mountStrip(sample: unknown = SAMPLE, state: unknown = { models: [], config: {}, next_port: 9000 }) {
   vi.resetModules()
   fetchMetrics.mockReset()
   fetchState.mockReset()
   fetchState.mockResolvedValue(state)
+  fetchFootprint.mockReset()
+  fetchFootprint.mockResolvedValue(FOOTPRINT)
   if (sample instanceof Error) fetchMetrics.mockRejectedValue(sample)
   else fetchMetrics.mockResolvedValue(sample)
   const { default: HostStats } = await import('../../../components/layout/HostStats.vue')
@@ -182,6 +195,44 @@ describe('HostStats (header strip)', () => {
       await stripOf(w).trigger('click')
       await flushPromises()
       expect(section(w).text()).toContain('No local model running')
+      w.unmount()
+    })
+  })
+
+  describe('this service (footprint)', () => {
+    const section = (w: VueWrapper) => panelOf(w).get('[data-test="service-footprint"]')
+
+    it('reads the footprint only while the panel is open', async () => {
+      const w = await mountStrip()
+      expect(fetchFootprint).not.toHaveBeenCalled()
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      expect(fetchFootprint).toHaveBeenCalledTimes(1)
+      w.unmount()
+    })
+
+    it('shows the service and the model server with CPU, memory, GPU memory and the Go runtime', async () => {
+      const w = await mountStrip()
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      const text = section(w).text()
+      expect(text).toContain('This service')
+      expect(text).toContain(`${PRODUCT_NAME} service`)
+      expect(text).toContain('Measuring…')
+      expect(text).toContain('512 MB')
+      expect(text).toContain('12.5%')
+      expect(text).toContain('18.0 GB')
+      expect(text).toContain('Not reported')
+      expect(section(w).get('[data-test="go-runtime"]').text()).toContain('120 goroutines')
+      w.unmount()
+    })
+
+    it('says so when the footprint cannot be read', async () => {
+      const w = await mountStrip()
+      fetchFootprint.mockRejectedValue(new Error('down'))
+      await stripOf(w).trigger('click')
+      await flushPromises()
+      expect(section(w).text()).toContain('Could not read the service figures')
       w.unmount()
     })
   })

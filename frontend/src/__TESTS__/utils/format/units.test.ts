@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatContrastRatio, formatCost, formatMemoryUsage, formatPercent, formatTokenCount, formatTokenRate } from '../../../utils/format/units'
+import { formatContrastRatio, formatCost, formatMegabytes, formatMemoryUsage, formatPercent, formatTokenCount, formatTokenRate } from '../../../utils/format/units'
 import { asUtc, formatAbsoluteTime, formatDuration, formatElapsedSeconds, formatRelativeTime } from '../../../utils/format/time'
 
 describe('D24 formatters', () => {
@@ -82,5 +82,17 @@ describe('formatElapsedSeconds', () => {
     [3725, '1h 2m'],
   ])('%d s → %s', (seconds, out) => {
     expect(formatElapsedSeconds(seconds)).toBe(out)
+  })
+})
+
+describe('formatMegabytes', () => {
+  it.each([
+    [0, '0 MB'],
+    [48.2, '48 MB'],
+    [512, '512 MB'],
+    [1024, '1.0 GB'],
+    [20480, '20.0 GB'],
+  ])('%d MB → %s', (mb, out) => {
+    expect(formatMegabytes(mb)).toBe(out)
   })
 })

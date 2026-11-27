@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { BUSY_PERCENT, HIGH_PERCENT, MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from '../../domain/hostStats'
-import type { SystemMetrics } from '../../types/metrics'
+import { PRODUCT_NAME } from '../../config/brand'
+import { BUSY_PERCENT, HIGH_PERCENT, MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseFootprint, summariseHost } from '../../domain/hostStats'
+import type { ServiceFootprint, SystemMetrics } from '../../types/metrics'
 
 const GPU = {
   name: 'Apple GPU',
@@ -83,5 +84,44 @@ describe('summariseHost', () => {
     const s = summariseHost({ ...BASE, gpu: { ...unnamed, temperature_c: Number.NaN } })
     expect(s.gpu?.name).toBe('apple')
     expect(s.gpu?.temperatureC).toBeNull()
+  })
+})
+
+const FOOTPRINT: ServiceFootprint = {
+  processes: [
+    { role: 'service', pid: 10, cpu_percent: 3.14, rss_mb: 512, threads: 21, open_files: 34, uptime_seconds: 3725 },
+    { role: 'model', pid: 20, cpu_percent: null, rss_mb: 20480, threads: 40, uptime_seconds: 90, gpu_vram_mb: 18432, gpu_gtt_mb: 2048 },
+  ],
+  go: { heap_mb: 48.2, total_mb: 90.7, goroutines: 120, gc_cycles: 33 },
+  timestamp: '2026-11-27T10:00:00Z',
+}
+
+describe('summariseFootprint', () => {
+  const view = summariseFootprint(FOOTPRINT, 40960, 'Qwen3.6 35B A3B')
+
+  it('names the service and the running model', () => {
+    expect(view.rows.map((r) => r.title)).toEqual([`${PRODUCT_NAME} service`, 'Qwen3.6 35B A3B'])
+  })
+  it('reads CPU as a share of one core, and says "Measuring" until a second reading gives a delta', () => {
+    expect(view.rows[0]?.cpu).toBe('3.1%')
+    expect(view.rows[1]?.cpu).toBe('Measuring…')
+  })
+  it('shows resident memory with its share of the machine', () => {
+    expect(view.rows[0]?.memory).toBe('512 MB · 1.3% of RAM')
+    expect(view.rows[1]?.memory).toBe('20.0 GB · 50.0% of RAM')
+  })
+  it('shows GPU memory when reported (with the shared part) and "Not reported" when not', () => {
+    expect(view.rows[1]?.gpu).toBe('18.0 GB + 2.0 GB shared')
+    expect(view.rows[0]?.gpu).toBe('Not reported')
+  })
+  it('leaves open files out when the platform does not report them', () => {
+    expect(view.rows[0]?.openFiles).toBe('34')
+    expect(view.rows[1]?.openFiles).toBeNull()
+  })
+  it('summarises the Go runtime', () => {
+    expect(view.go).toEqual({ heap: '48 MB', total: '91 MB', goroutines: '120', gcCycles: '33' })
+  })
+  it('falls back to a generic title when the model server has no known name', () => {
+    expect(summariseFootprint(FOOTPRINT, 40960).rows[1]?.title).toBe('Model server')
   })
 })

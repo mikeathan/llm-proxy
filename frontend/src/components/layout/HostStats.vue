@@ -2,8 +2,9 @@
 import { computed, ref, watch } from "vue"
 import { useMetrics } from "../../composables/system/useMetrics"
 import { useModels } from "../../composables/models/useModels"
+import { useFootprint } from "../../composables/system/useFootprint"
 import { useDismissable } from "../../composables/ui/useDismissable"
-import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from "../../domain/hostStats"
+import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseFootprint, summariseHost } from "../../domain/hostStats"
 import { formatPercent, formatTokenRate } from "../../utils/format/units"
 import { formatElapsedSeconds, formatRelativeTime, isRecorded } from "../../utils/format/time"
 import { toDashboard } from "../../router/routes"
@@ -35,6 +36,9 @@ const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 useDismissable(root, open)
 
+// What this service and its model server cost the machine: read only while the panel is open (its own endpoint, not the strip's poll).
+const { footprint, failed: footprintFailed } = useFootprint(open)
+
 // The local model that is loaded, read from the model catalogue (/state) each time the panel opens: the strip is on every page, so it
 // does not poll the catalogue itself.
 const NO_MODEL = "No local model running"
@@ -43,6 +47,7 @@ const { activeModel, refresh: refreshModels } = useModels()
 watch(open, (isOpen) => {
   if (isOpen) void refreshModels()
 })
+const service = computed(() => (footprint.value && metrics.value ? summariseFootprint(footprint.value, metrics.value.mem_total_mb, activeModel.value?.name) : null))
 const running = computed(() => {
   const m = activeModel.value
   if (!m) return null
@@ -98,6 +103,29 @@ const running = computed(() => {
           </dl>
         </template>
         <p v-else class="m-0 text-[length:var(--text-small)] text-muted">{{ NO_MODEL }}</p>
+      </section>
+
+      <section class="flex flex-col gap-3 border-b border-hairline p-3" data-test="service-footprint">
+        <MicroLabel>This service</MicroLabel>
+        <template v-if="service">
+          <div v-for="row in service.rows" :key="row.key" class="flex flex-col gap-1.5" :data-footprint="row.key">
+            <p class="m-0 truncate font-medium text-primary" :title="row.title">{{ row.title }}</p>
+            <dl class="m-0 flex flex-col gap-1 text-[length:var(--text-small)]">
+              <div class="flex justify-between gap-2"><dt class="text-muted">CPU</dt><dd class="m-0 font-mono tabular-nums text-secondary">{{ row.cpu }}</dd></div>
+              <div class="flex justify-between gap-2"><dt class="text-muted">Memory</dt><dd class="m-0 font-mono tabular-nums text-secondary">{{ row.memory }}</dd></div>
+              <div class="flex justify-between gap-2"><dt class="text-muted">GPU memory</dt><dd class="m-0 font-mono tabular-nums text-secondary">{{ row.gpu }}</dd></div>
+              <div class="flex justify-between gap-2">
+                <dt class="text-muted">Threads{{ row.openFiles === null ? "" : " · files" }}</dt>
+                <dd class="m-0 font-mono tabular-nums text-secondary">{{ row.threads }}{{ row.openFiles === null ? "" : ` · ${row.openFiles}` }}</dd>
+              </div>
+              <div class="flex justify-between gap-2"><dt class="text-muted">Up</dt><dd class="m-0 font-mono tabular-nums text-secondary">{{ row.uptime }}</dd></div>
+            </dl>
+          </div>
+          <p class="m-0 font-mono text-[length:var(--text-small)] text-muted" data-test="go-runtime">
+            Go heap {{ service.go.heap }} of {{ service.go.total }} · {{ service.go.goroutines }} goroutines · {{ service.go.gcCycles }} GC cycles
+          </p>
+        </template>
+        <p v-else class="m-0 text-[length:var(--text-small)] text-muted">{{ footprintFailed ? "Could not read the service figures" : "Reading…" }}</p>
       </section>
 
       <section class="flex flex-col gap-3 border-b border-hairline p-3">

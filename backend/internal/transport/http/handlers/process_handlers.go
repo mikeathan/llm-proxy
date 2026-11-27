@@ -244,6 +244,16 @@ func (h *ProcessHandlers) AdminMetricsHandler(w http.ResponseWriter, r *http.Req
 	respondJSON(w, resp)
 }
 
+// AdminFootprintHandler answers what this service and the running model server cost the machine. The panel that shows it asks only
+// while it is open; the reader caches for two seconds.
+func (h *ProcessHandlers) AdminFootprintHandler(w http.ResponseWriter, r *http.Request) {
+	modelPID := 0
+	if info := h.runtime.ActiveInfo(); info != nil {
+		modelPID = info.PID
+	}
+	respondJSON(w, h.admin.Footprint(modelPID))
+}
+
 func (h *ProcessHandlers) AdminWorkspaceProcessLogsHandler(w http.ResponseWriter, r *http.Request) {
 	vals, ok := requirePathParams(w, r, "workspace")
 	if !ok {

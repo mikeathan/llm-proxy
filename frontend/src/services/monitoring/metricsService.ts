@@ -1,11 +1,14 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import type { SystemMetrics, ProcessLogs } from '../../types/metrics'
+import type { SystemMetrics, ProcessLogs, ServiceFootprint } from '../../types/metrics'
 import type { LogLevel } from '../../types/api'
 import { get, put, del } from '../httpClient'
 
 export const MetricsApiService = {
   fetchMetrics: (): Promise<SystemMetrics> =>
     get<SystemMetrics>(API_ENDPOINTS.metrics),
+
+  fetchFootprint: (): Promise<ServiceFootprint> =>
+    get<ServiceFootprint>(API_ENDPOINTS.metricsFootprint),
 
   fetchLogs: (): Promise<ProcessLogs> =>
     get<ProcessLogs>(API_ENDPOINTS.logs),

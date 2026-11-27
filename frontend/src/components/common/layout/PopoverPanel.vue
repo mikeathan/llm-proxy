@@ -8,7 +8,8 @@ import MicroLabel from "../display/MicroLabel.vue"
 // `align` is the edge the popover hangs from: the right for a control at the end of a
 // strip (stats, runs), the left for one at its start (the workspace chip). `placement` is
 // which side of its control it opens on: below a header control, above one at the bottom
-// of the screen (the composer).
+// of the screen (the composer). A panel taller than the screen scrolls inside itself (the stats panel is ~850 px with the service
+// section), so its last row stays reachable on a short laptop screen.
 const props = withDefaults(defineProps<{ id: string; title: string; width?: string; align?: "left" | "right"; placement?: "below" | "above" }>(), {
   width: "sm:w-[360px]",
   align: "right",
@@ -26,7 +27,7 @@ defineSlots<{ default(): unknown }>()
     role="dialog"
     :aria-label="title"
     :class="[
-      'z-30 flex flex-col border border-strong bg-surface max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[80vh] max-sm:overflow-y-auto max-sm:border-x-0 max-sm:border-b-0 sm:absolute sm:rounded-[var(--radius-sm)]',
+      'z-30 flex flex-col border border-strong bg-surface max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[80vh] max-sm:overflow-y-auto max-sm:border-x-0 max-sm:border-b-0 sm:absolute sm:max-h-[calc(100dvh-5rem)] sm:overflow-y-auto sm:rounded-[var(--radius-sm)]',
       props.placement === 'above' ? 'sm:bottom-full sm:mb-2' : 'sm:top-full sm:mt-2',
       props.align === 'left' ? 'sm:left-0' : 'sm:right-0',
       props.width,

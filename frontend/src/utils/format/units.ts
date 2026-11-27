@@ -40,6 +40,11 @@ export function formatTokenRate(tokensPerSecond: number): string {
   return tokensPerSecond.toFixed(FIGURE_DECIMALS)
 }
 
+/** A size in megabytes as MB below a gigabyte and GB above, e.g. `512 MB`, `1.4 GB`. */
+export function formatMegabytes(mb: number): string {
+  return mb >= MB_PER_GB ? `${(mb / MB_PER_GB).toFixed(FIGURE_DECIMALS)} GB` : `${Math.round(mb)} MB`
+}
+
 /** Memory in use out of the total, e.g. `7.3 / 46.8 GB`. */
 export function formatMemoryUsage(usedMb: number, totalMb: number): string {
   return `${(usedMb / MB_PER_GB).toFixed(FIGURE_DECIMALS)} / ${(totalMb / MB_PER_GB).toFixed(FIGURE_DECIMALS)} GB`

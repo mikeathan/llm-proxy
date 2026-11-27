@@ -77,6 +77,7 @@ type AdminService interface {
 	WorkspacesDir() string
 	GPUConfig() models.GPUConfig
 	MetricsSnapshot() metrics.MetricsSnapshot
+	Footprint(modelPID int) metrics.Footprint
 	ProcessLogger(workspaceID string) logging.Logger
 	RootDir() string
 

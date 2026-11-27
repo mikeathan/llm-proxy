@@ -1,5 +1,7 @@
-import type { GpuInfo, HostSummary, LoadLevel, MeterState, SystemMetrics } from '../types/metrics'
-import { formatMemoryUsage } from '../utils/format/units'
+import type { FootprintRow, FootprintSummary, GpuInfo, HostSummary, LoadLevel, MeterState, ProcessFootprint, ServiceFootprint, SystemMetrics } from '../types/metrics'
+import { PRODUCT_NAME } from '../config/brand'
+import { formatMegabytes, formatMemoryUsage, formatPercent } from '../utils/format/units'
+import { formatElapsedSeconds } from '../utils/format/time'
 
 // Pure view-model of one /admin/api/metrics sample, shared by the header strip
 // and the Overview so the two can never disagree about a figure.
@@ -49,5 +51,44 @@ export function summariseHost(metrics: SystemMetrics): HostSummary {
     gpu: metrics.gpu ? summariseGpu(metrics.gpu) : null,
     gpuError: metrics.gpu_error ?? null,
     tokensPerSecond: metrics.llm_tokens_per_sec ?? 0,
+  }
+}
+
+const SERVICE_TITLE = `${PRODUCT_NAME} service`
+const MODEL_FALLBACK_TITLE = 'Model server'
+const CPU_PENDING = 'Measuring…'
+const GPU_NOT_REPORTED = 'Not reported'
+
+// The GPU memory a process holds: dedicated VRAM, plus the system memory the GPU maps when it reports that too (an APU).
+function gpuText(p: ProcessFootprint): string {
+  if (p.gpu_vram_mb === undefined) return GPU_NOT_REPORTED
+  const shared = p.gpu_gtt_mb === undefined ? '' : ` + ${formatMegabytes(p.gpu_gtt_mb)} shared`
+  return formatMegabytes(p.gpu_vram_mb) + shared
+}
+
+function footprintRow(p: ProcessFootprint, memTotalMb: number, modelName: string | undefined): FootprintRow {
+  const share = memTotalMb ? ` · ${formatPercent((p.rss_mb / memTotalMb) * PERCENT)} of RAM` : ''
+  return {
+    key: p.role,
+    title: p.role === 'service' ? SERVICE_TITLE : (modelName ?? MODEL_FALLBACK_TITLE),
+    cpu: p.cpu_percent === null ? CPU_PENDING : formatPercent(p.cpu_percent),
+    memory: formatMegabytes(p.rss_mb) + share,
+    gpu: gpuText(p),
+    threads: String(p.threads),
+    openFiles: p.open_files === undefined ? null : String(p.open_files),
+    uptime: formatElapsedSeconds(p.uptime_seconds),
+  }
+}
+
+/** The footprint reduced to display strings. `memTotalMb` (from the host sample) gives each process its share of RAM. */
+export function summariseFootprint(fp: ServiceFootprint, memTotalMb: number, modelName?: string): FootprintSummary {
+  return {
+    rows: fp.processes.map((p) => footprintRow(p, memTotalMb, modelName)),
+    go: {
+      heap: formatMegabytes(fp.go.heap_mb),
+      total: formatMegabytes(fp.go.total_mb),
+      goroutines: String(fp.go.goroutines),
+      gcCycles: String(fp.go.gc_cycles),
+    },
   }
 }

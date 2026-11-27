@@ -30,6 +30,7 @@ type AppContext struct {
 	rootDir     string
 	gpuConfig   models.GPUConfig
 	metrics     *metrics.MetricsService
+	footprint   *metrics.FootprintReader // the service and model server's own CPU/memory/GPU; lives as long as the context (CPU % is a delta)
 	terminal    shell.ShellProvider
 	// sandboxProv is the OS-confinement provider selected at bootstrap; it
 	// backs the Effective runtime projection on host-settings GETs. nil until
@@ -100,6 +101,7 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		"workspaces", s.resolver.WorkspacesRoot())
 
 	s.refreshMetricsService()
+	s.footprint = metrics.NewSystemFootprintReader()
 
 	s.registerSubscribers()
 
