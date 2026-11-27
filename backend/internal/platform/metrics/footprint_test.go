@@ -157,9 +157,17 @@ func TestParseNvidiaComputeApps(t *testing.T) {
 // The real sampler on the test process: proves the gopsutil calls work on whatever OS runs the tests (Linux, macOS).
 func TestGopsutilSamplerReadsThisProcess(t *testing.T) {
 	s := newGopsutilSampler()
-	got, err := s.Sample(int32(os.Getpid()))
-	if err != nil {
-		t.Fatal(err)
+	// A fresh test binary can have used less CPU than one clock tick (10 ms on Linux), so burn some until a tick shows.
+	var got ProcSample
+	deadline := time.Now().Add(3 * time.Second)
+	for got.CPUSeconds <= 0 && time.Now().Before(deadline) {
+		for i := 0; i < 5_000_000; i++ {
+			_ = i * i
+		}
+		var err error
+		if got, err = s.Sample(int32(os.Getpid())); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got.RSSBytes == 0 || got.Threads == 0 || got.CreatedAt.IsZero() || got.CPUSeconds <= 0 {
 		t.Fatalf("implausible reading of this process: %+v", got)
