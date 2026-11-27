@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterModels, modelStatus, orderModels, routingRole } from '../../domain/models'
+import { filterModels, groupModelsByKey, modelStatus, orderModels, providerSummary, railEntries, routingRole } from '../../domain/models'
 import type { Model } from '../../types/model'
 
 const model = (m: Partial<Model>): Model => ({ name: 'm', provider: 'local', endpoint: '', active: false, ready: false, ...m })
@@ -44,5 +44,51 @@ describe('routingRole', () => {
     expect(routingRole(IDLE, config)).toBe('Fallback')
     expect(routingRole(RUNNING, config)).toBeNull()
     expect(routingRole(RUNNING, undefined)).toBeNull()
+  })
+})
+
+const KEYED = (name: string, provider: string, key?: string) => model({ name, provider: provider as Model['provider'], provider_config: key ? { api_key_name: key } : undefined })
+
+describe('groupModelsByKey', () => {
+  it('makes one group per key, in the keys\' order, even one with no model yet', () => {
+    const groups = groupModelsByKey([KEYED('a', 'nvidia', 'work'), KEYED('b', 'nvidia', 'work'), KEYED('c', 'nvidia', 'home')], ['home', 'work', 'spare'])
+    expect(groups.map((g) => [g.key, g.models.map((m) => m.name)])).toEqual([['home', ['c']], ['work', ['a', 'b']], ['spare', []]])
+  })
+
+  it('puts a model whose key is gone or unnamed in a last group with no key', () => {
+    const groups = groupModelsByKey([KEYED('a', 'nvidia', 'old'), KEYED('b', 'nvidia')], ['work'])
+    expect(groups.map((g) => [g.key, g.models.map((m) => m.name)])).toEqual([['work', []], ['', ['a', 'b']]])
+  })
+
+  it('has no group at all for a provider with neither keys nor models', () => {
+    expect(groupModelsByKey([], [])).toEqual([])
+  })
+})
+
+describe('providerSummary', () => {
+  it('says not set up until there is a key, then counts keys and models', () => {
+    expect(providerSummary(0, 0)).toBe('Not set up')
+    expect(providerSummary(1, 1)).toBe('1 key · 1 model')
+    expect(providerSummary(2, 0)).toBe('2 keys · 0 models')
+  })
+})
+
+describe('railEntries', () => {
+  it('lists All models, This computer, then each cloud provider with what it holds', () => {
+    const entries = railEntries(
+      [{ id: 'openrouter', label: 'OpenRouter' }, { id: 'gemini', label: 'Google Gemini' }],
+      [IDLE, RUNNING, KEYED('x', 'openrouter', 'dev')],
+      (p) => (p === 'openrouter' ? 1 : 0),
+    )
+    expect(entries.map((e) => [e.id, e.label, e.summary, e.state])).toEqual([
+      ['all', 'All models', '3 models', 'neutral'],
+      ['local', 'This computer', '2 models', 'success'],
+      ['openrouter', 'OpenRouter', '1 key · 1 model', 'info'],
+      ['gemini', 'Google Gemini', 'Not set up', 'neutral'],
+    ])
+  })
+
+  it('shows This computer as idle when no local model runs', () => {
+    expect(railEntries([], [IDLE], () => 0)[1]?.state).toBe('neutral')
   })
 })

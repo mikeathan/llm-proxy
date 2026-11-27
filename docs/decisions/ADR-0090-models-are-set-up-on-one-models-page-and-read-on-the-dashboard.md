@@ -50,4 +50,5 @@ since stacks use models through the core's `model` port and can be switched off,
 - **Models as a stack in code** — models are what the core's `model` port serves to every stack; a stack can be switched off and models cannot.
 
 ## Links
+- Amended by ADR-0091 the same day: the Providers tab became a rail of providers beside a pane on the Models tab.
 - Plan and mocks: `docs/PLANS/ARCHIVE/cross-cutting/models-redesign.md`; SPEC-003 2.77; Constitution III.8 (amended).

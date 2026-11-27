@@ -23,6 +23,8 @@ const props = defineProps<{
   config?: Pick<GlobalConfig, "primary_model" | "fallback_model">;
   active?: ActiveModel;
   providerLabel: (provider: ProviderType) => string;
+  /** Hide the All / Local / Cloud switch: the caller already chose which models to pass (This computer shows only local ones). */
+  hideScope?: boolean;
 }>();
 const emit = defineEmits<{ (e: "edit", model: Model): void; (e: "start", name: string): void; (e: "stop"): void }>();
 
@@ -67,7 +69,7 @@ const COLUMNS: DataTableColumn<Model>[] = [
   <div class="flex flex-col gap-4">
     <div class="flex flex-wrap items-center gap-3">
       <SearchInput v-model="filter" label="Filter models" class="w-full sm:w-64" />
-      <SegmentedControl v-model="scope" :options="scopeOptions" label="Which models" variant="compact" />
+      <SegmentedControl v-if="!hideScope" v-model="scope" :options="scopeOptions" label="Which models" variant="compact" />
       <span class="flex-1"></span>
       <SegmentedControl v-model="view" :options="viewOptions" label="Show as" variant="compact" class="max-sm:hidden" />
     </div>

@@ -1,6 +1,6 @@
 // LLM Model related types
 import type { ProviderType } from './admin'
-import type { BannerAction, BannerSeverity } from './ui'
+import type { BannerAction, BannerSeverity, StatusState } from './ui'
 export interface ActiveModel {
   name: string
   provider: ProviderType
@@ -230,4 +230,21 @@ export interface TuningFieldPolicy {
   isLocal: boolean
   isCloud: boolean
   isUnresolved: boolean
+}
+
+/** One entry of the Models page's provider rail: everything at once, this computer, or one cloud provider. */
+export type RailId = 'all' | ProviderType
+export interface ProviderRailEntry {
+  id: RailId
+  label: string
+  /** What it holds, in a few words ("1 key · 2 models", "Not set up"). */
+  summary: string
+  /** success: a local model runs; info: a cloud provider with a key; neutral: nothing running or set up. */
+  state: StatusState
+}
+
+/** The models served by one API key; an empty key name is the group of models whose key is gone or was never named. */
+export interface KeyModels {
+  key: string
+  models: Model[]
 }

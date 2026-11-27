@@ -115,8 +115,8 @@ describe('Settings (global)', () => {
     ['/settings/local', '/models/engine'],
     ['/settings/processes', '/models/engine'],
     ['/settings/runs', '/models/routing'],
-    ['/settings/openai', '/models/providers'],
-    ['/settings/nvidia', '/models/providers'],
+    ['/settings/openai', '/models/providers/openai'],
+    ['/settings/nvidia', '/models/providers/nvidia'],
   ])('sends %s to %s', async (from, to) => {
     const router = createAppRouter(createMemoryHistory())
     await router.push(from)

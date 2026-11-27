@@ -1,5 +1,5 @@
-import type { GlobalConfig } from "../types/admin";
-import type { Model, ModelScope } from "../types/model";
+import type { GlobalConfig, ProviderType } from "../types/admin";
+import type { KeyModels, Model, ModelScope, ProviderRailEntry } from "../types/model";
 import type { StatusState } from "../types/ui";
 
 // The Models page's catalogue rules: which models a filter shows, in what order, and the state and role of each.
@@ -37,4 +37,32 @@ export function filterModels(models: readonly Model[], scope: ModelScope, text: 
     if (!q) return true;
     return [m.name, m.filename, m.model_id].some((v) => !!v && v.toLowerCase().includes(q));
   });
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** What a cloud provider holds, in a few words: not set up until it has a key. */
+export const providerSummary = (keys: number, models: number): string => (keys ? `${plural(keys, "key")} · ${plural(models, "model")}` : "Not set up");
+
+/**
+ * A provider's models grouped under the key that serves each (provider_config.api_key_name): one group per key in the keys' order, even
+ * one with no model yet, then one group with an empty key name for models whose key is gone or unnamed.
+ */
+export function groupModelsByKey(models: readonly Model[], keyNames: readonly string[]): KeyModels[] {
+  const groups: KeyModels[] = keyNames.map((key) => ({ key, models: models.filter((m) => m.provider_config?.api_key_name === key) }));
+  const orphans = models.filter((m) => !keyNames.includes(m.provider_config?.api_key_name ?? ""));
+  return orphans.length ? [...groups, { key: "", models: orphans }] : groups;
+}
+
+/** The provider rail: All models, This computer, then each cloud provider with what it holds. */
+export function railEntries(providers: readonly { id: ProviderType; label: string }[], models: readonly Model[], keyCount: (p: ProviderType) => number): ProviderRailEntry[] {
+  const local = models.filter(isLocalModel);
+  return [
+    { id: "all", label: "All models", summary: plural(models.length, "model"), state: "neutral" },
+    { id: LOCAL, label: "This computer", summary: plural(local.length, "model"), state: local.some((m) => m.active) ? "success" : "neutral" },
+    ...providers.map((p) => {
+      const mine = models.filter((m) => m.provider === p.id).length;
+      return { id: p.id, label: p.label, summary: providerSummary(keyCount(p.id), mine), state: keyCount(p.id) ? ("info" as const) : ("neutral" as const) };
+    }),
+  ];
 }

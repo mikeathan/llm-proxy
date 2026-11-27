@@ -18,15 +18,14 @@ const KEYS: APIKeyItem[] = [
 function mountKeys(apiKeys: APIKeyItem[] = KEYS, props: Record<string, unknown> = {}) {
   const onKeys = vi.fn()
   const onTest = vi.fn()
-  const onClearAll = vi.fn()
   const w = mount(ApiKeySettings, {
     props: { apiKeys, testLoading: false, modelCounts: { Work: 2 }, ...props },
-    attrs: { 'onUpdate:apiKeys': onKeys, onTestKey: onTest, onClearAll },
+    attrs: { 'onUpdate:apiKeys': onKeys, onTestKey: onTest },
     global: { stubs: { Icon: true } },
   })
   const button = (name: RegExp) =>
     w.findAll('button').find((b) => name.test(b.text()) || name.test(b.attributes('aria-label') ?? ''))!
-  return { w, onKeys, onTest, onClearAll, button }
+  return { w, onKeys, onTest, button }
 }
 
 describe('ApiKeySettings', () => {
@@ -46,15 +45,41 @@ describe('ApiKeySettings', () => {
     expect(mountKeys([]).w.text()).toMatch(/no api keys/i)
   })
 
-  it('adds a key, named after its position when no name is given', async () => {
+  it('keeps the add-key form closed until Add key is pressed, and closes it again on Cancel', async () => {
+    const { w, button } = mountKeys()
+    expect(() => fieldByLabel(w, /^key value/i)).toThrow()
+    await button(/^add key$/i).trigger('click')
+    expect(() => fieldByLabel(w, /^key value/i)).not.toThrow()
+    expect(button(/^add key$/i).attributes('disabled')).toBeDefined() // now the form's own, waiting for a value
+    await button(/^cancel$/i).trigger('click')
+    expect(() => fieldByLabel(w, /^key value/i)).toThrow()
+    expect(button(/^add key$/i).attributes('disabled')).toBeUndefined()
+  })
+
+  it('adds a key, named after its position when no name is given, and closes the form', async () => {
     const { w, onKeys, button } = mountKeys()
+    await button(/^add key$/i).trigger('click')
     expect(button(/^add key$/i).attributes('disabled')).toBeDefined()
-    await fieldByLabel(w, /^new key value/i).setValue('sk-new-3333')
+    await fieldByLabel(w, /^key value/i).setValue('sk-new-3333')
     expect(button(/^add key$/i).attributes('disabled')).toBeUndefined()
     await button(/^add key$/i).trigger('click')
     const added = onKeys.mock.lastCall![0] as APIKeyItem[]
     expect(added).toHaveLength(3)
     expect(added[2]).toMatchObject({ name: 'Key 3', key: 'sk-new-3333' })
+    expect(() => fieldByLabel(w, /^key value/i)).toThrow()
+  })
+
+  it('suggests the provider\'s own endpoint as the base URL, and none when it has none', async () => {
+    const own = mountKeys(KEYS, { showBaseUrl: true, baseUrlPlaceholder: 'https://openrouter.ai/api/v1' })
+    await own.button(/^add key$/i).trigger('click')
+    expect(fieldByLabel(own.w, /base url/i).attributes('placeholder')).toBe('https://openrouter.ai/api/v1')
+    await own.button(/^cancel$/i).trigger('click')
+    await own.button(/^work/i).trigger('click')
+    expect(fieldByLabel(own.w, /^base url/i).attributes('placeholder')).toBe('https://openrouter.ai/api/v1')
+
+    const none = mountKeys(KEYS, { showBaseUrl: true })
+    await none.button(/^add key$/i).trigger('click')
+    expect(fieldByLabel(none.w, /base url/i).attributes('placeholder')).toBeUndefined()
   })
 
   it('edits the selected key and tests it with the typed values', async () => {
@@ -82,15 +107,8 @@ describe('ApiKeySettings', () => {
     expect(onKeys.mock.lastCall![0]).toEqual([KEYS[0]])
   })
 
-  it('removes every key only after confirmation', async () => {
-    const { onClearAll, button } = mountKeys()
-    confirm.mockResolvedValueOnce(false)
-    await button(/remove all keys/i).trigger('click')
-    await flushPromises()
-    expect(onClearAll).not.toHaveBeenCalled()
-    await button(/remove all keys/i).trigger('click')
-    await flushPromises()
-    expect(onClearAll).toHaveBeenCalledTimes(1)
+  it('leaves removing every key to the provider\'s menu', () => {
+    expect(mountKeys().w.text()).not.toMatch(/remove all/i)
   })
 
   it('announces the connection test result', async () => {

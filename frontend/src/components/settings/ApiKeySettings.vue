@@ -6,16 +6,17 @@ import BaseButton from "../common/buttons/BaseButton.vue";
 import FormField from "../common/forms/FormField.vue";
 import MicroLabel from "../common/display/MicroLabel.vue";
 
-// A cloud provider's API keys: pick one to edit, test or remove it, or add a
-// new one. The page saves the whole list as soon as it changes (the server
-// answers with masked values), so there is no separate Save here. Removals are
-// confirmed; a removed key takes the models that use it along.
+// A cloud provider's API keys: pick one to edit, test or remove it, or press Add key for a form to add one (closed until then). The page
+// saves the whole list as soon as it changes (the server answers with masked values), so there is no separate Save here. Removing one key is
+// confirmed here, and takes the models that use it along; removing every key is the provider menu's.
 const props = defineProps<{
   apiKeys: APIKeyItem[];
   testLoading: boolean;
   testSuccess?: string;
   testError?: string;
   showBaseUrl?: boolean;
+  /** The provider's own endpoint, shown in an empty Base URL field; none when the provider has no default. */
+  baseUrlPlaceholder?: string;
   modelCounts?: Record<string, number>;
 }>();
 
@@ -23,7 +24,6 @@ const emit = defineEmits<{
   (e: "update:apiKeys", keys: APIKeyItem[]): void;
   (e: "testKey", payload: ProviderKeyTest): void;
   (e: "clearTest"): void;
-  (e: "clearAll"): void;
 }>();
 
 const MASK = "••••••••";
@@ -54,6 +54,7 @@ watch(
 );
 
 function openEditor(item: APIKeyItem) {
+  adding.value = false;
   selectedId.value = item.id;
   editName.value = item.name;
   editValue.value = item.key;
@@ -105,23 +106,26 @@ async function removeSelected() {
   emit("update:apiKeys", props.apiKeys.filter((k) => k.id !== item.id));
 }
 
-async function removeAll() {
-  const ok = await confirm({
-    title: `Remove all ${props.apiKeys.length} keys?`,
-    message: "Every key of this provider is deleted, with the models that use them.",
-    type: "error",
-    confirmText: "Remove all",
-  });
-  if (ok) emit("clearAll");
-}
-
 // ── Add a key ────────────────────────────────────────────────────────────
+const adding = ref(false);
 const newKeyName = ref("");
 const newKeyValue = ref("");
 const newKeyBaseUrl = ref("");
 
 const newId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11);
+
+function openAdd() {
+  closeEditor();
+  adding.value = true;
+}
+
+function closeAdd() {
+  adding.value = false;
+  newKeyName.value = "";
+  newKeyValue.value = "";
+  newKeyBaseUrl.value = "";
+}
 
 function addKey() {
   const key = newKeyValue.value.trim();
@@ -133,21 +137,15 @@ function addKey() {
     base_url: newKeyBaseUrl.value.trim() || undefined,
   };
   emit("update:apiKeys", [...props.apiKeys, item]);
+  closeAdd();
   openEditor(item);
-  newKeyName.value = "";
-  newKeyValue.value = "";
-  newKeyBaseUrl.value = "";
 }
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
-    <p class="m-0 max-w-[72ch] text-[length:var(--text-small)] text-muted">
-      Keys are stored encrypted and saved as soon as you add, change or remove one. Select a key to test or edit it.
-    </p>
-
     <p v-if="!apiKeys.length" class="m-0 border border-dashed border-control px-3 py-4 text-center text-[length:var(--text-small)] text-muted">
-      No API keys yet — add one below.
+      No API keys yet — add one to use this provider's models.
     </p>
     <ul v-else class="m-0 flex list-none flex-col divide-y divide-hairline border border-hairline p-0">
       <li v-for="item in apiKeys" :key="item.id">
@@ -197,7 +195,7 @@ function addKey() {
         </FormField>
         <FormField v-if="showBaseUrl" label="Base URL" hint="The API endpoint this key belongs to.">
           <template #default="{ id, describedBy }">
-            <input :id="id" v-model="editBaseUrl" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="https://api.openai.com/v1" autocomplete="off" />
+            <input :id="id" v-model="editBaseUrl" :aria-describedby="describedBy" type="text" class="form-control font-mono" :placeholder="baseUrlPlaceholder" autocomplete="off" />
           </template>
         </FormField>
       </div>
@@ -215,31 +213,33 @@ function addKey() {
       </div>
     </section>
 
+    <div class="flex">
+      <BaseButton v-if="!adding" variant="secondary" size="sm" icon="plus" @click="openAdd">Add key</BaseButton>
+    </div>
+
     <!-- A plain container, not a <form>: browsers offer to save a password when a form with a password field is submitted. -->
-    <div class="flex flex-col gap-3 border border-dashed border-control p-4">
-      <div class="flex items-center justify-between gap-2">
-        <MicroLabel>Add a key</MicroLabel>
-        <BaseButton v-if="apiKeys.length" variant="ghost" size="sm" icon="trash" @click="removeAll">Remove all keys</BaseButton>
-      </div>
+    <div v-if="adding" class="flex flex-col gap-3 border border-dashed border-control p-4">
+      <MicroLabel>New key</MicroLabel>
       <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
-        <FormField label="New key name" hint="Optional, e.g. Personal.">
+        <FormField label="Key value" hint="Stored encrypted; only its last four characters are shown afterwards.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model="newKeyValue" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
+          </template>
+        </FormField>
+        <FormField label="Key name" hint="Optional, e.g. Personal.">
           <template #default="{ id, describedBy }">
             <input :id="id" v-model="newKeyName" :aria-describedby="describedBy" type="text" class="form-control" autocomplete="off" />
           </template>
         </FormField>
-        <FormField label="New key value">
-          <template #default="{ id }">
-            <input :id="id" v-model="newKeyValue" type="password" class="form-control font-mono" autocomplete="new-password" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
-          </template>
-        </FormField>
-        <FormField v-if="showBaseUrl" label="New key base URL" hint="Optional.">
+        <FormField v-if="showBaseUrl" label="Base URL" hint="Optional.">
           <template #default="{ id, describedBy }">
-            <input :id="id" v-model="newKeyBaseUrl" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="https://api.openai.com/v1" autocomplete="off" />
+            <input :id="id" v-model="newKeyBaseUrl" :aria-describedby="describedBy" type="text" class="form-control font-mono" :placeholder="baseUrlPlaceholder" autocomplete="off" />
           </template>
         </FormField>
       </div>
-      <div class="flex justify-end">
-        <BaseButton variant="secondary" icon="plus" :disabled="!newKeyValue.trim()" @click="addKey">Add key</BaseButton>
+      <div class="flex justify-end gap-2">
+        <BaseButton variant="ghost" size="sm" @click="closeAdd">Cancel</BaseButton>
+        <BaseButton variant="primary" size="sm" icon="plus" :disabled="!newKeyValue.trim()" @click="addKey">Add key</BaseButton>
       </div>
     </div>
   </div>
