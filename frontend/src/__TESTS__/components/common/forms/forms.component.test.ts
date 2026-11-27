@@ -71,6 +71,15 @@ describe('SelectInput', () => {
   })
 })
 
+describe('SelectInput groups', () => {
+  it('lists grouped options under their heading, after the ungrouped ones', () => {
+    const options = [{ value: 'a', label: 'a', group: 'Local' }, { value: '', label: 'Default' }, { value: 'b', label: 'b', group: 'NVIDIA NIM' }, { value: 'c', label: 'c', group: 'Local' }]
+    const w = mount(SelectInput, { props: { modelValue: '', options, label: 'Model' } })
+    expect(w.findAll('optgroup').map((g) => [g.attributes('label'), g.findAll('option').map((o) => o.text())])).toEqual([['Local', ['a', 'c']], ['NVIDIA NIM', ['b']]])
+    expect(w.findAll('select > option').map((o) => o.text())).toEqual(['Default'])
+  })
+})
+
 describe('LogViewer', () => {
   it('is a focusable, labelled region showing the text, or a placeholder when empty', () => {
     const w = mount(LogViewer, { props: { text: 'line one\nline two', label: 'Process log' } })

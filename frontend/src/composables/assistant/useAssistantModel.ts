@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import { useModels } from '../models/useModels'
+import { useProviders } from '../models/useProviders'
 import { usePersistedState } from '../ui/usePersistedState'
 import { chatModelOptions, chosenModel, DEFAULT_MODEL_VALUE } from '../../utils/assistant/modelChoice'
 
@@ -17,9 +18,12 @@ export function useAssistantModel() {
     fallback: DEFAULT_MODEL_VALUE,
   })
   const { models, state } = useModels()
+  // Provider names come from the manifests; the call is a no-op once they are loaded.
+  const { getLabel, fetchManifests } = useProviders()
+  void fetchManifests()
 
   const names = computed(() => models.value.map((m) => m.name))
-  const options = computed(() => chatModelOptions(names.value, state.value?.config?.primary_model ?? ''))
+  const options = computed(() => chatModelOptions(models.value, state.value?.config?.primary_model ?? '', getLabel))
   // A removed model must not be sent: the server would refuse the message.
   const model = computed({
     get: () => chosenModel(stored!.value, names.value),
